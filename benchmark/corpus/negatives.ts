@@ -29,7 +29,7 @@ function makePrng(seed: number): () => number {
  *
  * The BCH(15,5) format-info code has minimum distance 7, so the 32 valid
  * codewords each occupy a Hamming ball of radius 3.  We search the space for
- * the first candidate (starting from 0x1234) that lies outside all balls.
+ * the first candidate (starting from 0x0000) that lies outside all balls.
  */
 function findCorruptFormatInfo(): number {
   const valid = new Set<number>();

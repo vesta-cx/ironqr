@@ -6,6 +6,6 @@ const report = buildReport(result);
 printSummary(report);
 await writeReport(report);
 
-if (result.decodeRate < 1) {
+if (result.decodeRate < 1 || result.falsePositiveRate > 0) {
   process.exit(1);
 }
