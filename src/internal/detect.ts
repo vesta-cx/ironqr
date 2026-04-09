@@ -23,7 +23,7 @@ function isFinderRatio(runs: readonly [number, number, number, number, number]):
   return (
     Math.abs(runs[0] - module) < maxVariance &&
     Math.abs(runs[1] - module) < maxVariance &&
-    Math.abs(runs[2] - 3 * module) < maxVariance &&
+    Math.abs(runs[2] - 3 * module) < 3 * maxVariance &&
     Math.abs(runs[3] - module) < maxVariance &&
     Math.abs(runs[4] - module) < maxVariance
   );
@@ -176,7 +176,7 @@ export function detectFinderPatterns(
       if (runPhase === 4) {
         if (isFinderRatio(runs)) {
           const moduleSize = (runs[0] + runs[1] + runs[2] + runs[3] + runs[4]) / 7;
-          const cx = col - runs[4] - runs[3] - runs[2] / 2;
+          const cx = col - runs[4] - runs[3] - runs[2] / 2 - 0.5;
           const vCheck = crossCheckVertical(binary, width, height, cx, row, moduleSize);
 
           if (vCheck !== null) {
