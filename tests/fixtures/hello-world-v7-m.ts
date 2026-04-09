@@ -99,13 +99,11 @@ function splitInterleavedBlocks(
   }
 
   let offset = 0;
-  const maxDataCodewords = Math.max(...blocks.map((block) => block.data.length), 0);
-  for (let index = 0; index < maxDataCodewords; index += 1) {
-    for (const block of blocks) {
-      if (index < block.data.length) {
-        block.data[index] = dataCodewords[offset] ?? 0;
-        offset += 1;
-      }
+  // QR splits data into contiguous blocks (not cyclically).
+  for (const block of blocks) {
+    for (let index = 0; index < block.data.length; index += 1) {
+      block.data[index] = dataCodewords[offset] ?? 0;
+      offset += 1;
     }
   }
 

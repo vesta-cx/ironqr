@@ -555,18 +555,12 @@ function correctAndReinterleaveDataCodewords(blocks: RawBlock[]): number[] {
     }
   });
 
-  const maxDataCodewords = Math.max(
-    ...correctedBlocks.map((block) => block.dataCodewords.length),
-    0,
-  );
   const result: number[] = [];
 
-  for (let index = 0; index < maxDataCodewords; index += 1) {
-    for (const block of correctedBlocks) {
-      if (index < block.dataCodewords.length) {
-        result.push(block.dataCodewords[index] ?? 0);
-      }
-    }
+  // Assemble corrected blocks in sequential (logical) order: all of block 0, then block 1, etc.
+  // Do NOT re-interleave — the segment parser expects the raw logical codeword sequence.
+  for (const block of correctedBlocks) {
+    result.push(...block.dataCodewords);
   }
 
   return result;
