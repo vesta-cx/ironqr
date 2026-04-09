@@ -1,0 +1,10 @@
+node_modules
+coverage
+dist
+test-results
+.references
+.worktrees
+.playwright
+.rts2_cache_*
+.rts2_cache
+*.tsbuildinfo
