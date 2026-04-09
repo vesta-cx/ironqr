@@ -1,3 +1,4 @@
+import * as S from 'effect/Schema';
 import { describe, expect, it } from 'vitest';
 import {
   BoundsSchema,
@@ -20,5 +21,29 @@ describe('package scaffold exports', () => {
 
   it('throws a dedicated not-implemented error for scan entry points', async () => {
     await expect(scanImage(new Blob())).rejects.toBeInstanceOf(ScannerNotImplementedError);
+  });
+
+  it('rejects scanner error payloads with unknown public error codes', () => {
+    const decodeScannerError = S.decodeUnknownSync(ScannerErrorSchema);
+
+    expect(
+      decodeScannerError({
+        name: 'ScannerError',
+        code: 'decode_failed',
+        message: 'boom',
+      }),
+    ).toEqual({
+      name: 'ScannerError',
+      code: 'decode_failed',
+      message: 'boom',
+    });
+
+    expect(() =>
+      decodeScannerError({
+        name: 'ScannerError',
+        code: 'mystery_failure',
+        message: 'boom',
+      }),
+    ).toThrow();
   });
 });

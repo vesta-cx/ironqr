@@ -17,9 +17,17 @@ export type PayloadKind = S.Schema.Type<typeof PayloadKindSchema>;
 export const ErrorCorrectionLevelSchema = S.Literals(['L', 'M', 'Q', 'H']);
 export type ErrorCorrectionLevel = S.Schema.Type<typeof ErrorCorrectionLevelSchema>;
 
+export const ScannerErrorCodeSchema = S.Literals([
+  'not_implemented',
+  'invalid_input',
+  'decode_failed',
+  'internal_error',
+]);
+export type ScannerErrorCode = S.Schema.Type<typeof ScannerErrorCodeSchema>;
+
 export const ScannerErrorSchema = S.Struct({
   name: S.Literal('ScannerError'),
-  code: S.String,
+  code: ScannerErrorCodeSchema,
   message: S.String,
 });
 export type ScannerErrorShape = S.Schema.Type<typeof ScannerErrorSchema>;
