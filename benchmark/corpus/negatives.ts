@@ -2,6 +2,8 @@ import {
   buildDataModulePositions,
   buildFormatInfoCodeword,
   buildFunctionModuleMask,
+  FORMAT_INFO_FIRST_COPY_POSITIONS,
+  getFormatInfoSecondCopyPositions,
   type QrErrorCorrectionLevel,
 } from '../../src/internal/qr-spec.js';
 import { buildQrGrid } from './generate.js';
@@ -65,44 +67,6 @@ function findCorruptFormatInfo(): number {
 
 const CORRUPT_FORMAT_INFO = findCorruptFormatInfo();
 
-const FORMAT_INFO_FIRST_COPY: readonly (readonly [number, number])[] = [
-  [8, 0],
-  [8, 1],
-  [8, 2],
-  [8, 3],
-  [8, 4],
-  [8, 5],
-  [8, 7],
-  [8, 8],
-  [7, 8],
-  [5, 8],
-  [4, 8],
-  [3, 8],
-  [2, 8],
-  [1, 8],
-  [0, 8],
-];
-
-function formatInfoSecondCopy(size: number): readonly (readonly [number, number])[] {
-  return [
-    [8, size - 1],
-    [8, size - 2],
-    [8, size - 3],
-    [8, size - 4],
-    [8, size - 5],
-    [8, size - 6],
-    [8, size - 7],
-    [8, size - 8],
-    [size - 7, 8],
-    [size - 6, 8],
-    [size - 5, 8],
-    [size - 4, 8],
-    [size - 3, 8],
-    [size - 2, 8],
-    [size - 1, 8],
-  ];
-}
-
 function setModule(matrix: boolean[][], row: number, col: number, value: boolean): void {
   const currentRow = matrix[row];
   if (currentRow !== undefined && currentRow[col] !== undefined) {
@@ -146,13 +110,12 @@ function nearMissFormatGrid(version: number, ecl: Ecl): boolean[][] {
   const size = grid.length;
   const corrupt = CORRUPT_FORMAT_INFO;
 
-  for (let index = 0; index < FORMAT_INFO_FIRST_COPY.length; index += 1) {
-    const pos = FORMAT_INFO_FIRST_COPY[index];
+  for (let index = 0; index < FORMAT_INFO_FIRST_COPY_POSITIONS.length; index += 1) {
+    const pos = FORMAT_INFO_FIRST_COPY_POSITIONS[index];
     if (pos) setModule(grid, pos[0], pos[1], ((corrupt >> (14 - index)) & 1) === 1);
   }
-  const secondCopy = formatInfoSecondCopy(size);
-  for (let index = 0; index < secondCopy.length; index += 1) {
-    const pos = secondCopy[index];
+  for (let index = 0; index < getFormatInfoSecondCopyPositions(size).length; index += 1) {
+    const pos = getFormatInfoSecondCopyPositions(size)[index];
     if (pos) setModule(grid, pos[0], pos[1], ((corrupt >> (14 - index)) & 1) === 1);
   }
 
