@@ -10,6 +10,7 @@ import type {
 } from './contracts/index.js';
 import { decodeGridLogical } from './internal/decode-grid.js';
 import { notImplemented } from './internal/not-implemented.js';
+import { scanFrameInternal } from './internal/scan-frame.js';
 
 export * from './contracts/index.js';
 export { ScannerError } from './internal/errors.js';
@@ -34,10 +35,10 @@ export async function decodeGrid(input: DecodeGridInput): Promise<DecodeGridResu
  * @throws {ScannerNotImplementedError} Thrown until frame scanning is implemented.
  */
 export async function scanFrame(
-  _input: ScanFrameInput,
+  input: ScanFrameInput,
   _options?: ScanOptions,
 ): Promise<readonly ScanResult[]> {
-  return notImplemented('scanFrame');
+  return scanFrameInternal(input);
 }
 
 /**
