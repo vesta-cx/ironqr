@@ -223,7 +223,7 @@ describe('decodeGrid', () => {
     // @ts-expect-error Vitest runs on Node-compatible APIs here even though the repo does not ship Node typings.
     const { execFileSync } = await import('node:child_process');
     const command = `import { correctRsBlock } from './src/internal/reed-solomon.ts'; const block = ${JSON.stringify(VALID_V7_M_RS_BLOCK)}; console.log(JSON.stringify(Array.from(correctRsBlock(block, 18))));`;
-    const output = execFileSync(process.execPath, ['-e', command], {
+    const output = execFileSync('bun', ['-e', command], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     });
