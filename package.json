@@ -46,7 +46,9 @@
     "package:quality": "bun run build && publint && attw --pack .",
     "changeset:version": "changeset version",
     "changeset:publish": "changeset publish",
-    "benchmark": "bun run benchmark/cli.ts"
+    "benchmark": "bun run benchmark/cli.ts",
+    "corpus:import": "bun run corpus/cli.ts import-local",
+    "corpus:export": "bun run corpus/cli.ts export-benchmark"
   },
   "dependencies": {
     "effect": "^4.0.0-beta.43"
@@ -56,6 +58,7 @@
     "@biomejs/biome": "^2.4.10",
     "@changesets/cli": "^2.30.0",
     "@playwright/test": "^1.59.1",
+    "@types/node": "^24.6.1",
     "bun-types": "1.3.11",
     "publint": "^0.3.18",
     "tsup": "^8.5.1",

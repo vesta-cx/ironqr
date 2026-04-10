@@ -220,7 +220,6 @@ describe('decodeGrid', () => {
   // ── RS / GF table boundary tests ─────────────────────────────────────────
 
   it('initializes GF tables before correcting a valid RS block in a fresh process', async () => {
-    // @ts-expect-error Vitest runs on Node-compatible APIs here even though the repo does not ship Node typings.
     const { execFileSync } = await import('node:child_process');
     const command = `import { correctRsBlock } from './src/internal/reed-solomon.ts'; const block = ${JSON.stringify(VALID_V7_M_RS_BLOCK)}; console.log(JSON.stringify(Array.from(correctRsBlock(block, 18))));`;
     const output = execFileSync('bun', ['-e', command], {

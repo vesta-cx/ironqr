@@ -10,3 +10,4 @@ test-results
 .rts2_cache
 *.tsbuildinfo
 benchmark-results.json
+corpus/data/

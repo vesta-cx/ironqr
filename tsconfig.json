@@ -18,8 +18,8 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-    "types": ["bun-types"]
+    "types": ["bun-types", "node"]
   },
-  "include": ["src", "test", "tests", "benchmark", "*.ts", "*.mts"],
+  "include": ["src", "test", "tests", "benchmark", "corpus", "*.ts", "*.mts"],
   "exclude": ["dist", "node_modules"]
 }
