@@ -261,6 +261,45 @@ describe('real-world corpus toolkit', () => {
     expect(provenancePaths).toEqual([path.resolve(firstPath), path.resolve(secondPath)]);
   });
 
+  it('merges updated provenance metadata when the same source is imported again', async () => {
+    const repoRoot = await createRepoRoot();
+    const sourcePath = path.join(repoRoot, 'fixtures', 'source.png');
+
+    await writeFixture(sourcePath, await createPngBytes(200, 200, 200));
+
+    await importLocalAssets({
+      repoRoot,
+      paths: [sourcePath],
+      label: 'qr-positive',
+    });
+    await importLocalAssets({
+      repoRoot,
+      paths: [sourcePath],
+      label: 'qr-positive',
+      attribution: 'self-generated',
+      license: 'test-only',
+      provenanceNotes: 'verified later',
+    });
+
+    const manifest = await readCorpusManifest(repoRoot);
+    expect(manifest.assets).toHaveLength(1);
+    const provenance = manifest.assets[0]?.provenance[0];
+    if (!provenance || provenance.kind !== 'local') {
+      throw new Error('expected local provenance');
+    }
+
+    expect(manifest.assets[0]?.provenance).toEqual([
+      {
+        kind: 'local',
+        originalPath: path.resolve(sourcePath),
+        importedAt: provenance.importedAt,
+        attribution: 'self-generated',
+        license: 'test-only',
+        notes: 'verified later',
+      },
+    ]);
+  });
+
   it('exports only approved assets in benchmark-ready positive and negative groups', async () => {
     const repoRoot = await createRepoRoot();
     const approvedPositivePath = path.join(repoRoot, 'fixtures', 'approved-positive.png');

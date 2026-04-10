@@ -134,6 +134,109 @@ describe('interactive staged review', () => {
     });
   });
 
+  it('reprompts when qr count is left blank before accepting the review', async () => {
+    const repoRoot = await createRepoRoot();
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
+        label: 'qr-positive',
+        limit: 1,
+      },
+      buildMockFetch(),
+    );
+
+    const prompts: string[] = [];
+    const answers = ['a', '', '', '1', 'y'];
+
+    const summary = await reviewStagedAssets({
+      stageDir: staged.stageDir,
+      reviewer: 'mia',
+      prompt: async (message) => {
+        prompts.push(message);
+        const answer = answers.shift();
+        if (answer === undefined) {
+          throw new Error(`missing answer for prompt: ${message}`);
+        }
+        return answer;
+      },
+      scanAsset: async () => ({
+        attempted: true,
+        succeeded: true,
+        results: [{ text: 'https://example.com' }],
+      }),
+      openLocalImage: async () => {},
+      openSourcePage: async () => {},
+      log: () => {},
+    });
+
+    expect(summary.approved).toBe(1);
+    expect(prompts.filter((message) => message.includes('How many QR codes'))).toHaveLength(2);
+
+    const reviewed = await readStagedRemoteAsset(
+      staged.stageDir,
+      staged.assets[0]?.id ?? 'missing',
+    );
+    expect(reviewed.groundTruth).toEqual({
+      qrCount: 1,
+      codes: [{ text: 'https://example.com' }],
+    });
+  });
+
+  it('skips already-reviewed staged assets on rerun without overwriting them', async () => {
+    const repoRoot = await createRepoRoot();
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
+        label: 'qr-positive',
+        limit: 1,
+      },
+      buildMockFetch(),
+    );
+
+    await reviewStagedAssets({
+      stageDir: staged.stageDir,
+      reviewer: 'mia',
+      prompt: async (message) => {
+        if (message.includes('How many QR codes')) {
+          return '1';
+        }
+        if (message.includes('Accept auto-scan results')) {
+          return 'y';
+        }
+        return message.includes('license') ? '' : 'a';
+      },
+      scanAsset: async () => ({
+        attempted: true,
+        succeeded: true,
+        results: [{ text: 'https://example.com', kind: 'url' }],
+      }),
+      openLocalImage: async () => {},
+      openSourcePage: async () => {},
+      log: () => {},
+    });
+
+    const before = await readStagedRemoteAsset(staged.stageDir, staged.assets[0]?.id ?? 'missing');
+    const summary = await reviewStagedAssets({
+      stageDir: staged.stageDir,
+      reviewer: 'mia',
+      prompt: async () => {
+        throw new Error('rerun should not prompt reviewed assets');
+      },
+      scanAsset: async () => {
+        throw new Error('rerun should not scan reviewed assets');
+      },
+      openLocalImage: async () => {},
+      openSourcePage: async () => {},
+      log: () => {},
+    });
+    const after = await readStagedRemoteAsset(staged.stageDir, staged.assets[0]?.id ?? 'missing');
+
+    expect(summary).toEqual({ approved: 0, rejected: 0, skipped: 0, quitEarly: false });
+    expect(after).toEqual(before);
+  });
+
   it('rejects a staged asset with reviewer notes', async () => {
     const repoRoot = await createRepoRoot();
     const staged = await scrapeRemoteAssets(

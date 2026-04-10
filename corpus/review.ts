@@ -46,6 +46,26 @@ function toAutoScan(result: ScanAssetResult, acceptedAsTruth?: boolean): AutoSca
   };
 }
 
+async function promptQrCount(
+  prompt: (message: string) => Promise<string>,
+  log: (line: string) => void,
+): Promise<number> {
+  while (true) {
+    const value = (await prompt('How many QR codes are present in this image?')).trim();
+    if (value === '') {
+      log('QR count is required.');
+      continue;
+    }
+
+    const qrCount = Number(value);
+    if (Number.isInteger(qrCount) && qrCount >= 0) {
+      return qrCount;
+    }
+
+    log(`Invalid QR count: ${value}`);
+  }
+}
+
 async function promptManualGroundTruth(
   prompt: (message: string) => Promise<string>,
   qrCount: number,
@@ -77,7 +97,7 @@ export async function reviewStagedAssets(
   let skipped = 0;
 
   for (const asset of assets) {
-    if (asset.importedAssetId || asset.review.status === 'rejected') {
+    if (asset.importedAssetId || asset.review.status !== 'pending') {
       continue;
     }
 
@@ -141,11 +161,7 @@ export async function reviewStagedAssets(
         const confirmedLicense = await options.prompt(
           `Confirm license [default: ${asset.bestEffortLicense ?? 'unknown'}]:`,
         );
-        const qrCountValue = await options.prompt('How many QR codes are present in this image?');
-        const qrCount = Number(qrCountValue);
-        if (!Number.isInteger(qrCount) || qrCount < 0) {
-          throw new Error(`Invalid QR count: ${qrCountValue}`);
-        }
+        const qrCount = await promptQrCount(options.prompt, options.log);
 
         const scanResult = await options.scanAsset(asset);
         let groundTruth: GroundTruth;

@@ -74,15 +74,63 @@ function sameProvenance(left: ProvenanceRecord, right: ProvenanceRecord): boolea
   return false;
 }
 
+function mergeProvenanceRecord(
+  existing: ProvenanceRecord,
+  incoming: ProvenanceRecord,
+): ProvenanceRecord {
+  if (existing.kind === 'local' && incoming.kind === 'local') {
+    const attribution = existing.attribution ?? incoming.attribution;
+    const license = existing.license ?? incoming.license;
+    const notes = existing.notes ?? incoming.notes;
+
+    return {
+      kind: 'local',
+      originalPath: existing.originalPath,
+      importedAt: existing.importedAt,
+      ...(attribution ? { attribution } : {}),
+      ...(license ? { license } : {}),
+      ...(notes ? { notes } : {}),
+    };
+  }
+
+  if (existing.kind === 'remote' && incoming.kind === 'remote') {
+    const pageTitle = existing.pageTitle ?? incoming.pageTitle;
+    const attribution = existing.attribution ?? incoming.attribution;
+    const license = existing.license ?? incoming.license;
+    const notes = existing.notes ?? incoming.notes;
+
+    return {
+      kind: 'remote',
+      sourcePageUrl: existing.sourcePageUrl,
+      imageUrl: existing.imageUrl,
+      fetchedAt: existing.fetchedAt,
+      ...(pageTitle ? { pageTitle } : {}),
+      ...(attribution ? { attribution } : {}),
+      ...(license ? { license } : {}),
+      ...(notes ? { notes } : {}),
+    };
+  }
+
+  throw new Error('Cannot merge provenance records of different kinds');
+}
+
 function mergeProvenance(
   existing: readonly ProvenanceRecord[],
   next: ProvenanceRecord,
 ): readonly ProvenanceRecord[] {
-  if (existing.some((source) => sameProvenance(source, next))) {
-    return existing;
+  const index = existing.findIndex((source) => sameProvenance(source, next));
+  if (index < 0) {
+    return [...existing, next];
   }
 
-  return [...existing, next];
+  const merged = [...existing];
+  const existingRecord = merged[index];
+  if (!existingRecord) {
+    throw new Error(`Missing provenance at index ${index}`);
+  }
+
+  merged[index] = mergeProvenanceRecord(existingRecord, next);
+  return merged;
 }
 
 /**
