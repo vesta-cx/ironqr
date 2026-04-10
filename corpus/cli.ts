@@ -1,10 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import {
-  buildRealWorldBenchmarkCorpus,
-  writeRealWorldBenchmarkCorpus,
-} from './export/benchmark.js';
+import { writeRealWorldBenchmarkCorpus } from './export/benchmark.js';
 import { importLocalAssets } from './import/local.js';
 import { importStagedRemoteAssets, scrapeRemoteAssets } from './import/remote.js';
 import { reviewStagedAssets } from './review.js';
@@ -229,8 +226,7 @@ async function main(): Promise<void> {
   }
 
   if (command === 'export-benchmark') {
-    const outputPath = await writeRealWorldBenchmarkCorpus(repoRoot);
-    const corpus = await buildRealWorldBenchmarkCorpus(repoRoot);
+    const { outputPath, corpus } = await writeRealWorldBenchmarkCorpus(repoRoot);
     console.log(
       `Wrote ${outputPath} (${corpus.positives.length} positives, ${corpus.negatives.length} negatives)`,
     );

@@ -38,9 +38,16 @@ export async function buildRealWorldBenchmarkCorpus(
   };
 }
 
-export async function writeRealWorldBenchmarkCorpus(repoRoot: string): Promise<string> {
+export interface WriteRealWorldBenchmarkCorpusResult {
+  readonly outputPath: string;
+  readonly corpus: RealWorldBenchmarkCorpus;
+}
+
+export async function writeRealWorldBenchmarkCorpus(
+  repoRoot: string,
+): Promise<WriteRealWorldBenchmarkCorpusResult> {
   const corpus = await buildRealWorldBenchmarkCorpus(repoRoot);
   const outputPath = getBenchmarkExportPath(repoRoot);
   await writeFile(outputPath, `${JSON.stringify(corpus, null, 2)}\n`, 'utf8');
-  return outputPath;
+  return { outputPath, corpus };
 }
