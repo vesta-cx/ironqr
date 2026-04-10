@@ -93,7 +93,10 @@ function openTarget(target: string): Promise<void> {
       process.platform === 'darwin'
         ? spawn('open', [target], { stdio: 'ignore', detached: true })
         : process.platform === 'win32'
-          ? spawn('cmd', ['/c', 'start', '', target], { stdio: 'ignore', detached: true })
+          ? spawn('cmd', ['/d', '/s', '/c', 'start', '""', `"${target}"`], {
+              stdio: 'ignore',
+              detached: true,
+            })
           : spawn('xdg-open', [target], { stdio: 'ignore', detached: true });
 
     child.once('error', reject);
