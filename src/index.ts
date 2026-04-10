@@ -10,6 +10,7 @@ import type {
 } from './contracts/index.js';
 import { decodeGridLogical } from './internal/decode-grid.js';
 import { notImplemented } from './internal/not-implemented.js';
+import { scanFrameInternal } from './internal/scan-frame.js';
 
 export * from './contracts/index.js';
 export { ScannerError } from './internal/errors.js';
@@ -28,16 +29,17 @@ export async function decodeGrid(input: DecodeGridInput): Promise<DecodeGridResu
 /**
  * Scans a single still image or video frame for QR symbols.
  *
- * @param _input - Browser image source to inspect.
+ * @param input - Browser image source to inspect.
  * @param _options - Scan behavior overrides.
  * @returns A promise containing every decoded symbol found in the frame.
- * @throws {ScannerNotImplementedError} Thrown until frame scanning is implemented.
  */
 export async function scanFrame(
-  _input: ScanFrameInput,
+  input: ScanFrameInput,
+  // Options are accepted for API stability but not yet forwarded to the pipeline.
+  // Behavioral overrides (signal, maxCandidates, debug) will be wired in a future slice.
   _options?: ScanOptions,
 ): Promise<readonly ScanResult[]> {
-  return notImplemented('scanFrame');
+  return scanFrameInternal(input);
 }
 
 /**

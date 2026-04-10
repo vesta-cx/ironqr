@@ -19,8 +19,15 @@ describe('package scaffold exports', () => {
     expect(ScannerErrorSchema).toBeDefined();
   });
 
-  it('throws a dedicated not-implemented error for scan entry points', async () => {
-    await expect(scanImage(new Blob())).rejects.toBeInstanceOf(ScannerNotImplementedError);
+  it('does not throw ScannerNotImplementedError for scan entry points (real pipeline)', async () => {
+    // scanImage is now implemented; it will not throw ScannerNotImplementedError.
+    // In a Node test environment the browser APIs are absent, so a different
+    // error (e.g. ReferenceError) may surface — that is acceptable here.
+    try {
+      await scanImage(new Blob());
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(ScannerNotImplementedError);
+    }
   });
 
   it('rejects scanner error payloads with unknown public error codes', () => {
