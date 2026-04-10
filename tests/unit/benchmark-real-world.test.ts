@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   runRealWorldBenchmark,
   scoreRealWorldPositive,
 } from '../../benchmark/real-world-runner.js';
+import { writeRealWorldBenchmarkCorpus } from '../../corpus/export/benchmark.js';
 
 describe('real-world benchmark runner', () => {
   it('treats a successful scan as passing when no ground truth is present', async () => {
@@ -37,5 +38,13 @@ describe('real-world benchmark runner', () => {
     expect(result.negatives).toHaveLength(0);
     expect(result.decodeRate).toBe(1);
     expect(result.falsePositiveRate).toBe(0);
+  });
+
+  it('writes the benchmark export into corpus data on a fresh repo', async () => {
+    const repoRoot = await mkdtemp(path.join(tmpdir(), 'qreader-bench-export-'));
+    const { outputPath, corpus } = await writeRealWorldBenchmarkCorpus(repoRoot);
+
+    expect(outputPath).toBe(path.join(repoRoot, 'corpus', 'data', 'benchmark-real-world.json'));
+    expect(JSON.parse(await readFile(outputPath, 'utf8'))).toEqual(corpus);
   });
 });

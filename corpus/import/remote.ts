@@ -605,7 +605,6 @@ export async function scrapeRemoteAssets(
           await writeStagedRemoteAsset(stageDir, asset, bytes);
           assets.push(asset);
           seenImageUrls.add(imageUrl);
-          break;
         } catch (error) {
           options.log?.(
             `Skipped ${imageUrl}: ${error instanceof Error ? error.message : String(error)}`,

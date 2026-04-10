@@ -1,6 +1,11 @@
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { getBenchmarkExportPath, readCorpusManifest, toRepoRelativePath } from '../manifest.js';
+import {
+  ensureCorpusLayout,
+  getBenchmarkExportPath,
+  readCorpusManifest,
+  toRepoRelativePath,
+} from '../manifest.js';
 import type { RealWorldBenchmarkCorpus, RealWorldBenchmarkEntry } from '../schema.js';
 
 export async function buildRealWorldBenchmarkCorpus(
@@ -47,6 +52,7 @@ export async function writeRealWorldBenchmarkCorpus(
   repoRoot: string,
 ): Promise<WriteRealWorldBenchmarkCorpusResult> {
   const corpus = await buildRealWorldBenchmarkCorpus(repoRoot);
+  await ensureCorpusLayout(repoRoot);
   const outputPath = getBenchmarkExportPath(repoRoot);
   await writeFile(outputPath, `${JSON.stringify(corpus, null, 2)}\n`, 'utf8');
   return { outputPath, corpus };

@@ -160,6 +160,48 @@ describe('remote corpus import', () => {
     expect((await readFile(storedAssetPath)).length).toBeGreaterThan(0);
   });
 
+  it('stages multiple images from a page that has no linked detail pages', async () => {
+    const repoRoot = await createRepoRoot();
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pdimagearchive.org/gallery/qr-samples/'],
+        label: 'qr-positive',
+        limit: 2,
+      },
+      async (input) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (url === 'https://pdimagearchive.org/gallery/qr-samples/') {
+          return new Response(
+            `<html><body><img src="https://pdimagearchive.org/first.png" /><img src="https://pdimagearchive.org/second.png" /></body></html>`,
+            { headers: { 'content-type': 'text/html' } },
+          );
+        }
+
+        if (url === 'https://pdimagearchive.org/first.png') {
+          return new Response(Buffer.from(await createPngBytes(255, 255, 255)), {
+            headers: { 'content-type': 'image/png' },
+          });
+        }
+
+        if (url === 'https://pdimagearchive.org/second.png') {
+          return new Response(Buffer.from(await createPngBytes(0, 0, 0)), {
+            headers: { 'content-type': 'image/png' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    expect(staged.assets).toHaveLength(2);
+    expect(staged.assets.map((asset) => asset.imageUrl)).toEqual([
+      'https://pdimagearchive.org/first.png',
+      'https://pdimagearchive.org/second.png',
+    ]);
+  });
+
   it('imports approved staged metadata for license review, ground truth, and auto-scan evidence', async () => {
     const repoRoot = await createRepoRoot();
 
