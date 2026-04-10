@@ -30,7 +30,7 @@ const EXTENSIONS_BY_MEDIA_TYPE: Record<string, string> = {
 
 const NORMALIZED_IMAGE_MEDIA_TYPE = 'image/webp';
 
-function hashSha256(buffer: Uint8Array): string {
+export function hashSha256(buffer: Uint8Array): string {
   return createHash('sha256').update(buffer).digest('hex');
 }
 

@@ -127,6 +127,8 @@ export interface ImportRemoteAssetOptions {
   readonly attribution?: string;
   readonly license?: string;
   readonly provenanceNotes?: string;
+  /** Optional logger for skipped candidates and fetch failures. */
+  readonly log?: (line: string) => void;
 }
 
 export interface ImportRemoteAssetResult {

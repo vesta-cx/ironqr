@@ -170,8 +170,13 @@ async function main(): Promise<void> {
         stageDir: resolvedStageDir,
         reviewer,
         prompt,
-        scanAsset: async (asset) =>
-          scanLocalImageFile(path.join(resolvedStageDir, asset.id, asset.imageFileName)),
+        scanAsset: async (asset) => {
+          const imagePath = path.resolve(resolvedStageDir, asset.id, asset.imageFileName);
+          if (imagePath !== path.join(resolvedStageDir, asset.id, asset.imageFileName)) {
+            throw new Error(`Scan path escapes stage directory: ${imagePath}`);
+          }
+          return scanLocalImageFile(imagePath);
+        },
         openLocalImage: openTarget,
         openSourcePage: openTarget,
         log: (line) => console.log(line),

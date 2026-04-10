@@ -7,6 +7,22 @@ import {
 } from './import/remote.js';
 import type { AutoScan, GroundTruth } from './schema.js';
 
+function assertHttpUrl(value: string, label: string): void {
+  const url = new URL(value);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Expected http(s) URL for ${label}, got ${url.protocol}`);
+  }
+}
+
+function resolveStagedImagePath(stageDir: string, asset: StagedRemoteAsset): string {
+  const absoluteStage = path.resolve(stageDir);
+  const imagePath = path.resolve(absoluteStage, asset.id, asset.imageFileName);
+  if (imagePath !== path.join(absoluteStage, asset.id, asset.imageFileName)) {
+    throw new Error(`Staged image path escapes stage directory: ${imagePath}`);
+  }
+  return imagePath;
+}
+
 interface ScanAssetResult {
   readonly attempted: boolean;
   readonly succeeded: boolean;
@@ -80,9 +96,12 @@ export async function reviewStagedAssets(
       continue;
     }
 
+    const imagePath = resolveStagedImagePath(options.stageDir, asset);
+    assertHttpUrl(asset.sourcePageUrl, 'source page URL');
+
     options.log(`Reviewing ${asset.id}`);
     options.log(`Source: ${asset.sourcePageUrl}`);
-    options.log(`Local: ${path.join(options.stageDir, asset.id, asset.imageFileName)}`);
+    options.log(`Local: ${imagePath}`);
 
     while (true) {
       const action = (
@@ -97,7 +116,7 @@ export async function reviewStagedAssets(
       }
 
       if (action === 'i') {
-        await options.openLocalImage(path.join(options.stageDir, asset.id, asset.imageFileName));
+        await options.openLocalImage(imagePath);
         continue;
       }
 

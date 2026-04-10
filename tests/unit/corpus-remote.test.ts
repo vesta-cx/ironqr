@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -24,7 +24,7 @@ const FIRST_PAGE_HTML = `
   <html>
     <head>
       <title>First QR</title>
-      <meta property="og:image" content="https://cdn.example.test/first.png" />
+      <meta property="og:image" content="https://cdn.pixabay.com/first.png" />
       <div>Pixabay License</div>
     </head>
   </html>
@@ -34,7 +34,7 @@ const SECOND_PAGE_HTML = `
   <html>
     <head>
       <title>Second QR</title>
-      <meta property="og:image" content="https://cdn.example.test/second.png" />
+      <meta property="og:image" content="https://cdn.pixabay.com/second.png" />
       <div>Pixabay License</div>
     </head>
   </html>
@@ -86,13 +86,13 @@ function buildMockFetch(): (input: string | URL) => Promise<Response> {
       });
     }
 
-    if (url === 'https://cdn.example.test/first.png') {
+    if (url === 'https://cdn.pixabay.com/first.png') {
       return new Response(Buffer.from(firstBytes), {
         headers: { 'content-type': 'image/png' },
       });
     }
 
-    if (url === 'https://cdn.example.test/second.png') {
+    if (url === 'https://cdn.pixabay.com/second.png') {
       return new Response(Buffer.from(secondBytes), {
         headers: { 'content-type': 'image/png' },
       });
@@ -149,7 +149,7 @@ describe('remote corpus import', () => {
     expect(firstAsset?.provenance[0]).toMatchObject({
       kind: 'remote',
       sourcePageUrl: 'https://pixabay.com/photos/first-qr-123/',
-      imageUrl: 'https://cdn.example.test/first.png',
+      imageUrl: 'https://cdn.pixabay.com/first.png',
       pageTitle: 'First QR',
     });
     expect(firstAsset?.fileExtension).toBe('.webp');
@@ -241,6 +241,37 @@ describe('remote corpus import', () => {
     expect(persistedStage.importedAssetId).toBe(imported?.id);
   });
 
+  it('skips image urls whose host is not in the per-source CDN allowlist', async () => {
+    const repoRoot = await createRepoRoot();
+    const hostileFetch: (input: string | URL) => Promise<Response> = async (input) => {
+      const url = typeof input === 'string' ? input : input.toString();
+
+      if (url === 'https://pixabay.com/images/search/qr%20code/') {
+        return new Response(
+          `<html><head><meta property="og:image" content="http://127.0.0.1/internal.png" /></head></html>`,
+          { headers: { 'content-type': 'text/html' } },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    const skipped: string[] = [];
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
+        label: 'qr-positive',
+        limit: 1,
+        log: (line) => skipped.push(line),
+      },
+      hostileFetch,
+    );
+
+    expect(staged.assets).toHaveLength(0);
+    expect(skipped.some((line) => line.includes('127.0.0.1'))).toBe(true);
+  });
+
   it('rejects seed urls outside the explicit allowlist', async () => {
     const repoRoot = await createRepoRoot();
 
@@ -254,5 +285,67 @@ describe('remote corpus import', () => {
         buildMockFetch(),
       ),
     ).rejects.toThrow('allowlist');
+  });
+
+  it('rejects staged manifests with unsafe ids or filenames', async () => {
+    const stageDir = await mkdtemp(path.join(tmpdir(), 'qreader-corpus-unsafe-'));
+    const safeDir = path.join(stageDir, 'stage-deadbeefcafef00d');
+    await mkdir(safeDir, { recursive: true });
+    await writeFile(
+      path.join(safeDir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        id: 'stage-deadbeefcafef00d',
+        suggestedLabel: 'qr-positive',
+        imageFileName: '../../etc/passwd',
+        sourcePageUrl: 'https://pixabay.com/photos/first/',
+        imageUrl: 'https://cdn.pixabay.com/first.png',
+        seedUrl: 'https://pixabay.com/',
+        sourceHost: 'pixabay.com',
+        fetchedAt: '2026-04-10T00:00:00.000Z',
+        mediaType: 'image/png',
+        byteLength: 0,
+        sha256: '00',
+        width: 0,
+        height: 0,
+        review: { status: 'pending' },
+      }),
+      'utf8',
+    );
+
+    await expect(readStagedRemoteAsset(stageDir, 'stage-deadbeefcafef00d')).rejects.toThrow(
+      /Unsafe image filename/,
+    );
+  });
+
+  it('rejects staged manifests with non-http source urls', async () => {
+    const stageDir = await mkdtemp(path.join(tmpdir(), 'qreader-corpus-unsafe-'));
+    const safeDir = path.join(stageDir, 'stage-deadbeefcafef00d');
+    await mkdir(safeDir, { recursive: true });
+    await writeFile(
+      path.join(safeDir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        id: 'stage-deadbeefcafef00d',
+        suggestedLabel: 'qr-positive',
+        imageFileName: 'image.png',
+        sourcePageUrl: 'file:///etc/passwd',
+        imageUrl: 'https://cdn.pixabay.com/first.png',
+        seedUrl: 'https://pixabay.com/',
+        sourceHost: 'pixabay.com',
+        fetchedAt: '2026-04-10T00:00:00.000Z',
+        mediaType: 'image/png',
+        byteLength: 0,
+        sha256: '00',
+        width: 0,
+        height: 0,
+        review: { status: 'pending' },
+      }),
+      'utf8',
+    );
+
+    await expect(readStagedRemoteAsset(stageDir, 'stage-deadbeefcafef00d')).rejects.toThrow(
+      /http\(s\) URL for source page URL/,
+    );
   });
 });

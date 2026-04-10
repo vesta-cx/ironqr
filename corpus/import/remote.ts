@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as S from 'effect/Schema';
@@ -15,7 +14,7 @@ import type {
   RemoteSource,
   ReviewStatus,
 } from '../schema.js';
-import { extensionFromMediaType, importAssetBytes } from './store.js';
+import { extensionFromMediaType, hashSha256, importAssetBytes } from './store.js';
 
 const ALLOWED_SOURCE_HOSTS = new Set([
   'pixabay.com',
@@ -33,6 +32,21 @@ const PAGE_LINK_PATTERNS: Record<string, readonly RegExp[]> = {
   'pexels.com': [/^\/photo\//],
   'pdimagearchive.org': [],
   'unsplash.com': [/^\/photos\//],
+};
+
+/**
+ * Per-source allowlist of hosts that may serve image bytes. Secondary image
+ * fetches are restricted to these hosts to prevent a compromised or hostile
+ * allowlisted page from pivoting the scraper into arbitrary http(s) targets
+ * (for example internal/localhost services reachable from the reviewer).
+ */
+const ALLOWED_IMAGE_HOSTS: Record<string, readonly string[]> = {
+  'pixabay.com': ['pixabay.com', 'cdn.pixabay.com'],
+  'commons.wikimedia.org': ['commons.wikimedia.org', 'upload.wikimedia.org'],
+  'publicdomainpictures.net': ['publicdomainpictures.net'],
+  'pexels.com': ['pexels.com', 'images.pexels.com'],
+  'pdimagearchive.org': ['pdimagearchive.org'],
+  'unsplash.com': ['unsplash.com', 'images.unsplash.com'],
 };
 
 const StageReviewStatusSchema = S.Literals(['pending', 'approved', 'rejected', 'skipped']);
@@ -124,12 +138,30 @@ interface ParsedPage {
 
 const decodeStagedAsset = S.decodeUnknownSync(StagedRemoteAssetSchema);
 
-function normalizeHost(value: string): string {
-  return value.replace(/^www\./, '').toLowerCase();
+const SAFE_SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+function assertSafeSlug(value: string, label: string): void {
+  if (!SAFE_SLUG_PATTERN.test(value) || value.includes('..')) {
+    throw new Error(`Unsafe ${label}: ${value}`);
+  }
 }
 
-function hashSha256(buffer: Uint8Array): string {
-  return createHash('sha256').update(buffer).digest('hex');
+function assertHttpUrl(value: string, label: string): void {
+  const url = new URL(value);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Expected http(s) URL for ${label}, got ${url.protocol}`);
+  }
+}
+
+function validateStagedAsset(asset: StagedRemoteAsset): void {
+  assertSafeSlug(asset.id, 'asset id');
+  assertSafeSlug(asset.imageFileName, 'image filename');
+  assertHttpUrl(asset.sourcePageUrl, 'source page URL');
+  assertHttpUrl(asset.imageUrl, 'image URL');
+}
+
+function normalizeHost(value: string): string {
+  return value.replace(/^www\./, '').toLowerCase();
 }
 
 function assertAllowedSeed(seedUrl: string): URL {
@@ -284,6 +316,17 @@ function extractPageLinks(pageUrl: string, html: string): readonly string[] {
   return dedupe(matches);
 }
 
+function isAllowedImageHost(sourceHost: string, imageUrl: string): boolean {
+  try {
+    const imageHost = normalizeHost(new URL(imageUrl).hostname);
+    const allowed = ALLOWED_IMAGE_HOSTS[sourceHost];
+    if (!allowed) return imageHost === sourceHost;
+    return allowed.some((host) => normalizeHost(host) === imageHost);
+  } catch {
+    return false;
+  }
+}
+
 function extractImageCandidates(pageUrl: string, html: string): readonly string[] {
   const metaCandidates = [
     ...matchAllGroups(
@@ -331,6 +374,7 @@ export async function writeStagedRemoteAsset(
   asset: StagedRemoteAsset,
   bytes: Uint8Array,
 ): Promise<void> {
+  validateStagedAsset(asset);
   const assetDir = getAssetDir(stageDir, asset.id);
   await mkdir(assetDir, { recursive: true });
   await writeFile(path.join(assetDir, asset.imageFileName), bytes);
@@ -345,6 +389,7 @@ export async function updateStagedRemoteAsset(
   stageDir: string,
   asset: StagedRemoteAsset,
 ): Promise<void> {
+  validateStagedAsset(asset);
   await writeFile(
     getAssetManifestPath(stageDir, asset.id),
     `${JSON.stringify(asset, null, 2)}\n`,
@@ -356,8 +401,11 @@ export async function readStagedRemoteAsset(
   stageDir: string,
   assetId: string,
 ): Promise<StagedRemoteAsset> {
+  assertSafeSlug(assetId, 'asset id');
   const raw = await readFile(getAssetManifestPath(stageDir, assetId), 'utf8');
-  return decodeStagedAsset(JSON.parse(raw));
+  const asset = decodeStagedAsset(JSON.parse(raw));
+  validateStagedAsset(asset);
+  return asset;
 }
 
 export async function readStagedRemoteAssets(
@@ -437,6 +485,11 @@ export async function scrapeRemoteAssets(
         if (assets.length >= limit) break;
         if (seenImageUrls.has(imageUrl)) continue;
 
+        if (!isAllowedImageHost(host, imageUrl)) {
+          options.log?.(`Skipped ${imageUrl}: host not in CDN allowlist for ${host}`);
+          continue;
+        }
+
         try {
           const { bytes, mediaType } = await fetchImage(imageUrl, fetchImpl);
           const extension = extensionFromMediaType(mediaType, imageUrl);
@@ -468,46 +521,16 @@ export async function scrapeRemoteAssets(
           assets.push(asset);
           seenImageUrls.add(imageUrl);
           break;
-        } catch {}
+        } catch (error) {
+          options.log?.(
+            `Skipped ${imageUrl}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
     }
   }
 
   return { stageDir, assets };
-}
-
-export async function importSingleStagedRemoteAsset(
-  repoRoot: string,
-  stageDir: string,
-  stagedAsset: StagedRemoteAsset,
-): Promise<CorpusAsset> {
-  const manifest = await readCorpusManifest(repoRoot);
-  const assets = [...manifest.assets];
-  const bytes = await readFile(getAssetImagePath(stageDir, stagedAsset));
-  const licenseReview = buildLicenseReview(stagedAsset, stagedAsset.review.reviewer);
-  const result = await importAssetBytes({
-    repoRoot,
-    assets,
-    bytes: new Uint8Array(bytes),
-    mediaType: stagedAsset.mediaType,
-    sourcePathForExtension: stagedAsset.imageUrl,
-    label: stagedAsset.suggestedLabel,
-    provenance: buildRemoteSource(stagedAsset, { repoRoot, stageDir }),
-    reviewStatus: 'approved',
-    ...(stagedAsset.review.reviewer ? { reviewer: stagedAsset.review.reviewer } : {}),
-    ...(stagedAsset.review.notes ? { reviewNotes: stagedAsset.review.notes } : {}),
-    ...(stagedAsset.groundTruth ? { groundTruth: stagedAsset.groundTruth as GroundTruth } : {}),
-    ...(stagedAsset.autoScan ? { autoScan: stagedAsset.autoScan as AutoScan } : {}),
-    ...(licenseReview ? { licenseReview } : {}),
-  });
-  await writeCorpusManifest(repoRoot, { version: 1, assets });
-
-  await updateStagedRemoteAsset(stageDir, {
-    ...stagedAsset,
-    importedAssetId: result.asset.id,
-  });
-
-  return result.asset;
 }
 
 export async function importStagedRemoteAssets(

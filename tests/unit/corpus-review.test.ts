@@ -18,7 +18,7 @@ const FIRST_PAGE_HTML = `
   <html>
     <head>
       <title>First QR</title>
-      <meta property="og:image" content="https://cdn.example.test/first.png" />
+      <meta property="og:image" content="https://cdn.pixabay.com/first.png" />
       <div>Pixabay License</div>
     </head>
   </html>
@@ -62,7 +62,7 @@ function buildMockFetch(): (input: string | URL) => Promise<Response> {
       });
     }
 
-    if (url === 'https://cdn.example.test/first.png') {
+    if (url === 'https://cdn.pixabay.com/first.png') {
       return new Response(Buffer.from(firstBytes), {
         headers: { 'content-type': 'image/png' },
       });
