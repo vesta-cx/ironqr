@@ -79,9 +79,9 @@ function mergeProvenanceRecord(
   incoming: ProvenanceRecord,
 ): ProvenanceRecord {
   if (existing.kind === 'local' && incoming.kind === 'local') {
-    const attribution = existing.attribution ?? incoming.attribution;
-    const license = existing.license ?? incoming.license;
-    const notes = existing.notes ?? incoming.notes;
+    const attribution = incoming.attribution ?? existing.attribution;
+    const license = incoming.license ?? existing.license;
+    const notes = incoming.notes ?? existing.notes;
 
     return {
       kind: 'local',
@@ -94,10 +94,10 @@ function mergeProvenanceRecord(
   }
 
   if (existing.kind === 'remote' && incoming.kind === 'remote') {
-    const pageTitle = existing.pageTitle ?? incoming.pageTitle;
-    const attribution = existing.attribution ?? incoming.attribution;
-    const license = existing.license ?? incoming.license;
-    const notes = existing.notes ?? incoming.notes;
+    const pageTitle = incoming.pageTitle ?? existing.pageTitle;
+    const attribution = incoming.attribution ?? existing.attribution;
+    const license = incoming.license ?? existing.license;
+    const notes = incoming.notes ?? existing.notes;
 
     return {
       kind: 'remote',
@@ -154,6 +154,7 @@ function mergeReview(
     readonly status?: ReviewStatus;
     readonly reviewer?: string;
     readonly reviewNotes?: string;
+    readonly reviewedAt?: string;
   },
 ): AssetReview {
   const incomingStatus = incoming.status;
@@ -176,24 +177,27 @@ function mergeReview(
     return {
       status: incomingStatus as ReviewStatus,
       ...(incoming.reviewer ? { reviewer: incoming.reviewer } : {}),
-      reviewedAt: new Date().toISOString(),
+      reviewedAt: incoming.reviewedAt ?? new Date().toISOString(),
       ...(incoming.reviewNotes ? { notes: incoming.reviewNotes } : {}),
     };
   }
 
   const mergedReviewer = existing.reviewer ?? incoming.reviewer;
   const mergedNotes = existing.notes ?? incoming.reviewNotes;
+  const mergedReviewedAt = existing.reviewedAt ?? incoming.reviewedAt;
 
-  if (mergedReviewer === existing.reviewer && mergedNotes === existing.notes) {
+  if (
+    mergedReviewer === existing.reviewer &&
+    mergedNotes === existing.notes &&
+    mergedReviewedAt === existing.reviewedAt
+  ) {
     return existing;
   }
 
   return {
     status: existing.status,
     ...(mergedReviewer ? { reviewer: mergedReviewer } : {}),
-    ...(existing.status !== 'pending'
-      ? { reviewedAt: existing.reviewedAt ?? new Date().toISOString() }
-      : {}),
+    ...(mergedReviewedAt && existing.status !== 'pending' ? { reviewedAt: mergedReviewedAt } : {}),
     ...(mergedNotes ? { notes: mergedNotes } : {}),
   };
 }
@@ -209,6 +213,7 @@ interface ImportAssetBytesOptions {
   readonly reviewStatus?: ReviewStatus;
   readonly reviewer?: string;
   readonly reviewNotes?: string;
+  readonly reviewedAt?: string;
   readonly groundTruth?: GroundTruth;
   readonly autoScan?: AutoScan;
   readonly licenseReview?: LicenseReview;
@@ -262,6 +267,7 @@ export async function importAssetBytes(
         ...(options.reviewStatus ? { status: options.reviewStatus } : {}),
         ...(options.reviewer ? { reviewer: options.reviewer } : {}),
         ...(options.reviewNotes ? { reviewNotes: options.reviewNotes } : {}),
+        ...(options.reviewedAt ? { reviewedAt: options.reviewedAt } : {}),
       }),
       ...(options.groundTruth ? { groundTruth: options.groundTruth } : {}),
       ...(options.autoScan ? { autoScan: options.autoScan } : {}),
@@ -284,7 +290,7 @@ export async function importAssetBytes(
       status: options.reviewStatus ?? 'pending',
       ...(options.reviewer ? { reviewer: options.reviewer } : {}),
       ...(options.reviewStatus && options.reviewStatus !== 'pending'
-        ? { reviewedAt: new Date().toISOString() }
+        ? { reviewedAt: options.reviewedAt ?? new Date().toISOString() }
         : {}),
       ...(options.reviewNotes ? { notes: options.reviewNotes } : {}),
     },

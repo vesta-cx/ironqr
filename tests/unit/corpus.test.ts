@@ -261,7 +261,7 @@ describe('real-world corpus toolkit', () => {
     expect(provenancePaths).toEqual([path.resolve(firstPath), path.resolve(secondPath)]);
   });
 
-  it('merges updated provenance metadata when the same source is imported again', async () => {
+  it('merges corrected provenance metadata when the same source is imported again', async () => {
     const repoRoot = await createRepoRoot();
     const sourcePath = path.join(repoRoot, 'fixtures', 'source.png');
 
@@ -271,6 +271,9 @@ describe('real-world corpus toolkit', () => {
       repoRoot,
       paths: [sourcePath],
       label: 'qr-positive',
+      attribution: 'initial-attribution',
+      license: 'initial-license',
+      provenanceNotes: 'initial notes',
     });
     await importLocalAssets({
       repoRoot,

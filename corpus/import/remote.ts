@@ -579,7 +579,8 @@ export async function scrapeRemoteAssets(
           const extension = extensionFromMediaType(mediaType, imageUrl);
           const metadata = await sharp(bytes).metadata();
           const sha256 = hashSha256(bytes);
-          const id = `stage-${sha256.slice(0, 16)}`;
+          const imageUrlHash = hashSha256(new TextEncoder().encode(imageUrl));
+          const id = `stage-${sha256.slice(0, 16)}-${imageUrlHash.slice(0, 8)}`;
           const asset: StagedRemoteAsset = {
             version: 1,
             id,
@@ -663,6 +664,7 @@ export async function importStagedRemoteAssets(
       reviewStatus: 'approved',
       ...(reviewer ? { reviewer } : {}),
       ...(reviewNotes ? { reviewNotes } : {}),
+      ...(approvedAsset.review.reviewedAt ? { reviewedAt: approvedAsset.review.reviewedAt } : {}),
       ...(approvedAsset.groundTruth
         ? { groundTruth: approvedAsset.groundTruth as GroundTruth }
         : {}),

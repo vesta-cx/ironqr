@@ -202,6 +202,59 @@ describe('remote corpus import', () => {
     ]);
   });
 
+  it('keeps staged assets unique when different urls resolve to identical bytes', async () => {
+    const repoRoot = await createRepoRoot();
+    const sameBytes = await createPngBytes(64, 64, 64);
+
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
+        label: 'qr-positive',
+        limit: 2,
+      },
+      async (input) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (url === 'https://pixabay.com/images/search/qr%20code/') {
+          return new Response(
+            `<html><body><a href="/photos/first-qr-123/">first</a><a href="/photos/second-qr-456/">second</a></body></html>`,
+            { headers: { 'content-type': 'text/html' } },
+          );
+        }
+
+        if (url === 'https://pixabay.com/photos/first-qr-123/') {
+          return new Response(
+            `<html><head><meta property="og:image" content="https://cdn.pixabay.com/first.png" /></head></html>`,
+            { headers: { 'content-type': 'text/html' } },
+          );
+        }
+
+        if (url === 'https://pixabay.com/photos/second-qr-456/') {
+          return new Response(
+            `<html><head><meta property="og:image" content="https://cdn.pixabay.com/second.png" /></head></html>`,
+            { headers: { 'content-type': 'text/html' } },
+          );
+        }
+
+        if (
+          url === 'https://cdn.pixabay.com/first.png' ||
+          url === 'https://cdn.pixabay.com/second.png'
+        ) {
+          return new Response(Buffer.from(sameBytes), {
+            headers: { 'content-type': 'image/png' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    expect(staged.assets).toHaveLength(2);
+    expect(staged.assets[0]?.id).not.toBe(staged.assets[1]?.id);
+    expect(staged.assets[0]?.sha256).toBe(staged.assets[1]?.sha256);
+  });
+
   it('imports approved staged metadata for license review, ground truth, and auto-scan evidence', async () => {
     const repoRoot = await createRepoRoot();
 
@@ -257,6 +310,11 @@ describe('remote corpus import', () => {
 
     const manifest = await readCorpusManifest(repoRoot);
     const imported = manifest.assets[0];
+    expect(imported?.review).toMatchObject({
+      status: 'approved',
+      reviewer: 'mia',
+      reviewedAt: '2026-04-10T12:00:00.000Z',
+    });
     expect(imported?.licenseReview).toMatchObject({
       bestEffortLicense: 'Pixabay License',
       confirmedLicense: 'CC0',
