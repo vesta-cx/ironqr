@@ -1,0 +1,61 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["build", "^build"],
+      "outputs": []
+    },
+    "package:quality": {
+      "dependsOn": ["build"],
+      "outputs": []
+    },
+    "benchmark": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "corpus:import": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "corpus:scrape": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "corpus:review": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "corpus:import-staged": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "corpus:export": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "outputs": []
+    },
+    "clean": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

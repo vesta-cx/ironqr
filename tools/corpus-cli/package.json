@@ -1,0 +1,38 @@
+{
+  "name": "ironqr-corpus-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "rm -rf dist",
+    "lint": "biome check .",
+    "test": "bun test tests/unit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "cli": "bun src/cli.ts",
+    "corpus:import": "bun src/cli.ts import-local",
+    "corpus:scrape": "bun src/cli.ts scrape-remote",
+    "corpus:review": "bun src/cli.ts review-staged",
+    "corpus:import-staged": "bun src/cli.ts import-staged",
+    "corpus:export": "bun src/cli.ts export-benchmark"
+  },
+  "dependencies": {
+    "effect": "^4.0.0-beta.43",
+    "ironqr": "workspace:*",
+    "sharp": "^0.34.4"
+  }
+}

@@ -1,25 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-    "types": ["bun-types", "node"]
-  },
-  "include": ["src", "test", "tests", "benchmark", "corpus", "*.ts", "*.mts"],
+  "extends": "./tsconfig.base.json",
+  "files": [],
   "exclude": ["dist", "node_modules"]
 }

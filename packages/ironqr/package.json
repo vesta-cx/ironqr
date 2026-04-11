@@ -1,0 +1,63 @@
+{
+  "name": "ironqr",
+  "version": "0.0.0",
+  "description": "Browser-native QR Code Model 2 reader SDK with stylized-code tolerance.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "qr.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      },
+      "default": "./dist/index.js"
+    },
+    "./qr": {
+      "import": {
+        "types": "./dist/qr.d.ts",
+        "default": "./dist/qr.js"
+      },
+      "require": {
+        "types": "./dist/qr.d.cts",
+        "default": "./dist/qr.cjs"
+      },
+      "default": "./dist/qr.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "qr": [
+        "./dist/qr.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "rm -rf dist",
+    "dev": "tsup --config tsup.config.ts --watch",
+    "lint": "biome check .",
+    "test": "bun test tests/unit",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package:quality": "bun run build && publint && attw --pack ."
+  },
+  "dependencies": {
+    "effect": "^4.0.0-beta.43"
+  }
+}

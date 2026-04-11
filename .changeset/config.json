@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": ["ironqr-corpus-cli", "@ironqr/perfbench", "@ironqr/wasm"]
 }

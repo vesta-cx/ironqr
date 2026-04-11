@@ -1,71 +1,44 @@
 {
-  "name": "ironqr",
-  "version": "0.0.0",
-  "description": "Browser-native QR Code Model 2 reader SDK with stylized-code tolerance.",
-  "license": "MIT",
   "type": "module",
-  "packageManager": "bun@1.3.11",
-  "engines": {
-    "bun": ">=1.3.11",
-    "node": ">=24"
-  },
-  "sideEffects": false,
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
-  ],
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      },
-      "default": "./dist/index.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "scripts": {
-    "build": "tsup",
-    "clean": "rm -rf dist",
-    "dev": "tsup --watch",
-    "format": "biome check --write .",
-    "lint": "biome check .",
-    "test": "bun test tests/unit",
-    "test:watch": "bun test --watch",
-    "test:browser": "playwright test",
-    "typecheck": "tsc --noEmit",
-    "package:quality": "bun run build && publint && attw --pack .",
-    "changeset:version": "changeset version",
-    "changeset:publish": "changeset publish",
-    "benchmark": "bun run benchmark/cli.ts",
-    "corpus:import": "bun run corpus/cli.ts import-local",
-    "corpus:scrape": "bun run corpus/cli.ts scrape-remote",
-    "corpus:review": "bun run corpus/cli.ts review-staged",
-    "corpus:import-staged": "bun run corpus/cli.ts import-staged",
-    "corpus:export": "bun run corpus/cli.ts export-benchmark"
-  },
-  "dependencies": {
-    "effect": "^4.0.0-beta.43"
-  },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "^2.4.10",
     "@changesets/cli": "^2.30.0",
-    "@playwright/test": "^1.59.1",
     "@types/node": "^24.6.1",
     "bun-types": "1.3.11",
     "publint": "^0.3.18",
-    "sharp": "^0.34.4",
     "tsup": "^8.5.1",
+    "turbo": "^2.5.8",
     "typescript": "^5.9.3"
-  }
+  },
+  "engines": {
+    "bun": ">=1.3.11",
+    "node": ">=24"
+  },
+  "name": "@ironqr/workspace",
+  "packageManager": "bun@1.3.11",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "clean": "turbo run clean --continue && rm -rf node_modules",
+    "dev": "turbo run dev --parallel",
+    "format": "biome check --write .",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "package:quality": "turbo run package:quality --filter=ironqr",
+    "changeset:version": "changeset version",
+    "changeset:publish": "changeset publish",
+    "benchmark": "turbo run benchmark --filter=@ironqr/perfbench",
+    "corpus:import": "turbo run corpus:import --filter=ironqr-corpus-cli",
+    "corpus:scrape": "turbo run corpus:scrape --filter=ironqr-corpus-cli",
+    "corpus:review": "turbo run corpus:review --filter=ironqr-corpus-cli",
+    "corpus:import-staged": "turbo run corpus:import-staged --filter=ironqr-corpus-cli",
+    "corpus:export": "turbo run corpus:export --filter=ironqr-corpus-cli"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ]
 }
