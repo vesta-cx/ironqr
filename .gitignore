@@ -10,5 +10,6 @@ test-results
 .rts2_cache
 *.tsbuildinfo
 benchmark-results.json
+.turbo/
 corpus/data/
 corpus/staging/
