@@ -125,16 +125,17 @@ export const buildOpenTargetInvocation = (
   };
 };
 
-const buildOpenExternalInvocation = (
+export const buildOpenExternalInvocation = (
   target: string,
   platform: NodeJS.Platform = process.platform,
 ): OpenTargetInvocation => {
   const options = { stdio: 'ignore' as const, detached: true as const };
+  const normalizedTarget = normalizeHttpTarget(target);
 
   if (platform === 'darwin') {
     return {
       command: 'open',
-      args: [target],
+      args: [normalizedTarget],
       options,
     };
   }
@@ -142,14 +143,14 @@ const buildOpenExternalInvocation = (
   if (platform === 'win32') {
     return {
       command: 'explorer.exe',
-      args: [normalizeHttpTarget(target)],
+      args: [normalizedTarget],
       options,
     };
   }
 
   return {
     command: 'xdg-open',
-    args: [target],
+    args: [normalizedTarget],
     options,
   };
 };

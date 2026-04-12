@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { parseArgv } from '../../src/args.js';
 import {
   buildFilteredCliCommand,
+  buildOpenExternalInvocation,
   buildOpenTargetInvocation,
   getUsageText,
   resolveRepoRootFromModuleUrl,
@@ -33,6 +34,38 @@ describe('corpus cli helpers', () => {
         detached: true,
       },
     });
+  });
+
+  it('normalizes external URLs on macOS and Linux', () => {
+    expect(buildOpenExternalInvocation('https://example.com/a b', 'darwin')).toEqual({
+      command: 'open',
+      args: ['https://example.com/a%20b'],
+      options: {
+        stdio: 'ignore',
+        detached: true,
+      },
+    });
+
+    expect(buildOpenExternalInvocation('https://example.com/a b', 'linux')).toEqual({
+      command: 'xdg-open',
+      args: ['https://example.com/a%20b'],
+      options: {
+        stdio: 'ignore',
+        detached: true,
+      },
+    });
+  });
+
+  it('rejects non-http external URLs on every platform', () => {
+    expect(() => buildOpenExternalInvocation('file:///tmp/nope', 'darwin')).toThrow(
+      'Expected http(s) URL',
+    );
+    expect(() => buildOpenExternalInvocation('file:///tmp/nope', 'linux')).toThrow(
+      'Expected http(s) URL',
+    );
+    expect(() => buildOpenExternalInvocation('file:///tmp/nope', 'win32')).toThrow(
+      'Expected http(s) URL',
+    );
   });
 
   it('builds a Preview opener invocation on macOS', () => {

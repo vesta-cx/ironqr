@@ -3,7 +3,7 @@ import {
   type RealWorldBenchmarkEntry,
   readRealWorldBenchmarkFixture,
   scanLocalImageFile,
-} from '../../corpus-cli/src/index.js';
+} from 'ironqr-corpus-cli';
 
 export interface RealWorldPositiveResult {
   readonly entry: RealWorldBenchmarkEntry;
