@@ -14,3 +14,5 @@ benchmark-results.json
 .sc/corpus-cli.json
 corpus/data/
 corpus/staging/
+tools/corpus-cli/tests/.tmp/
+tools/perfbench/tests/.tmp/

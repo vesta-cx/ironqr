@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import {
@@ -13,6 +12,7 @@ import {
   writeStagedRemoteAsset,
 } from '../../src/import/remote.js';
 import { readCorpusManifest } from '../../src/manifest.js';
+import { makeTestDir } from '../helpers.js';
 
 const LISTING_HTML = `
   <html>
@@ -59,7 +59,7 @@ const createPngBytes = async (red: number, green: number, blue: number): Promise
 };
 
 const createRepoRoot = async (): Promise<string> => {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), 'ironqr-corpus-remote-'));
+  const repoRoot = await makeTestDir('corpus-remote');
   await mkdir(path.join(repoRoot, 'corpus'), { recursive: true });
   return repoRoot;
 };
@@ -857,7 +857,7 @@ describe('remote corpus import', () => {
   });
 
   it('rejects staged manifests with unsafe ids or filenames', async () => {
-    const stageDir = await mkdtemp(path.join(tmpdir(), 'ironqr-corpus-unsafe-'));
+    const stageDir = await makeTestDir('corpus-unsafe');
     const safeDir = path.join(stageDir, 'stage-deadbeefcafef00d');
     await mkdir(safeDir, { recursive: true });
     await writeFile(
@@ -905,7 +905,7 @@ describe('remote corpus import', () => {
   });
 
   it('rejects staged manifests with non-http source urls', async () => {
-    const stageDir = await mkdtemp(path.join(tmpdir(), 'ironqr-corpus-unsafe-'));
+    const stageDir = await makeTestDir('corpus-unsafe');
     const safeDir = path.join(stageDir, 'stage-deadbeefcafef00d');
     await mkdir(safeDir, { recursive: true });
     await writeFile(
@@ -939,7 +939,7 @@ describe('remote corpus import', () => {
   });
 
   it('rejects staged manifests with source page hosts outside the seed allowlist', async () => {
-    const stageDir = await mkdtemp(path.join(tmpdir(), 'ironqr-corpus-unsafe-'));
+    const stageDir = await makeTestDir('corpus-unsafe');
     const safeDir = path.join(stageDir, 'stage-deadbeefcafef00d');
     await mkdir(safeDir, { recursive: true });
     await writeFile(

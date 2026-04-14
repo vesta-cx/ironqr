@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import {
@@ -9,6 +8,7 @@ import {
   streamStagedRemoteAssets,
 } from '../../src/import/remote.js';
 import { reviewStagedAssets } from '../../src/review.js';
+import { makeTestDir } from '../helpers.js';
 
 const LISTING_HTML = `
   <html>
@@ -44,7 +44,7 @@ const createPngBytes = async (red: number, green: number, blue: number): Promise
 };
 
 const createRepoRoot = async (): Promise<string> => {
-  const repoRoot = await mkdtemp(path.join(tmpdir(), 'ironqr-corpus-review-'));
+  const repoRoot = await makeTestDir('corpus-review');
   await mkdir(path.join(repoRoot, 'corpus'), { recursive: true });
   return repoRoot;
 };

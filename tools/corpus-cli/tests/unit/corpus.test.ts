@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import {
@@ -15,9 +14,10 @@ import {
   toRepoRelativePath,
   writeCorpusManifest,
 } from '../../src/manifest.js';
+import { makeTestDir } from '../helpers.js';
 
 const createRepoRoot = async (): Promise<string> => {
-  return mkdtemp(path.join(tmpdir(), 'ironqr-corpus-'));
+  return makeTestDir('corpus');
 };
 
 const createPngBytes = async (red: number, green: number, blue: number): Promise<Uint8Array> => {

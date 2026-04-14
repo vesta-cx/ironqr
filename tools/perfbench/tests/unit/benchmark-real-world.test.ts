@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   importLocalAssets,
@@ -8,6 +7,7 @@ import {
 } from '../../../corpus-cli/src/index.js';
 import { resolveRepoRootFromModuleUrl } from '../../src/cli.js';
 import { runRealWorldBenchmark, scoreRealWorldPositive } from '../../src/real-world-runner.js';
+import { makeTestDir } from '../helpers.js';
 
 const createPngBytes = (): Uint8Array => {
   return Uint8Array.from(
@@ -41,7 +41,7 @@ describe('real-world benchmark runner', () => {
   });
 
   it('reports zero counts when committed fixture is missing and passes exit gate', async () => {
-    const repoRoot = await mkdtemp(path.join(tmpdir(), 'ironqr-bench-empty-'));
+    const repoRoot = await makeTestDir('bench-empty');
     const result = await runRealWorldBenchmark(repoRoot);
 
     expect(result.positives).toHaveLength(0);
@@ -51,7 +51,7 @@ describe('real-world benchmark runner', () => {
   });
 
   it('writes committed perfbench fixture into tools/perfbench/fixtures/real-world', async () => {
-    const repoRoot = await mkdtemp(path.join(tmpdir(), 'ironqr-bench-export-'));
+    const repoRoot = await makeTestDir('bench-export');
     const fixturePath = path.join(repoRoot, 'fixtures', 'positive.png');
     await mkdir(path.dirname(fixturePath), { recursive: true });
     await writeFile(fixturePath, createPngBytes());

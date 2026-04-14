@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { parseArgv } from '../../src/args.js';
@@ -18,6 +17,7 @@ import type { AppContext } from '../../src/context.js';
 import { writeStagedRemoteAsset } from '../../src/import/remote.js';
 import { readCorpusManifest } from '../../src/manifest.js';
 import type { CliUi, SelectValue } from '../../src/ui.js';
+import { makeTestDir } from '../helpers.js';
 
 describe('corpus cli helpers', () => {
   it('builds a Windows-safe opener invocation', () => {
@@ -210,7 +210,7 @@ describe('corpus cli helpers', () => {
   });
 
   it('staged import requires explicit confirmed license instead of auto-accepting hint', async () => {
-    const repoRoot = await mkdtemp(path.join(tmpdir(), 'ironqr-import-cli-'));
+    const repoRoot = await makeTestDir('import-cli');
     const stageDir = path.join(repoRoot, 'corpus', 'staging', 'manual-run');
     await mkdir(path.join(repoRoot, 'corpus'), { recursive: true });
     await mkdir(stageDir, { recursive: true });
