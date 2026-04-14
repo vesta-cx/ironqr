@@ -18,6 +18,7 @@ export {
 } from './import/remote.js';
 export { classifyLicense, isAutoRejectLicense } from './license.js';
 export { readCorpusManifest, writeCorpusManifest } from './manifest.js';
+export { detectQrKind } from './qr-kind.js';
 export { resolveRepoRootFromModuleUrl } from './repo-root.js';
 export { reviewStagedAssets } from './review.js';
 export { scanLocalImageFile } from './scan.js';

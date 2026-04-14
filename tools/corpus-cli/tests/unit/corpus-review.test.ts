@@ -9,6 +9,7 @@ import {
   streamStagedRemoteAssets,
 } from '../../src/import/remote.js';
 import { classifyLicense, isAutoRejectLicense } from '../../src/license.js';
+import { detectQrKind } from '../../src/qr-kind.js';
 import { readCorpusRejections } from '../../src/manifest.js';
 import { reviewStagedAssets } from '../../src/review.js';
 import { makeTestDir } from '../helpers.js';
@@ -429,6 +430,43 @@ describe('interactive staged review', () => {
     );
 
     expect(second.assets).toHaveLength(0);
+  });
+});
+
+describe('QR kind detector', () => {
+  it('detects URL schemes', () => {
+    expect(detectQrKind('https://example.com')).toBe('url');
+    expect(detectQrKind('http://example.com/path?q=1')).toBe('url');
+    expect(detectQrKind('ftp://files.example.com')).toBe('url');
+  });
+
+  it('detects email', () => {
+    expect(detectQrKind('mailto:user@example.com')).toBe('email');
+    expect(detectQrKind('user@example.com')).toBe('email');
+  });
+
+  it('detects phone, sms, geo, wifi', () => {
+    expect(detectQrKind('tel:+1-555-1234')).toBe('phone');
+    expect(detectQrKind('sms:+15551234')).toBe('sms');
+    expect(detectQrKind('smsto:+15551234')).toBe('sms');
+    expect(detectQrKind('geo:51.5074,-0.1278')).toBe('geo');
+    expect(detectQrKind('WIFI:T:WPA;S:MyNetwork;P:secret;;')).toBe('wifi');
+  });
+
+  it('detects vcard and mecard', () => {
+    expect(detectQrKind('BEGIN:VCARD\nFN:Jane Doe\nEND:VCARD')).toBe('vcard');
+    expect(detectQrKind('MECARD:N:Doe,Jane;EMAIL:jane@example.com;;')).toBe('mecard');
+  });
+
+  it('detects otpauth and crypto', () => {
+    expect(detectQrKind('otpauth://totp/Example?secret=JBSWY3DPEHPK3PXP')).toBe('otpauth');
+    expect(detectQrKind('bitcoin:1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf')).toBe('crypto');
+    expect(detectQrKind('ethereum:0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BA')).toBe('crypto');
+  });
+
+  it('falls back to text for plain strings', () => {
+    expect(detectQrKind('Hello, world!')).toBe('text');
+    expect(detectQrKind('12345')).toBe('text');
   });
 });
 

@@ -1,6 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppContext } from '../context.js';
+import { detectQrKind } from '../qr-kind.js';
 import type { AutoScan, CorpusAssetLabel, GroundTruth, ReviewStatus } from '../schema.js';
 import { assertInteractiveSession } from '../tty.js';
 import type { CliUi } from '../ui.js';
@@ -210,7 +211,12 @@ export const promptManualGroundTruth = async (
       ...(prefill?.text ? { initialValue: prefill.text } : {}),
       validate: (value) => (value.trim().length > 0 ? undefined : 'QR data is required'),
     });
-    const kind = await promptOptionalText(ui, `QR #${label} kind (optional)`, prefill?.kind);
+    const autoKind = detectQrKind(text);
+    const kind = await promptOptionalText(
+      ui,
+      `QR #${label} kind (optional)`,
+      prefill?.kind ?? autoKind,
+    );
     const verifiedWith = await promptOptionalText(ui, `QR #${label} verified with (optional)`);
 
     codes.push({
