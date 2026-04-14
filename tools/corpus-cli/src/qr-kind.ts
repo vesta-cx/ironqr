@@ -2,11 +2,32 @@
  * Detects the semantic type of a QR code payload string.
  * Returns a short lowercase label suitable for `GroundTruthCode.kind`.
  */
+
+const isValidUrl = (text: string, protocols: readonly string[]): boolean => {
+  // URLs cannot contain unencoded whitespace. The WHATWG URL parser silently
+  // percent-encodes spaces rather than throwing, so we must guard explicitly.
+  if (/\s/.test(text)) return false;
+  try {
+    const url = new URL(text);
+    return protocols.includes(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
 export const detectQrKind = (text: string): string => {
   const t = text.trim();
 
-  if (/^https?:\/\//i.test(t)) return 'url';
-  if (/^ftp:\/\//i.test(t)) return 'url';
+  // MEBKM bookmark — Japanese mobile standard; may begin with a plain URL
+  // fallback before the MEBKM: record. Must be checked before the URL rule
+  // because the payload can start with http:// yet not be a plain URL.
+  if (/MEBKM:/i.test(t)) return 'bookmark';
+
+  // Validate URLs strictly — unencoded spaces or other invalid chars disqualify.
+  if (isValidUrl(t, ['http:', 'https:', 'ftp:'])) return 'url';
+
+  // Structured schemes — prefix matching is correct here; spaces are allowed
+  // within the value portion of these formats (e.g. SSID, phone number display).
   if (/^mailto:/i.test(t)) return 'email';
   if (/^tel:/i.test(t)) return 'phone';
   if (/^sms:|^smsto:/i.test(t)) return 'sms';

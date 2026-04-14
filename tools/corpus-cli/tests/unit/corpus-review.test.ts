@@ -434,10 +434,18 @@ describe('interactive staged review', () => {
 });
 
 describe('QR kind detector', () => {
-  it('detects URL schemes', () => {
+  it('detects valid URLs', () => {
     expect(detectQrKind('https://example.com')).toBe('url');
     expect(detectQrKind('http://example.com/path?q=1')).toBe('url');
     expect(detectQrKind('ftp://files.example.com')).toBe('url');
+    expect(detectQrKind('https://example.com/path%20with%20spaces')).toBe('url');
+  });
+
+  it('rejects http-prefixed strings with unencoded spaces as non-url', () => {
+    expect(detectQrKind('http://example.com/foo bar')).not.toBe('url');
+    expect(detectQrKind('http://sagasou.mobi MEBKM:TITLE:test;URL:http://sagasou.mobi;;')).not.toBe(
+      'url',
+    );
   });
 
   it('detects email', () => {
@@ -462,6 +470,15 @@ describe('QR kind detector', () => {
     expect(detectQrKind('otpauth://totp/Example?secret=JBSWY3DPEHPK3PXP')).toBe('otpauth');
     expect(detectQrKind('bitcoin:1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf')).toBe('crypto');
     expect(detectQrKind('ethereum:0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BA')).toBe('crypto');
+  });
+
+  it('detects MEBKM bookmark even when prefixed with a fallback URL', () => {
+    expect(
+      detectQrKind(
+        'http://sagasou.mobi MEBKM:TITLE:探そうモビで専門学校探し！;URL:http\\://sagasou.mobi;;',
+      ),
+    ).toBe('bookmark');
+    expect(detectQrKind('MEBKM:TITLE:Example;URL:http://example.com;;')).toBe('bookmark');
   });
 
   it('falls back to text for plain strings', () => {
