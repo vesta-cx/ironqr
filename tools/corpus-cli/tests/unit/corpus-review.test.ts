@@ -9,8 +9,8 @@ import {
   streamStagedRemoteAssets,
 } from '../../src/import/remote.js';
 import { classifyLicense, isAutoRejectLicense } from '../../src/license.js';
-import { detectQrKind } from '../../src/qr-kind.js';
 import { readCorpusRejections } from '../../src/manifest.js';
+import { detectQrKind } from '../../src/qr-kind.js';
 import { reviewStagedAssets } from '../../src/review.js';
 import { makeTestDir } from '../helpers.js';
 
@@ -102,7 +102,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(staged.stageDir),
       promptConfirmedLicense: async (_asset, suggestedLicense) => suggestedLicense,
       promptAllowInCorpus: async () => true,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async (_asset, initialValue) => {
         qrCountPrefills.push(initialValue);
         return initialValue ?? 0;
@@ -169,7 +169,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(staged.stageDir),
       promptConfirmedLicense: async () => undefined,
       promptAllowInCorpus: async () => true,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async () => 1,
       promptGroundTruth: async () => ({
         qrCount: 1,
@@ -210,7 +210,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(staged.stageDir),
       promptConfirmedLicense: async (_asset, suggestedLicense) => suggestedLicense,
       promptAllowInCorpus: async () => true,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async () => 1,
       promptGroundTruth: async () => ({
         qrCount: 1,
@@ -259,7 +259,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(staged.stageDir),
       promptConfirmedLicense: async (_asset, suggestedLicense) => suggestedLicense,
       promptAllowInCorpus: async () => false,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async () => {
         throw new Error('rejected assets should not ask qr count');
       },
@@ -316,7 +316,7 @@ describe('interactive staged review', () => {
         })(),
         promptConfirmedLicense: async () => undefined,
         promptAllowInCorpus: async () => true,
-        promptRejectReason: async () => 'license' as const,
+        promptRejectReason: async () => 'license',
         promptQrCount: async () => 0,
         promptGroundTruth: async () => ({ qrCount: 0, codes: [] }),
         scanAsset: async () => ({ attempted: false, succeeded: false, results: [] }),
@@ -348,7 +348,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(staged.stageDir),
       promptConfirmedLicense: async (_asset, suggestedLicense) => suggestedLicense,
       promptAllowInCorpus: async () => true,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async () => 0,
       promptGroundTruth: async () => ({ qrCount: 0, codes: [] }),
       scanAsset: async () => ({
@@ -389,7 +389,7 @@ describe('interactive staged review', () => {
       assets: streamStagedRemoteAssets(first.stageDir),
       promptConfirmedLicense: async () => undefined,
       promptAllowInCorpus: async () => false,
-      promptRejectReason: async () => 'license' as const,
+      promptRejectReason: async () => 'license',
       promptQrCount: async () => {
         throw new Error('should not be called');
       },

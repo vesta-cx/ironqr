@@ -150,13 +150,10 @@ export const ScrapeProgressSchema = S.Struct({
 });
 export type ScrapeProgress = S.Schema.Type<typeof ScrapeProgressSchema>;
 
-export const CorpusRejectionReasonSchema = S.Literals([
-  'license',
-  'quality',
-  'irrelevant',
-  'other',
-]);
-export type CorpusRejectionReason = S.Schema.Type<typeof CorpusRejectionReasonSchema>;
+// Open string — well-known values are 'license' | 'quality' | 'irrelevant' | 'duplicate'
+// but reviewers can enter any custom reason.
+export const CorpusRejectionReasonSchema = S.String;
+export type CorpusRejectionReason = string;
 
 export const CorpusRejectionEntrySchema = S.Struct({
   sourceSha256: S.String,

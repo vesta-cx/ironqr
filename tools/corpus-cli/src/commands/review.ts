@@ -62,17 +62,23 @@ export const runReviewCommand = async (
         message: `Allow ${asset.id} in corpus?`,
         initialValue: true,
       }),
-    promptRejectReason: async (_asset) =>
-      context.ui.select({
+    promptRejectReason: async (_asset) => {
+      const choice = await context.ui.select<string>({
         message: 'Rejection reason',
-        initialValue: 'license' as const,
+        initialValue: 'license',
         options: [
-          { value: 'license' as const, label: 'License', hint: 'incompatible or unclear license' },
-          { value: 'quality' as const, label: 'Quality', hint: 'too low resolution or corrupted' },
-          { value: 'irrelevant' as const, label: 'Irrelevant', hint: 'not a QR image' },
-          { value: 'other' as const, label: 'Other' },
+          { value: 'license', label: 'License', hint: 'incompatible or unclear license' },
+          { value: 'quality', label: 'Quality', hint: 'too low resolution or corrupted' },
+          { value: 'irrelevant', label: 'Irrelevant', hint: 'not a QR image' },
+          { value: 'duplicate', label: 'Duplicate', hint: 'already in corpus or staging' },
+          { value: 'custom', label: 'Custom…' },
         ],
-      }),
+      });
+      if (choice === 'custom') {
+        return context.ui.text({ message: 'Custom rejection reason' });
+      }
+      return choice;
+    },
     promptQrCount: async (_, initialValue) =>
       promptQrCount(context.ui, 'How many QR codes are present in this image?', initialValue),
     promptGroundTruth: async (_, qrCount, scanResult) => {
