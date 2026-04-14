@@ -42,6 +42,38 @@ const matchAllGroups = (pattern: RegExp, value: string, groupIndex = 1): string[
   return matches;
 };
 
+// ── Attribution extraction ──────────────────────────────────────────────────
+
+/**
+ * Strips HTML tags and decodes common HTML entities from a raw HTML fragment.
+ */
+const htmlToText = (fragment: string): string =>
+  fragment
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * For Wikimedia Commons file pages the file info table uses
+ * id="fileinfotpl_aut" to mark the Author row. The adjacent <td> holds the
+ * author name, possibly wrapped in a link.
+ */
+export const extractCommonsAttribution = (html: string): string | null => {
+  const rowMatch =
+    /id=["']fileinfotpl_aut["'][^<]*<\/[^>]+>\s*<\/td>\s*<td[^>]*>(.*?)<\/td>/is.exec(html);
+  if (rowMatch?.[1]) {
+    const text = htmlToText(rowMatch[1]);
+    if (text.length > 0 && text.length < 200) return text;
+  }
+  return null;
+};
+
 // ── License detection helpers ────────────────────────────────────────────────
 
 const extractOgLicense = (html: string): string | null => {

@@ -184,6 +184,7 @@ export const RealWorldBenchmarkEntrySchema = S.Struct({
   mediaType: S.String,
   sourcePageUrl: S.optional(S.String),
   confirmedLicense: S.optional(S.String),
+  attribution: S.optional(S.String),
   groundTruth: S.optional(GroundTruthSchema),
   autoScan: S.optional(AutoScanSchema),
 });

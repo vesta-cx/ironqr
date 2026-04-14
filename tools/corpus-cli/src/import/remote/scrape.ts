@@ -11,7 +11,11 @@ import type {
 } from './contracts.js';
 import { tryPromise } from './effect.js';
 import { type FetchLike, fetchImage, fetchText } from './fetch.js';
-import { detectBestEffortLicense, extractImageCandidates } from './html.js';
+import {
+  detectBestEffortLicense,
+  extractCommonsAttribution,
+  extractImageCandidates,
+} from './html.js';
 import type { SourcePage } from './page.js';
 import { assertAllowedSeed, isAllowedImageHost, normalizeHost } from './policy.js';
 import { resolveSourcePagesEffect } from './resolve.js';
@@ -57,6 +61,7 @@ const createStagedRemoteAsset = (
   normalized: { readonly bytes: Uint8Array; readonly width: number; readonly height: number },
   suggestedLabel: StagedRemoteAsset['suggestedLabel'],
   licenseHint: { readonly bestEffortLicense?: string; readonly licenseEvidenceText?: string },
+  attributionText?: string,
 ): StagedRemoteAsset => {
   const sha256 = hashSha256(normalized.bytes);
   const imageUrlHash = hashSha256(new TextEncoder().encode(imageUrl));
@@ -80,6 +85,7 @@ const createStagedRemoteAsset = (
     width: normalized.width,
     height: normalized.height,
     ...(page.title ? { pageTitle: page.title } : {}),
+    ...(attributionText ? { attributionText } : {}),
     ...licenseHint,
     review: {
       status: 'pending',
@@ -142,6 +148,8 @@ const scrapeRemoteAssetsLoopEffect = (
         const imageCandidates = extractImageCandidates(page.url, page.html, page.isDetail);
         const host = normalizeHost(new URL(page.url).hostname);
         const licenseHint = detectBestEffortLicense(host, page.html);
+        const attributionText =
+          host === 'commons.wikimedia.org' ? extractCommonsAttribution(page.html) : null;
 
         log(`Considering ${imageCandidates.length} image(s) from ${page.url}`);
 
@@ -184,6 +192,7 @@ const scrapeRemoteAssetsLoopEffect = (
               normalized,
               options.label,
               licenseHint,
+              attributionText ?? undefined,
             );
 
             await Effect.runPromise(

@@ -32,7 +32,11 @@ const buildRemoteSource = (
     imageUrl: asset.imageUrl,
     fetchedAt: asset.fetchedAt,
     ...(asset.pageTitle ? { pageTitle: asset.pageTitle } : {}),
-    ...(options.attribution ? { attribution: options.attribution } : {}),
+    ...(options.attribution
+      ? { attribution: options.attribution }
+      : asset.attributionText
+        ? { attribution: asset.attributionText }
+        : {}),
     ...(license ? { license } : {}),
     ...(options.provenanceNotes ? { notes: options.provenanceNotes } : {}),
   };

@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as S from 'effect/Schema';
 import sharp from 'sharp';
+import { classifyLicense } from '../license.js';
 import {
   ensureCorpusLayout,
   getBenchmarkExportPath,
@@ -59,6 +60,7 @@ const toBenchmarkEntry = (repoRoot: string, asset: CorpusAsset): RealWorldBenchm
     mediaType: asset.mediaType,
     ...(remoteSource?.sourcePageUrl ? { sourcePageUrl: remoteSource.sourcePageUrl } : {}),
     ...(confirmedLicense ? { confirmedLicense } : {}),
+    ...(remoteSource?.attribution ? { attribution: remoteSource.attribution } : {}),
     ...(asset.groundTruth ? { groundTruth: asset.groundTruth } : {}),
     ...(asset.autoScan ? { autoScan: asset.autoScan } : {}),
   };
@@ -137,6 +139,41 @@ export const readRealWorldBenchmarkFixture = async (
   }
 };
 
+export const generateAttributionMd = (entries: readonly RealWorldBenchmarkEntry[]): string => {
+  const needsAttribution = entries.filter((e) => {
+    const license = e.confirmedLicense;
+    if (!license) return false;
+    const tier = classifyLicense(license);
+    // Public domain / CC0 need no attribution; everything else does
+    return tier !== 'restricted' && !/public.?domain|cc0/i.test(license);
+  });
+
+  if (needsAttribution.length === 0) {
+    return '# Attribution\n\nAll images in this fixture are in the public domain or CC0.\n';
+  }
+
+  const lines: string[] = [
+    '# Attribution',
+    '',
+    'The following images in this perfbench fixture require attribution under their respective licenses.',
+    'IronQR is open-source software (MCX License). Non-commercial (NC) licenses are used only for testing.',
+    '',
+    '| Asset | License | Source | Author |',
+    '|-------|---------|--------|--------|',
+  ];
+
+  for (const entry of needsAttribution) {
+    const file = path.basename(entry.assetPath);
+    const license = entry.confirmedLicense ?? 'Unknown';
+    const source = entry.sourcePageUrl ? `[source](${entry.sourcePageUrl})` : '—';
+    const author = entry.attribution ?? '—';
+    lines.push(`| \`${file}\` | ${license} | ${source} | ${author} |`);
+  }
+
+  lines.push('');
+  return lines.join('\n');
+};
+
 export const writeSelectedRealWorldBenchmarkFixture = async (
   repoRoot: string,
   assetIds: readonly string[],
@@ -183,5 +220,10 @@ export const writeSelectedRealWorldBenchmarkFixture = async (
 
   const outputPath = getPerfbenchFixtureManifestPath(repoRoot);
   await writeFile(outputPath, `${JSON.stringify(nextCorpus, null, 2)}\n`, 'utf8');
+
+  const allEntries = [...nextCorpus.positives, ...nextCorpus.negatives];
+  const attributionMd = generateAttributionMd(allEntries);
+  await writeFile(path.join(fixtureRoot, 'ATTRIBUTION.md'), attributionMd, 'utf8');
+
   return { outputPath, corpus: nextCorpus };
 };

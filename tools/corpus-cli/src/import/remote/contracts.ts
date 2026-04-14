@@ -38,6 +38,7 @@ export const StagedRemoteAssetSchema = S.Struct({
   height: S.Number,
   pageTitle: S.optional(S.String),
   altText: S.optional(S.String),
+  attributionText: S.optional(S.String),
   bestEffortLicense: S.optional(S.String),
   licenseEvidenceText: S.optional(S.String),
   review: StageReviewSchema,
