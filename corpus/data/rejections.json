@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "rejections": [
+    {
+      "sourceSha256": "5861a9465ce31d4cb47ef17429ab61c16c131c565aea6591c2d210dcd26ab847",
+      "reason": "other",
+      "sourcePageUrl": "https://commons.wikimedia.org/wiki/File:QR_Codes_(2).png",
+      "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/62/QR_Codes_%282%29.png",
+      "rejectedBy": "mia-riezebos",
+      "rejectedAt": "2026-04-14T18:03:27.451Z"
+    }
+  ]
+}
