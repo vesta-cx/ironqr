@@ -5,6 +5,7 @@ import {
   type StageReviewStatus,
   updateStagedRemoteAsset,
 } from './import/remote.js';
+import { isAutoRejectLicense } from './license.js';
 import type { AutoScan, CorpusRejectionReason, GroundTruth } from './schema.js';
 
 interface ScanAssetResult {
@@ -119,6 +120,25 @@ export const reviewStagedAssets = async (
       asset,
       asset.confirmedLicense ?? asset.bestEffortLicense,
     );
+
+    if (confirmedLicense && isAutoRejectLicense(confirmedLicense)) {
+      options.log(`Auto-rejected ${asset.id}: non-permissive license "${confirmedLicense}"`);
+      await updateStagedRemoteAsset(options.stageDir, {
+        ...buildReviewedAsset(asset, {
+          review: {
+            status: 'rejected',
+            reviewer: options.reviewer,
+            reviewedAt: new Date().toISOString(),
+            notes: `Non-permissive license: ${confirmedLicense}`,
+          },
+          confirmedLicense,
+        }),
+        rejectionReason: 'license',
+      });
+      rejected += 1;
+      continue;
+    }
+
     const allowInCorpus = await options.promptAllowInCorpus(asset);
 
     if (!allowInCorpus) {

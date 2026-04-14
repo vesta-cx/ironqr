@@ -8,6 +8,7 @@ import {
   scrapeRemoteAssets,
   streamStagedRemoteAssets,
 } from '../../src/import/remote.js';
+import { classifyLicense, isAutoRejectLicense } from '../../src/license.js';
 import { readCorpusRejections } from '../../src/manifest.js';
 import { reviewStagedAssets } from '../../src/review.js';
 import { makeTestDir } from '../helpers.js';
@@ -428,5 +429,86 @@ describe('interactive staged review', () => {
     );
 
     expect(second.assets).toHaveLength(0);
+  });
+});
+
+describe('license classifier', () => {
+  it('classifies permissive licenses', () => {
+    expect(classifyLicense('CC BY 4.0')).toBe('permissive');
+    expect(classifyLicense('CC BY-SA 4.0')).toBe('permissive');
+    expect(classifyLicense('CC BY-ND 4.0')).toBe('permissive');
+    expect(classifyLicense('CC0 1.0')).toBe('permissive');
+    expect(classifyLicense('Public domain')).toBe('permissive');
+    expect(classifyLicense('Pixabay License')).toBe('permissive');
+    expect(classifyLicense('Unsplash License (free to use, no attribution required)')).toBe(
+      'permissive',
+    );
+  });
+
+  it('classifies non-commercial licenses', () => {
+    expect(classifyLicense('CC BY-NC 4.0')).toBe('non-commercial');
+    expect(classifyLicense('CC BY-NC-SA 4.0')).toBe('non-commercial');
+    expect(classifyLicense('CC BY-NC-ND 4.0')).toBe('non-commercial');
+  });
+
+  it('classifies restricted licenses', () => {
+    expect(classifyLicense('All rights reserved')).toBe('restricted');
+    expect(classifyLicense('© 2024 Photographer Name')).toBe('restricted');
+    expect(classifyLicense('Proprietary')).toBe('restricted');
+    expect(classifyLicense('No redistribution')).toBe('restricted');
+  });
+
+  it('flags restricted licenses for auto-reject', () => {
+    expect(isAutoRejectLicense('All rights reserved')).toBe(true);
+    expect(isAutoRejectLicense('CC BY 4.0')).toBe(false);
+    expect(isAutoRejectLicense('CC BY-NC 4.0')).toBe(false);
+  });
+
+  it('auto-rejects during review when confirmed license is restricted', async () => {
+    const repoRoot = await createRepoRoot();
+    const staged = await scrapeRemoteAssets(
+      {
+        repoRoot,
+        seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
+        label: 'qr-positive',
+        limit: 1,
+      },
+      buildMockFetch(),
+    );
+
+    const logs: string[] = [];
+    const summary = await reviewStagedAssets({
+      stageDir: staged.stageDir,
+      reviewer: 'mia',
+      assets: streamStagedRemoteAssets(staged.stageDir),
+      promptConfirmedLicense: async () => 'All rights reserved',
+      promptAllowInCorpus: async () => {
+        throw new Error('should not reach allow-in-corpus prompt for restricted license');
+      },
+      promptRejectReason: async () => {
+        throw new Error('should not reach reject-reason prompt for auto-reject');
+      },
+      promptQrCount: async () => {
+        throw new Error('should not be called');
+      },
+      promptGroundTruth: async () => {
+        throw new Error('should not be called');
+      },
+      scanAsset: async () => {
+        throw new Error('should not be called');
+      },
+      openSourcePage: async () => {},
+      log: (line) => logs.push(line),
+    });
+
+    expect(summary.rejected).toBe(1);
+    expect(logs.some((l) => l.includes('Auto-rejected') && l.includes('All rights reserved'))).toBe(
+      true,
+    );
+
+    const reviewed = await readStagedRemoteAsset(staged.stageDir, staged.assets[0]?.id ?? '');
+    expect(reviewed.review.status).toBe('rejected');
+    expect(reviewed.rejectionReason).toBe('license');
+    expect(reviewed.confirmedLicense).toBe('All rights reserved');
   });
 });

@@ -16,6 +16,7 @@ export {
   updateStagedRemoteAsset,
   writeStagedRemoteAsset,
 } from './import/remote.js';
+export { classifyLicense, isAutoRejectLicense } from './license.js';
 export { readCorpusManifest, writeCorpusManifest } from './manifest.js';
 export { resolveRepoRootFromModuleUrl } from './repo-root.js';
 export { reviewStagedAssets } from './review.js';
