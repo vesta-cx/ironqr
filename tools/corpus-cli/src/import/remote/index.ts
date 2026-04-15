@@ -1,5 +1,5 @@
-export type { ImportRemoteAssetResult } from '../../schema.js';
 export type {
+  ImportRemoteAssetResult,
   ImportStagedRemoteAssetsOptions,
   ScrapeRemoteAssetsResult,
   ScrapeRemoteAssetsSession,

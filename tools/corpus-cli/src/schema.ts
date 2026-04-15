@@ -1,11 +1,16 @@
 import * as S from 'effect/Schema';
 
+/** Schema for the corpus asset classification label. */
 export const CorpusAssetLabelSchema = S.Literals(['qr-positive', 'non-qr-negative']);
+/** Whether an asset contains QR codes (`qr-positive`) or should not decode as one (`non-qr-negative`). */
 export type CorpusAssetLabel = S.Schema.Type<typeof CorpusAssetLabelSchema>;
 
+/** Schema for the human-review status of a corpus asset. */
 export const ReviewStatusSchema = S.Literals(['pending', 'approved', 'rejected']);
+/** Human-review lifecycle state of a corpus asset. */
 export type ReviewStatus = S.Schema.Type<typeof ReviewStatusSchema>;
 
+/** Schema for a locally imported image provenance record. */
 export const LocalSourceSchema = S.Struct({
   kind: S.Literal('local'),
   originalPath: S.String,
@@ -14,8 +19,10 @@ export const LocalSourceSchema = S.Struct({
   license: S.optional(S.String),
   notes: S.optional(S.String),
 });
+/** Provenance record for an image imported from a local file path. */
 export type LocalSource = S.Schema.Type<typeof LocalSourceSchema>;
 
+/** Schema for a remotely fetched image provenance record. */
 export const RemoteSourceSchema = S.Struct({
   kind: S.Literal('remote'),
   sourcePageUrl: S.String,
@@ -26,47 +33,61 @@ export const RemoteSourceSchema = S.Struct({
   license: S.optional(S.String),
   notes: S.optional(S.String),
 });
+/** Provenance record for an image fetched from a remote URL. */
 export type RemoteSource = S.Schema.Type<typeof RemoteSourceSchema>;
 
+/** Schema for a corpus asset provenance record (local or remote). */
 export const ProvenanceRecordSchema = S.Union([LocalSourceSchema, RemoteSourceSchema]);
+/** A single provenance entry describing where an asset came from. */
 export type ProvenanceRecord = S.Schema.Type<typeof ProvenanceRecordSchema>;
 
+/** Schema for the human-review record attached to a corpus asset. */
 export const AssetReviewSchema = S.Struct({
   status: ReviewStatusSchema,
   reviewer: S.optional(S.String),
   reviewedAt: S.optional(S.String),
   notes: S.optional(S.String),
 });
+/** Human-review record for a corpus asset, including status, reviewer, and notes. */
 export type AssetReview = S.Schema.Type<typeof AssetReviewSchema>;
 
+/** Schema for a single verified QR code payload within ground truth. */
 export const GroundTruthCodeSchema = S.Struct({
   text: S.String,
   kind: S.optional(S.String),
   verifiedWith: S.optional(S.String),
   notes: S.optional(S.String),
 });
+/** A single verified QR code entry in the ground truth record. */
 export type GroundTruthCode = S.Schema.Type<typeof GroundTruthCodeSchema>;
 
+/** Schema for the verified QR ground truth of a corpus asset. */
 export const GroundTruthSchema = S.Struct({
   qrCount: S.Number,
   codes: S.Array(GroundTruthCodeSchema),
 });
+/** Verified QR code ground truth for a corpus asset. */
 export type GroundTruth = S.Schema.Type<typeof GroundTruthSchema>;
 
+/** Schema for a single QR code result from an automated scan. */
 export const AutoScanCodeSchema = S.Struct({
   text: S.String,
   kind: S.optional(S.String),
 });
+/** A single decoded QR code entry from an automated scan. */
 export type AutoScanCode = S.Schema.Type<typeof AutoScanCodeSchema>;
 
+/** Schema for the result of an automated QR scan attempt on a corpus asset. */
 export const AutoScanSchema = S.Struct({
   attempted: S.Boolean,
   succeeded: S.Boolean,
   results: S.Array(AutoScanCodeSchema),
   acceptedAsTruth: S.optional(S.Boolean),
 });
+/** Result of an automated QR scan, including whether it succeeded and what was found. */
 export type AutoScan = S.Schema.Type<typeof AutoScanSchema>;
 
+/** Schema for the license-review metadata attached to a corpus asset. */
 export const LicenseReviewSchema = S.Struct({
   bestEffortLicense: S.optional(S.String),
   licenseEvidenceText: S.optional(S.String),
@@ -74,8 +95,10 @@ export const LicenseReviewSchema = S.Struct({
   licenseVerifiedBy: S.optional(S.String),
   licenseVerifiedAt: S.optional(S.String),
 });
+/** License review metadata for a corpus asset, including confirmed license and verifier. */
 export type LicenseReview = S.Schema.Type<typeof LicenseReviewSchema>;
 
+/** Schema for a single corpus asset entry in the manifest. */
 export const CorpusAssetSchema = S.Struct({
   id: S.String,
   label: CorpusAssetLabelSchema,
@@ -93,68 +116,33 @@ export const CorpusAssetSchema = S.Struct({
   autoScan: S.optional(AutoScanSchema),
   licenseReview: S.optional(LicenseReviewSchema),
 });
+/** A single corpus asset record stored in `manifest.json`. */
 export type CorpusAsset = S.Schema.Type<typeof CorpusAssetSchema>;
 
+/** Schema for the top-level corpus manifest file. */
 export const CorpusManifestSchema = S.Struct({
   version: S.Number,
   assets: S.Array(CorpusAssetSchema),
 });
+/** The root corpus manifest containing all asset records. */
 export type CorpusManifest = S.Schema.Type<typeof CorpusManifestSchema>;
 
-export interface ImportLocalAssetOptions {
-  readonly repoRoot: string;
-  readonly paths: readonly string[];
-  readonly label: CorpusAssetLabel;
-  readonly reviewStatus?: ReviewStatus;
-  readonly reviewer?: string;
-  readonly reviewNotes?: string;
-  readonly attribution?: string;
-  readonly license?: string;
-  readonly provenanceNotes?: string;
-  readonly groundTruth?: GroundTruth;
-  readonly licenseReview?: LicenseReview;
-}
-
-export interface ImportLocalAssetResult {
-  readonly imported: readonly CorpusAsset[];
-  readonly deduped: readonly CorpusAsset[];
-  readonly manifest: CorpusManifest;
-}
-
-export interface ImportRemoteAssetOptions {
-  readonly repoRoot: string;
-  readonly seedUrls: readonly string[];
-  readonly label: CorpusAssetLabel;
-  readonly limit?: number;
-  readonly reviewStatus?: ReviewStatus;
-  readonly reviewer?: string;
-  readonly reviewNotes?: string;
-  readonly attribution?: string;
-  readonly license?: string;
-  readonly provenanceNotes?: string;
-  /** Optional logger for skipped candidates and fetch failures. */
-  readonly log?: (line: string) => void;
-  /** Delay in ms between page and image fetches to avoid rate limiting. Defaults to 1000. */
-  readonly fetchDelayMs?: number;
-}
-
-export interface ImportRemoteAssetResult {
-  readonly imported: readonly CorpusAsset[];
-  readonly deduped: readonly CorpusAsset[];
-  readonly manifest: CorpusManifest;
-}
-
+/** Schema for the persistent scrape-progress tracking file. */
 export const ScrapeProgressSchema = S.Struct({
   version: S.Number,
   visitedSourcePageUrls: S.Array(S.String),
 });
+/** Persistent record of source-page URLs already visited during scraping. */
 export type ScrapeProgress = S.Schema.Type<typeof ScrapeProgressSchema>;
 
 // Open string — well-known values are 'license' | 'quality' | 'irrelevant' | 'duplicate'
 // but reviewers can enter any custom reason.
+/** Schema for a corpus asset rejection reason (open string). */
 export const CorpusRejectionReasonSchema = S.String;
+/** Human-readable reason an asset was rejected; may be a well-known value or a custom string. */
 export type CorpusRejectionReason = string;
 
+/** Schema for a single entry in the rejections log. */
 export const CorpusRejectionEntrySchema = S.Struct({
   sourceSha256: S.String,
   reason: CorpusRejectionReasonSchema,
@@ -164,14 +152,18 @@ export const CorpusRejectionEntrySchema = S.Struct({
   rejectedBy: S.optional(S.String),
   rejectedAt: S.String,
 });
+/** A single rejection log entry identifying a rejected asset by its source SHA-256. */
 export type CorpusRejectionEntry = S.Schema.Type<typeof CorpusRejectionEntrySchema>;
 
+/** Schema for the top-level rejections log file. */
 export const CorpusRejectionsLogSchema = S.Struct({
   version: S.Number,
   rejections: S.Array(CorpusRejectionEntrySchema),
 });
+/** The root rejections log containing all rejection entries. */
 export type CorpusRejectionsLog = S.Schema.Type<typeof CorpusRejectionsLogSchema>;
 
+/** Schema for a single entry in the real-world benchmark corpus. */
 export const RealWorldBenchmarkEntrySchema = S.Struct({
   id: S.String,
   label: CorpusAssetLabelSchema,
@@ -185,10 +177,13 @@ export const RealWorldBenchmarkEntrySchema = S.Struct({
   groundTruth: S.optional(GroundTruthSchema),
   autoScan: S.optional(AutoScanSchema),
 });
+/** A single asset entry exported to the real-world benchmark corpus. */
 export type RealWorldBenchmarkEntry = S.Schema.Type<typeof RealWorldBenchmarkEntrySchema>;
 
+/** Schema for the full real-world benchmark corpus, split into positives and negatives. */
 export const RealWorldBenchmarkCorpusSchema = S.Struct({
   positives: S.Array(RealWorldBenchmarkEntrySchema),
   negatives: S.Array(RealWorldBenchmarkEntrySchema),
 });
+/** The real-world benchmark corpus, partitioned into QR-positive and non-QR-negative entries. */
 export type RealWorldBenchmarkCorpus = S.Schema.Type<typeof RealWorldBenchmarkCorpusSchema>;

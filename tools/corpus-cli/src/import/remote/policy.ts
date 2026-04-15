@@ -32,10 +32,12 @@ interface StagedRemoteAssetUrls {
   readonly imageUrl: string;
 }
 
+/** Strips a leading `www.` prefix and lowercases a hostname. */
 export const normalizeHost = (value: string): string => {
   return value.replace(/^www\./, '').toLowerCase();
 };
 
+/** Parses `seedUrl` and throws if its host is not in the scraping allowlist. */
 export const assertAllowedSeed = (seedUrl: string): URL => {
   const url = new URL(seedUrl);
   const host = normalizeHost(url.hostname);
@@ -47,21 +49,25 @@ export const assertAllowedSeed = (seedUrl: string): URL => {
   return url;
 };
 
+/** Returns the URL path patterns used to identify detail pages for `host`. */
 export const getPageLinkPatterns = (host: string): readonly RegExp[] => {
   return PAGE_LINK_PATTERNS[host] ?? [];
 };
 
+/** Returns `true` if `imageUrl`'s host is in the CDN allowlist for `sourceHost`. */
 export const isAllowedImageHost = (sourceHost: string, imageUrl: string): boolean => {
   try {
     const imageHost = normalizeHost(new URL(imageUrl).hostname);
     const allowed = ALLOWED_IMAGE_HOSTS[sourceHost];
     if (!allowed) return imageHost === sourceHost;
     return allowed.some((host) => normalizeHost(host) === imageHost);
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
   }
 };
 
+/** Validates that a staged asset's seed, source-page, and image URLs are self-consistent and allowlisted. */
 export const assertAllowedStagedAssetUrls = ({
   seedUrl,
   sourceHost,

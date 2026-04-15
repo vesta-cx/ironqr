@@ -11,7 +11,7 @@ import {
 import { resolveRepoRootFromModuleUrl } from './repo-root.js';
 import { isInteractiveSession } from './tty.js';
 import { createClackUi } from './ui/clack.js';
-import { CliCancelledError, type CliUi } from './ui.js';
+import { CliCancelledError, type CliUi, type SelectOption } from './ui.js';
 
 const detectGithubLogin = (): string | undefined => {
   try {
@@ -20,7 +20,11 @@ const detectGithubLogin = (): string | undefined => {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     return login || undefined;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && ('status' in error || 'code' in error)) {
+      return undefined;
+    }
+    console.warn('detectGithubLogin: unexpected error:', error);
     return undefined;
   }
 };
@@ -49,6 +53,10 @@ const isPathLike = (value: string): boolean => {
   return value.includes(path.sep) || value.includes('/') || /^[A-Za-z]:\\/.test(value);
 };
 
+/**
+ * Build a spawn invocation to open a local file target in the appropriate viewer.
+ * @param platform Defaults to `process.platform`; override in tests.
+ */
 export const buildOpenTargetInvocation = (
   target: string,
   platform: NodeJS.Platform = process.platform,
@@ -125,6 +133,10 @@ export const buildOpenTargetInvocation = (
   };
 };
 
+/**
+ * Build a spawn invocation to open an HTTP/HTTPS URL in the system browser.
+ * @param platform Defaults to `process.platform`; override in tests.
+ */
 export const buildOpenExternalInvocation = (
   target: string,
   platform: NodeJS.Platform = process.platform,
@@ -167,6 +179,29 @@ const openInvocation = (invocation: OpenTargetInvocation): Promise<void> => {
   });
 };
 
+const resolveViewerFromSelect = async (
+  ui: CliUi,
+  selectMessage: string,
+  initialValue: string,
+  options: readonly SelectOption<string>[],
+  customMessage: string,
+  customPlaceholder: string,
+  customRequired: string,
+): Promise<ViewerPreference> => {
+  const choice = await ui.select({ message: selectMessage, initialValue, options });
+  if (choice === 'custom-app') {
+    const value = (
+      await ui.text({
+        message: customMessage,
+        placeholder: customPlaceholder,
+        validate: (input) => (input.trim().length > 0 ? undefined : customRequired),
+      })
+    ).trim();
+    return { mode: 'custom-app', value };
+  }
+  return { mode: choice as Exclude<ViewerPreference['mode'], 'custom-app'> };
+};
+
 const promptViewerPreference = async (
   ui: CliUi,
   repoRoot: string,
@@ -184,73 +219,46 @@ const promptViewerPreference = async (
   let viewer: ViewerPreference;
 
   if (platform === 'darwin') {
-    const choice = await ui.select({
-      message: 'Running on macOS. Which app should preview images?',
-      initialValue: 'quicklook',
-      options: [
+    viewer = await resolveViewerFromSelect(
+      ui,
+      'Running on macOS. Which app should preview images?',
+      'quicklook',
+      [
         { value: 'quicklook', label: 'Quick Look', hint: 'reuses one viewer nicely' },
         { value: 'preview', label: 'Preview' },
         { value: 'default', label: 'Default app' },
         { value: 'custom-app', label: 'Custom app…' },
       ],
-    });
-
-    if (choice === 'custom-app') {
-      const value = (
-        await ui.text({
-          message: 'App name or app path',
-          placeholder: 'Preview or /Applications/Preview.app',
-          validate: (input) => (input.trim().length > 0 ? undefined : 'App is required'),
-        })
-      ).trim();
-      viewer = { mode: 'custom-app', value };
-    } else {
-      viewer = { mode: choice };
-    }
+      'App name or app path',
+      'Preview or /Applications/Preview.app',
+      'App is required',
+    );
   } else if (platform === 'win32') {
-    const choice = await ui.select({
-      message: 'Running on Windows. Which app should preview images?',
-      initialValue: 'default',
-      options: [
+    viewer = await resolveViewerFromSelect(
+      ui,
+      'Running on Windows. Which app should preview images?',
+      'default',
+      [
         { value: 'default', label: 'Default app' },
         { value: 'custom-app', label: 'Custom app path…' },
       ],
-    });
-
-    if (choice === 'custom-app') {
-      const value = (
-        await ui.text({
-          message: 'App path',
-          placeholder: 'C:\\Program Files\\ImageGlass\\ImageGlass.exe',
-          validate: (input) => (input.trim().length > 0 ? undefined : 'App path is required'),
-        })
-      ).trim();
-      viewer = { mode: 'custom-app', value };
-    } else {
-      viewer = { mode: 'default' };
-    }
+      'App path',
+      'C:\\Program Files\\ImageGlass\\ImageGlass.exe',
+      'App path is required',
+    );
   } else {
-    const choice = await ui.select({
-      message: 'Which app should preview images?',
-      initialValue: 'default',
-      options: [
+    viewer = await resolveViewerFromSelect(
+      ui,
+      'Which app should preview images?',
+      'default',
+      [
         { value: 'default', label: 'Default app' },
         { value: 'custom-app', label: 'Custom app command…' },
       ],
-    });
-
-    if (choice === 'custom-app') {
-      const value = (
-        await ui.text({
-          message: 'App command or path',
-          placeholder: 'sxiv',
-          validate: (input) => (input.trim().length > 0 ? undefined : 'App command is required'),
-        })
-      ).trim();
-      viewer = { mode: 'custom-app', value };
-    } else {
-      viewer = { mode: 'default' };
-    }
+      'App command or path',
+      'sxiv',
+      'App command is required',
+    );
   }
 
   await writeViewerPreference(repoRoot, viewer);
@@ -290,8 +298,6 @@ const createOpenExternal = (platform: NodeJS.Platform = process.platform) => {
   };
 };
 
-export { resolveRepoRootFromModuleUrl } from './repo-root.js';
-
 const main = async (): Promise<void> => {
   const argv = process.argv.slice(2);
   const verbose = argv.includes('--verbose') || argv.includes('-v');
@@ -323,8 +329,6 @@ const main = async (): Promise<void> => {
     throw error;
   }
 };
-
-export { buildFilteredCliCommand, getUsageText };
 
 if (import.meta.main) {
   void main().catch((error) => {

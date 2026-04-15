@@ -1,15 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { Effect } from 'effect';
 import { appendCorpusRejection, readCorpusManifest, writeCorpusManifest } from '../../manifest.js';
-import type {
-  CorpusAsset,
-  ImportRemoteAssetResult,
-  LicenseReview,
-  RemoteSource,
-} from '../../schema.js';
+import type { CorpusAsset, LicenseReview, RemoteSource } from '../../schema.js';
 import { MAJOR_VERSION } from '../../version.js';
 import { importAssetBytesEffect } from '../store.js';
-import type { ImportStagedRemoteAssetsOptions, StagedRemoteAsset } from './contracts.js';
+import type {
+  ImportRemoteAssetResult,
+  ImportStagedRemoteAssetsOptions,
+  StagedRemoteAsset,
+} from './contracts.js';
 import { tryPromise } from './effect.js';
 import {
   getAssetImagePath,
@@ -151,6 +150,10 @@ const importStagedRemoteAssetsEffect = (options: ImportStagedRemoteAssetsOptions
   });
 };
 
+/**
+ * Promotes approved staged assets into the corpus manifest and removes their staging directories.
+ * Rejected assets are written to the rejections log and also cleaned up.
+ */
 export const importStagedRemoteAssets = (
   options: ImportStagedRemoteAssetsOptions,
 ): Promise<ImportRemoteAssetResult> => {

@@ -4,13 +4,40 @@ import { Effect } from 'effect';
 import { readCorpusManifest, writeCorpusManifest } from '../manifest.js';
 import type {
   CorpusAsset,
-  ImportLocalAssetOptions,
-  ImportLocalAssetResult,
+  CorpusAssetLabel,
+  CorpusManifest,
+  GroundTruth,
+  LicenseReview,
   LocalSource,
+  ReviewStatus,
 } from '../schema.js';
+
+/** Options for importing one or more local image files into the corpus. */
+export interface ImportLocalAssetOptions {
+  readonly repoRoot: string;
+  readonly paths: readonly string[];
+  readonly label: CorpusAssetLabel;
+  readonly reviewStatus?: ReviewStatus;
+  readonly reviewer?: string;
+  readonly reviewNotes?: string;
+  readonly attribution?: string;
+  readonly license?: string;
+  readonly provenanceNotes?: string;
+  readonly groundTruth?: GroundTruth;
+  readonly licenseReview?: LicenseReview;
+}
+
+/** Result of a local-asset import batch, listing newly added and deduplicated assets. */
+export interface ImportLocalAssetResult {
+  readonly imported: readonly CorpusAsset[];
+  readonly deduped: readonly CorpusAsset[];
+  readonly manifest: CorpusManifest;
+}
+
 import { MAJOR_VERSION } from '../version.js';
 import { importAssetBytesEffect, mediaTypeFromExtension } from './store.js';
 
+/** Import local image files into the corpus manifest, deduplicating by source SHA-256. */
 export const importLocalAssets = (
   options: ImportLocalAssetOptions,
 ): Promise<ImportLocalAssetResult> => {
