@@ -201,21 +201,42 @@ export const removeRunDirIfEmptyEffect = (stageDir: string) => {
   });
 };
 
+/** Normalize a URL for dedup comparison (decode percent-encoding so File%3A matches File:). */
+const normalizeUrlForDedup = (url: string): string => {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+};
+
+export interface ExistingScrapeState {
+  readonly seenSourceSha256: Set<string>;
+  readonly seenSourcePageUrls: Set<string>;
+}
+
 /**
- * Collects `sourceSha256` hashes from the corpus manifest, rejections log, and any live staging runs.
- * Used to skip images that have already been staged, imported, or rejected.
+ * Collects `sourceSha256` hashes and source page URLs from the corpus manifest,
+ * rejections log, and any live staging runs. Used to skip images and pages that
+ * have already been staged, imported, or rejected.
  */
-export const collectExistingStagedSourceHashesEffect = (repoRoot: string) => {
+export const collectExistingScrapeStateEffect = (repoRoot: string) => {
   return tryPromise(async () => {
     const seenSourceSha256 = new Set<string>();
+    const seenSourcePageUrls = new Set<string>();
 
-    // Collect hashes from already-approved corpus assets so scraping never
-    // re-presents an image that has already been imported, even after staging
-    // directories are cleared.
+    // Collect hashes and source page URLs from already-imported corpus assets
+    // so scraping never re-presents an image that has already been imported,
+    // even after staging directories are cleared.
     const manifest = await readCorpusManifest(repoRoot);
     for (const asset of manifest.assets) {
       if (asset.sourceSha256) {
         seenSourceSha256.add(asset.sourceSha256);
+      }
+      for (const source of asset.provenance) {
+        if (source.kind === 'remote') {
+          seenSourcePageUrls.add(normalizeUrlForDedup(source.sourcePageUrl));
+        }
       }
     }
 
@@ -236,7 +257,7 @@ export const collectExistingStagedSourceHashesEffect = (repoRoot: string) => {
         .map((entry) => path.join(stagingRoot, entry.name));
     } catch (error) {
       if (isEnoentError(error)) {
-        return seenSourceSha256;
+        return { seenSourceSha256, seenSourcePageUrls };
       }
       throw error;
     }
@@ -248,9 +269,15 @@ export const collectExistingStagedSourceHashesEffect = (repoRoot: string) => {
         const manifestPath = path.join(runDir, assetEntry.name, 'manifest.json');
         try {
           const raw = await readFile(manifestPath, 'utf8');
-          const parsed = JSON.parse(raw) as { readonly sourceSha256?: unknown };
+          const parsed = JSON.parse(raw) as {
+            readonly sourceSha256?: unknown;
+            readonly sourcePageUrl?: unknown;
+          };
           if (typeof parsed.sourceSha256 === 'string' && parsed.sourceSha256.length > 0) {
             seenSourceSha256.add(parsed.sourceSha256);
+          }
+          if (typeof parsed.sourcePageUrl === 'string' && parsed.sourcePageUrl.length > 0) {
+            seenSourcePageUrls.add(normalizeUrlForDedup(parsed.sourcePageUrl));
           }
         } catch (error) {
           if (!isEnoentError(error)) {
@@ -260,6 +287,6 @@ export const collectExistingStagedSourceHashesEffect = (repoRoot: string) => {
       }
     }
 
-    return seenSourceSha256;
+    return { seenSourceSha256, seenSourcePageUrls } satisfies ExistingScrapeState;
   });
 };

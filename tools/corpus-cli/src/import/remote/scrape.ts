@@ -28,7 +28,7 @@ import type { SourcePage } from './page.js';
 import { assertAllowedSeed, isAllowedImageHost, normalizeHost } from './policy.js';
 import { resolveSourcePages } from './resolve.js';
 import {
-  collectExistingStagedSourceHashesEffect,
+  collectExistingScrapeStateEffect,
   ensureStageDir,
   readStagedRemoteAssets,
   writeStagedRemoteAssetEffect,
@@ -127,14 +127,20 @@ const scrapeRemoteAssetsLoopEffect = (
     const limit = options.limit ?? DEFAULT_STAGE_LIMIT;
     const log = options.log ?? (() => {});
     const fetchDelayMs = options.fetchDelayMs ?? 0;
-    const seenSourceSha256 = yield* collectExistingStagedSourceHashesEffect(options.repoRoot);
+    const { seenSourceSha256, seenSourcePageUrls: manifestPageUrls } =
+      yield* collectExistingScrapeStateEffect(options.repoRoot);
 
     if (seenSourceSha256.size > 0) {
       log(`Cross-run dedup: ${seenSourceSha256.size} previously staged image(s) will be skipped`);
     }
 
     const scrapeProgress = yield* tryPromise(() => readScrapeProgress(options.repoRoot));
-    const seenSourcePageUrls = new Set<string>(scrapeProgress.visitedSourcePageUrls);
+    // Merge scrape progress URLs with manifest-derived URLs so we skip
+    // pages whose images are already in the corpus without re-fetching.
+    const seenSourcePageUrls = new Set<string>([
+      ...scrapeProgress.visitedSourcePageUrls,
+      ...manifestPageUrls,
+    ]);
 
     if (seenSourcePageUrls.size > 0) {
       log(

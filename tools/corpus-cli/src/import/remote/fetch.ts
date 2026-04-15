@@ -305,7 +305,7 @@ export const fetchCommonsSearchBatch = (
       .filter((entry): entry is { title: string } => typeof entry.title === 'string')
       .map((entry) => ({
         title: entry.title,
-        pageUrl: `https://commons.wikimedia.org/wiki/${encodeURIComponent(entry.title.replace(/ /g, '_'))}`,
+        pageUrl: `https://commons.wikimedia.org/wiki/${entry.title.replace(/ /g, '_')}`,
       }));
 
     return {
