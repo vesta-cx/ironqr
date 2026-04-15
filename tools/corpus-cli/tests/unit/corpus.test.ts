@@ -66,7 +66,7 @@ describe('real-world corpus toolkit', () => {
     });
 
     const manifest = await readCorpusManifest(repoRoot);
-    expect(manifest.version).toBe(0);
+    expect(manifest.version).toBe(1);
     expect(manifest.assets).toHaveLength(2);
 
     const positive = manifest.assets.find((asset) => asset.label === 'qr-positive');

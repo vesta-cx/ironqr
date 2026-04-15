@@ -2,6 +2,7 @@ import { Effect } from 'effect';
 import { tryPromise } from './effect.js';
 import type { SourcePage } from './page.js';
 import { normalizeHost } from './policy.js';
+import { normalizeUrlForDedup } from './stage-store.js';
 import { htmlToText, stripAnsi } from './text.js';
 
 /** Minimal subset of the Fetch API required by scrape utilities; compatible with `globalThis.fetch`. */
@@ -344,7 +345,7 @@ export const resolveCommonsSearchPages = <E>(
       if (batch.results.length === 0) break;
 
       for (const result of batch.results) {
-        if (visitedSourcePageUrls.has(result.pageUrl)) {
+        if (visitedSourcePageUrls.has(normalizeUrlForDedup(result.pageUrl))) {
           log(`Skipped ${result.pageUrl}: visited in a previous scrape`);
           continue;
         }

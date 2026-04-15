@@ -1,5 +1,5 @@
 import { getPageLinkPatterns, normalizeHost } from './policy.js';
-import { htmlToText } from './text.js';
+import { htmlToText, stripAnsi } from './text.js';
 
 const absolutize = (baseUrl: string, value: string | null): string | null => {
   if (!value) return null;
@@ -57,7 +57,7 @@ export const extractCommonsAttribution = (html: string): string | null => {
   const rowMatch =
     /id=["']fileinfotpl_aut["'][^<]*<\/[^>]+>\s*<\/td>\s*<td[^>]*>(.*?)<\/td>/is.exec(html);
   if (rowMatch?.[1]) {
-    const text = htmlToText(rowMatch[1]);
+    const text = stripAnsi(htmlToText(rowMatch[1]));
     if (text.length > 0 && text.length < MAX_ATTRIBUTION_LENGTH) return text;
   }
   return null;
