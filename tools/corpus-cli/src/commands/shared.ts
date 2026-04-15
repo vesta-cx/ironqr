@@ -229,10 +229,15 @@ export const promptManualGroundTruth = async (
       validate: (value) => (value.trim().length > 0 ? undefined : 'QR data is required'),
     });
     const autoKind = detectQrKind(text);
+    // Prefer autoKind over a generic 'text' from the scanner — detectQrKind
+    // understands structured payloads (WIFI:, BEGIN:VCARD, etc.) that ironqr
+    // reports as plain 'text'.
+    const suggestedKind =
+      prefill?.kind && prefill.kind !== 'text' ? prefill.kind : autoKind;
     const kind = await promptOptionalText(
       ui,
       `QR #${label} kind (optional)`,
-      prefill?.kind ?? autoKind,
+      suggestedKind,
     );
     const verifiedWith = await promptOptionalText(ui, `QR #${label} verified with (optional)`);
 
