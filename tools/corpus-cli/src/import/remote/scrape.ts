@@ -11,7 +11,14 @@ import type {
   StagedRemoteAsset,
 } from './contracts.js';
 import { tryPromise } from './effect.js';
-import { type FetchLike, fetchCommonsFileMeta, fetchImage, fetchText } from './fetch.js';
+import {
+  type FetchLike,
+  fetchCommonsFileMeta,
+  fetchImage,
+  fetchText,
+  isCommonsSearchUrl,
+  resolveCommonsSearchPages,
+} from './fetch.js';
 import {
   detectBestEffortLicense,
   extractCommonsAttribution,
@@ -140,52 +147,69 @@ const scrapeRemoteAssetsLoopEffect = (
 
       const seed = assertAllowedSeed(seedUrl);
       log(`Fetching seed ${seed.toString()}`);
-      const seedPage = yield* fetchText(seed.toString(), fetchImpl, false);
       let resolvedSourcePages = 0;
-      const state = {
-        seenPages: new Set<string>(),
-        yieldedLeaves: new Set<string>(),
-        visitedSourcePageUrls: seenSourcePageUrls,
-      };
 
-      yield* resolveSourcePages(
-        seedPage,
-        { fetchImpl, log, fetchDelayMs },
-        state,
-        (page: SourcePage) =>
-          Effect.gen(function* () {
-            resolvedSourcePages += 1;
-            if (assets.length >= limit) {
-              return yield* Effect.fail({ _tag: 'LimitReached' } as const);
-            }
+      const onPageCallback = (page: SourcePage) =>
+        Effect.gen(function* () {
+          resolvedSourcePages += 1;
+          if (assets.length >= limit) {
+            return yield* Effect.fail({ _tag: 'LimitReached' } as const);
+          }
 
-            yield* processSourcePage(
-              page,
-              seedUrl,
-              fetchImpl,
-              fetchDelayMs,
-              log,
-              limit,
-              options.label,
-              seenImageUrls,
-              seenSourceSha256,
-              assets,
-              stageDir,
-              onStagedAsset,
-            );
+          yield* processSourcePage(
+            page,
+            seedUrl,
+            fetchImpl,
+            fetchDelayMs,
+            log,
+            limit,
+            options.label,
+            seenImageUrls,
+            seenSourceSha256,
+            assets,
+            stageDir,
+            onStagedAsset,
+          );
 
-            // Mark the source page as visited so the next scrape session skips
-            // fetching it entirely rather than re-deduping all its images.
-            seenSourcePageUrls.add(page.url);
-            yield* tryPromise(() => appendVisitedSourcePage(options.repoRoot, page.url));
-          }),
-      ).pipe(
-        Effect.catchIf(
-          (e): e is { readonly _tag: 'LimitReached' } =>
-            typeof e === 'object' && e !== null && '_tag' in e && e._tag === 'LimitReached',
-          () => Effect.void,
-        ),
+          // Mark the source page as visited so the next scrape session skips
+          // fetching it entirely rather than re-deduping all its images.
+          seenSourcePageUrls.add(page.url);
+          yield* tryPromise(() => appendVisitedSourcePage(options.repoRoot, page.url));
+        });
+
+      const catchLimit = Effect.catchIf(
+        (e: unknown): e is { readonly _tag: 'LimitReached' } =>
+          typeof e === 'object' && e !== null && '_tag' in e && e._tag === 'LimitReached',
+        () => Effect.void,
       );
+
+      if (isCommonsSearchUrl(seed.toString())) {
+        // Use the Wikimedia Commons search API for paginated results
+        // instead of scraping the infiniscroll HTML page.
+        yield* resolveCommonsSearchPages(
+          seed.toString(),
+          fetchImpl,
+          limit - assets.length,
+          fetchDelayMs,
+          log,
+          seenSourcePageUrls,
+          onPageCallback,
+        ).pipe(catchLimit);
+      } else {
+        const seedPage = yield* fetchText(seed.toString(), fetchImpl, false);
+        const state = {
+          seenPages: new Set<string>(),
+          yieldedLeaves: new Set<string>(),
+          visitedSourcePageUrls: seenSourcePageUrls,
+        };
+
+        yield* resolveSourcePages(
+          seedPage,
+          { fetchImpl, log, fetchDelayMs },
+          state,
+          onPageCallback,
+        ).pipe(catchLimit);
+      }
 
       log(`Resolved ${resolvedSourcePages} source page(s) for ${seed.toString()}`);
     }
