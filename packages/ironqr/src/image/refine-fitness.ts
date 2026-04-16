@@ -19,7 +19,12 @@
  */
 
 import type { Bounds, CornerSet, Point } from '../contracts/geometry.js';
-import { ALIGNMENT_PATTERN_CENTERS } from '../qr/qr-tables.js';
+import {
+  ALIGNMENT_PATTERN_CENTERS,
+  buildVersionInfoCodeword,
+  getVersionInfoFirstCopyPositions,
+  getVersionInfoSecondCopyPositions,
+} from '../qr/index.js';
 import { applyHomography, type GridResolution, type Homography } from './geometry.js';
 
 /**
@@ -48,14 +53,13 @@ export const refineGridFitness = (
   // No improvement possible (or no coverage) — don't pay the jiggle cost.
   if (bestScore <= 0) return resolution;
 
-  // Initial step: 0.5% of each parameter's magnitude. Across 6 passes with
-  // 0.5x decay this caps total drift at ~1% per param — enough to nudge a
-  // module-fraction-off homography back into alignment, not enough to drift
-  // to a different finder configuration in noisy scenes.
-  const initialStep: number[] = current.map((v) => Math.max(Math.abs(v) * 0.005, 1e-7));
+  // Start with a broader search, mirroring quirc's perspective jiggle. A QR
+  // photographed at a real angle can need a couple of percent of projective
+  // correction before the timing lines land on the right cells.
+  const initialStep: number[] = current.map((v) => Math.max(Math.abs(v) * 0.02, 1e-7));
   const step = initialStep.slice();
 
-  for (let pass = 0; pass < 6; pass += 1) {
+  for (let pass = 0; pass < 8; pass += 1) {
     let improved = false;
     for (let i = 0; i < 8; i += 1) {
       // Try +step and -step on parameter i.
@@ -129,6 +133,17 @@ const collectSamplePoints = (size: number, version: number): readonly SamplePoin
     }
   }
 
+  // ── Version information (v≥7) ──
+  // The 18-bit BCH-protected version block appears twice near the top-right
+  // and bottom-left finders. When decode later complains that version info is
+  // unreadable, the homography is often close but not quite landing on these
+  // cells. Sampling them directly gives the fitter a spec-defined target.
+  if (version >= 7) {
+    const codeword = buildVersionInfoCodeword(version);
+    pushBitSamples(points, getVersionInfoFirstCopyPositions(size), codeword);
+    pushBitSamples(points, getVersionInfoSecondCopyPositions(size), codeword);
+  }
+
   return points;
 };
 
@@ -164,6 +179,24 @@ const pushAlignmentSignature = (points: SamplePoint[], cr: number, cc: number): 
   points.push({ moduleRow: cr + 1, moduleCol: cc, expectDark: false });
   points.push({ moduleRow: cr, moduleCol: cc - 1, expectDark: false });
   points.push({ moduleRow: cr, moduleCol: cc + 1, expectDark: false });
+};
+
+const pushBitSamples = (
+  points: SamplePoint[],
+  positions: readonly (readonly [number, number])[],
+  codeword: number,
+): void => {
+  const bitCount = positions.length;
+  for (let index = 0; index < bitCount; index += 1) {
+    const position = positions[index];
+    if (!position) continue;
+    const [moduleRow, moduleCol] = position;
+    points.push({
+      moduleRow,
+      moduleCol,
+      expectDark: ((codeword >> (bitCount - 1 - index)) & 1) === 1,
+    });
+  }
 };
 
 // ─── Scoring & perturbation ───────────────────────────────────────────────
