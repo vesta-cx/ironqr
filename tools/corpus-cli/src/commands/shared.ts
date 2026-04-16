@@ -73,7 +73,7 @@ export const promptOptionalText = async (
     message,
     ...(initialValue !== undefined ? { initialValue } : {}),
   });
-  const trimmed = (typeof rawValue === 'string' ? rawValue : '').trim();
+  const trimmed = rawValue.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
@@ -181,7 +181,7 @@ export const promptLocalPaths = async (
   const initialValue = initialPaths.join(', ');
   const value = await ui.text({
     message: 'Local image path(s), separated by commas or newlines',
-    ...(initialValue !== undefined ? { initialValue } : {}),
+    ...(initialValue ? { initialValue } : {}),
     validate: (input) =>
       splitPathInput(input).length > 0 ? undefined : 'At least one path is required',
   });
@@ -227,12 +227,12 @@ export const promptManualGroundTruth = async (
     const label = index + 1;
     const prefill = prefills[index];
 
-    const text = await ui.text({
+    const text = (await ui.text({
       message: `QR #${label} data (Enter newline, Esc then Enter submit)`,
       multiline: true,
       ...(prefill?.text ? { initialValue: prefill.text } : {}),
       validate: (value) => (value.trim().length > 0 ? undefined : 'QR data is required'),
-    });
+    })).trim();
     const autoKind = detectQrKind(text);
     // Prefer autoKind over a generic 'text' from the scanner — detectQrKind
     // understands structured payloads (WIFI:, BEGIN:VCARD, etc.) that ironqr

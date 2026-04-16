@@ -1,13 +1,12 @@
 import path from 'node:path';
 import type { ParsedArgs } from '../args.js';
-
-const withNoPositionals = (args: ParsedArgs): ParsedArgs => ({ ...args, positionals: [] });
-
 import type { AppContext } from '../context.js';
 import { readStagedRemoteAssets, startScrapeRemoteAssets } from '../import/remote.js';
 import { runBuildBenchCommand } from './build-bench.js';
 import { runImportCommand } from './import.js';
 import { runReviewCommand } from './review.js';
+
+const withNoPositionals = (args: ParsedArgs): ParsedArgs => ({ ...args, positionals: [] });
 import {
   DEFAULT_FETCH_DELAY_MS,
   listStageDirectories,

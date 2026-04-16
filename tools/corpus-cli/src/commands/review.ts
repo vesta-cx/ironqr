@@ -44,10 +44,6 @@ export const runReviewCommand = async (
   const stageDir = await promptStageDir(context, explicitStageDir ?? args.positionals[0]);
   const reviewer = await resolveReviewer(context, explicitReviewer ?? getOption(args, 'reviewer'));
 
-  if (!reviewer) {
-    throw new Error('Reviewer GitHub username is required for review');
-  }
-
   const summary = await reviewStagedAssets({
     stageDir,
     reviewer,

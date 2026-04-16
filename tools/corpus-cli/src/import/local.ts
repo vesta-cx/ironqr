@@ -17,6 +17,8 @@ import type {
   LocalSource,
   ReviewStatus,
 } from '../schema.js';
+import { MAJOR_VERSION } from '../version.js';
+import { importAssetBytesEffect, mediaTypeFromExtension } from './store.js';
 
 /** Options for importing one or more local image files into the corpus. */
 export interface ImportLocalAssetOptions {
@@ -39,9 +41,6 @@ export interface ImportLocalAssetResult {
   readonly deduped: readonly CorpusAsset[];
   readonly manifest: CorpusManifest;
 }
-
-import { MAJOR_VERSION } from '../version.js';
-import { importAssetBytesEffect, mediaTypeFromExtension } from './store.js';
 
 /** Import local image files into the corpus manifest, deduplicating by source SHA-256. */
 export const importLocalAssets = (

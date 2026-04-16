@@ -54,9 +54,13 @@ export const writeViewerPreference = async (
   let existing: Record<string, unknown> = {};
   try {
     const raw = await readFile(configPath, 'utf8');
-    existing = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    // file absent or unreadable — start fresh
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    if (!isEnoentError(error)) throw error;
+    // File absent — start fresh.
   }
   await writeFile(configPath, `${JSON.stringify({ ...existing, viewer }, null, 2)}\n`, 'utf8');
 };

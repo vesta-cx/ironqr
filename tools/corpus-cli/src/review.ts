@@ -2,7 +2,6 @@ import {
   assertAllowedStagedAssetUrls,
   resolveStagedAssetPath,
   type StagedRemoteAsset,
-  type StageReviewStatus,
   updateStagedRemoteAsset,
 } from './import/remote.js';
 import { isAutoRejectLicense } from './license.js';
