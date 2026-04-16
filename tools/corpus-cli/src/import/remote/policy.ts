@@ -12,20 +12,22 @@ const PAGE_LINK_PATTERNS: Record<string, readonly RegExp[]> = {
   'commons.wikimedia.org': [/^\/wiki\/File:/],
   'publicdomainpictures.net': [/^\/view-image\.php/, /^\/picture\//],
   'pexels.com': [/^\/photo\//],
+  // pdimagearchive.org serves images directly from seed pages — there are no
+  // detail page URLs to navigate to, so no patterns are needed.
   'pdimagearchive.org': [],
   'unsplash.com': [/^\/photos\//],
 };
 
-const ALLOWED_IMAGE_HOSTS: Record<string, readonly string[]> = {
-  'pixabay.com': ['pixabay.com', 'cdn.pixabay.com'],
-  'commons.wikimedia.org': ['commons.wikimedia.org', 'upload.wikimedia.org'],
-  'publicdomainpictures.net': ['publicdomainpictures.net'],
-  'pexels.com': ['pexels.com', 'images.pexels.com'],
-  'pdimagearchive.org': ['pdimagearchive.org'],
-  'unsplash.com': ['unsplash.com', 'images.unsplash.com'],
+const ALLOWED_IMAGE_HOSTS: Record<string, ReadonlySet<string>> = {
+  'pixabay.com': new Set(['pixabay.com', 'cdn.pixabay.com']),
+  'commons.wikimedia.org': new Set(['commons.wikimedia.org', 'upload.wikimedia.org']),
+  'publicdomainpictures.net': new Set(['publicdomainpictures.net']),
+  'pexels.com': new Set(['pexels.com', 'images.pexels.com']),
+  'pdimagearchive.org': new Set(['pdimagearchive.org']),
+  'unsplash.com': new Set(['unsplash.com', 'images.unsplash.com']),
 };
 
-interface StagedRemoteAssetUrls {
+export interface StagedRemoteAssetUrls {
   readonly seedUrl: string;
   readonly sourceHost: string;
   readonly sourcePageUrl: string;
@@ -60,7 +62,7 @@ export const isAllowedImageHost = (sourceHost: string, imageUrl: string): boolea
     const imageHost = normalizeHost(new URL(imageUrl).hostname);
     const allowed = ALLOWED_IMAGE_HOSTS[sourceHost];
     if (!allowed) return imageHost === sourceHost;
-    return allowed.some((host) => normalizeHost(host) === imageHost);
+    return allowed.has(imageHost);
   } catch (error) {
     if (error instanceof TypeError) return false;
     throw error;

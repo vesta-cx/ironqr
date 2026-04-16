@@ -20,11 +20,7 @@ const parseSrcset = (value: string, baseUrl: string): readonly string[] => {
     .filter((candidate): candidate is string => candidate !== null);
 };
 
-const dedupe = (values: readonly string[]): string[] => {
-  return [...new Set(values)];
-};
-
-const matchAllGroups = (pattern: RegExp, value: string, groupIndex = 1): string[] => {
+const matchAllGroups = (pattern: RegExp, value: string): string[] => {
   if (!pattern.global) {
     throw new Error('matchAllGroups requires a global regular expression');
   }
@@ -33,7 +29,7 @@ const matchAllGroups = (pattern: RegExp, value: string, groupIndex = 1): string[
   let match = pattern.exec(value);
 
   while (match !== null) {
-    const candidate = match[groupIndex];
+    const candidate = match[1];
     if (candidate) {
       matches.push(candidate);
     }
@@ -180,64 +176,76 @@ export const detectBestEffortLicense = (
 
 /** Extracts absolute image URLs from `og:image`, `twitter:image`, and `image_src` link tags. */
 export const extractMetaImageCandidates = (pageUrl: string, html: string): readonly string[] => {
-  return dedupe(
-    [
-      ...matchAllGroups(
-        /<meta\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/gi,
-        html,
-      ),
-      ...matchAllGroups(
-        /<link\b[^>]*rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
-        html,
-      ),
-    ]
-      .map((value) => absolutize(pageUrl, value))
-      .filter((candidate): candidate is string => candidate !== null),
-  );
+  return [
+    ...new Set(
+      [
+        ...matchAllGroups(
+          /<meta\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/gi,
+          html,
+        ),
+        ...matchAllGroups(
+          /<link\b[^>]*rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/gi,
+          html,
+        ),
+      ]
+        .map((value) => absolutize(pageUrl, value))
+        .filter((candidate): candidate is string => candidate !== null),
+    ),
+  ];
 };
 
 /** Extracts absolute image URLs from `<img>` and `<source>` `src`/`srcset` attributes. */
 export const extractInlineImageCandidates = (pageUrl: string, html: string): readonly string[] => {
-  return dedupe(
-    [
-      ...matchAllGroups(/<(?:img|source)\b[^>]*src=["']([^"']+)["'][^>]*>/gi, html),
-      ...matchAllGroups(/<(?:img|source)\b[^>]*srcset=["']([^"']+)["'][^>]*>/gi, html).flatMap(
-        (srcset) => parseSrcset(srcset, pageUrl),
-      ),
-    ]
-      .map((value) => absolutize(pageUrl, value))
-      .filter((candidate): candidate is string => candidate !== null),
-  );
+  return [
+    ...new Set(
+      [
+        ...matchAllGroups(/<(?:img|source)\b[^>]*src=["']([^"']+)["'][^>]*>/gi, html),
+        ...matchAllGroups(/<(?:img|source)\b[^>]*srcset=["']([^"']+)["'][^>]*>/gi, html).flatMap(
+          (srcset) => parseSrcset(srcset, pageUrl),
+        ),
+      ]
+        .map((value) => absolutize(pageUrl, value))
+        .filter((candidate): candidate is string => candidate !== null),
+    ),
+  ];
+};
+
+const resolveHostAndPatterns = (
+  pageUrl: string,
+): { readonly host: string; readonly patterns: readonly RegExp[] } | null => {
+  const host = normalizeHost(new URL(pageUrl).hostname);
+  const patterns = getPageLinkPatterns(host);
+  return patterns.length === 0 ? null : { host, patterns };
 };
 
 const normalizePageLinks = (pageUrl: string, matches: readonly string[]): readonly string[] => {
-  const baseUrl = new URL(pageUrl);
-  const host = normalizeHost(baseUrl.hostname);
-  const patterns = getPageLinkPatterns(host);
-  if (patterns.length === 0) return [];
+  const resolved = resolveHostAndPatterns(pageUrl);
+  if (!resolved) return [];
+  const { host, patterns } = resolved;
 
-  return dedupe(
-    matches
-      .map((href) => absolutize(pageUrl, href))
-      .filter((href): href is string => href !== null)
-      .filter((href) => {
-        const parsed = new URL(href);
-        return (
-          normalizeHost(parsed.hostname) === host &&
-          patterns.some((pattern) => pattern.test(parsed.pathname))
-        );
-      }),
-  );
+  return [
+    ...new Set(
+      matches
+        .map((href) => absolutize(pageUrl, href))
+        .filter((href): href is string => href !== null)
+        .filter((href) => {
+          const parsed = new URL(href);
+          return (
+            normalizeHost(parsed.hostname) === host &&
+            patterns.some((pattern) => pattern.test(parsed.pathname))
+          );
+        }),
+    ),
+  ];
 };
 
 const extractWrappedPageLinks = (
   pageUrl: string,
   html: string,
 ): readonly { href: string; imageCandidates: readonly string[] }[] => {
-  const baseUrl = new URL(pageUrl);
-  const host = normalizeHost(baseUrl.hostname);
-  const patterns = getPageLinkPatterns(host);
-  if (patterns.length === 0) return [];
+  const resolved = resolveHostAndPatterns(pageUrl);
+  if (!resolved) return [];
+  const { host, patterns } = resolved;
 
   return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => ({
@@ -269,7 +277,7 @@ const extractWrappedPageLinks = (
 export const extractPageLinks = (
   pageUrl: string,
   html: string,
-  allowFanOut: boolean,
+  { allowFanOut }: { readonly allowFanOut: boolean },
 ): readonly string[] => {
   const wrappedLinks = extractWrappedPageLinks(pageUrl, html);
   const metaImageCandidates = extractMetaImageCandidates(pageUrl, html);
@@ -290,7 +298,7 @@ export const extractPageLinks = (
     );
 
     if (metaMatchingWraps.length > 0) {
-      return normalizePageLinks(pageUrl, dedupe(metaMatchingWraps.map((link) => link.href)));
+      return normalizePageLinks(pageUrl, [...new Set(metaMatchingWraps.map((link) => link.href))]);
     }
 
     if (!allowFanOut) {
@@ -302,7 +310,7 @@ export const extractPageLinks = (
     return [];
   }
 
-  return normalizePageLinks(pageUrl, dedupe(wrappedLinks.map((link) => link.href)));
+  return normalizePageLinks(pageUrl, [...new Set(wrappedLinks.map((link) => link.href))]);
 };
 
 /**
@@ -312,7 +320,7 @@ export const extractPageLinks = (
 export const extractImageCandidates = (
   pageUrl: string,
   html: string,
-  isDetail: boolean,
+  { isDetail }: { readonly isDetail: boolean },
 ): readonly string[] => {
   const metaCandidates = extractMetaImageCandidates(pageUrl, html);
 
@@ -325,5 +333,5 @@ export const extractImageCandidates = (
     return inlineCandidates;
   }
 
-  return dedupe([...metaCandidates, ...inlineCandidates]);
+  return [...new Set([...metaCandidates, ...inlineCandidates])];
 };
