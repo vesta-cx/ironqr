@@ -1,0 +1,20 @@
+# Auto-format + lint staged files via Biome.
+#
+# Runs on every `git commit` so PR checks stay a safety net, not the
+# first place you find out a brace was misaligned. Uses `--staged` so
+# we only touch files actually going into the commit, then re-adds them
+# after any auto-fix write so the commit includes the formatted version.
+
+bunx biome check --write --staged --no-errors-on-unmatched
+biome_exit=$?
+
+if [ $biome_exit -ne 0 ]; then
+  echo "biome found issues it could not auto-fix; aborting commit."
+  exit $biome_exit
+fi
+
+# Re-stage any files Biome rewrote in place.
+staged=$(git diff --name-only --cached)
+if [ -n "$staged" ]; then
+  echo "$staged" | xargs -I {} git add {}
+fi
