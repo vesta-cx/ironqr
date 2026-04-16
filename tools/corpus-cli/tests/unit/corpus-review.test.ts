@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
-import sharp from 'sharp';
 import {
   importStagedRemoteAssets,
   readStagedRemoteAsset,
@@ -13,7 +12,7 @@ import { readCorpusRejections } from '../../src/manifest.js';
 import { detectQrKind } from '../../src/qr-kind.js';
 import { reviewStagedAssets } from '../../src/review.js';
 import { MAJOR_VERSION } from '../../src/version.js';
-import { makeTestDir } from '../helpers.js';
+import { createPngBytes, createRepoRoot, makeTestDir } from '../helpers.js';
 
 const LISTING_HTML = `
   <html>
@@ -33,26 +32,7 @@ const FIRST_PAGE_HTML = `
   </html>
 `;
 
-const createPngBytes = async (red: number, green: number, blue: number): Promise<Uint8Array> => {
-  const buffer = await sharp({
-    create: {
-      width: 2,
-      height: 2,
-      channels: 4,
-      background: { r: red, g: green, b: blue, alpha: 1 },
-    },
-  })
-    .png()
-    .toBuffer();
 
-  return new Uint8Array(buffer);
-};
-
-const createRepoRoot = async (): Promise<string> => {
-  const repoRoot = await makeTestDir('corpus-review');
-  await mkdir(path.join(repoRoot, 'corpus'), { recursive: true });
-  return repoRoot;
-};
 
 const buildMockFetch = (): ((input: string | URL) => Promise<Response>) => {
   return async (input) => {
@@ -417,7 +397,6 @@ describe('interactive staged review', () => {
 
     // Second scrape with staging cleared: rejected image must be skipped
     // (mock listing only has the one image, so nothing fresh gets staged)
-    const { rm } = await import('node:fs/promises');
     await rm(first.stageDir, { recursive: true, force: true });
 
     const second = await scrapeRemoteAssets(

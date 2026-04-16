@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import sharp from 'sharp';
 import {
   importStagedRemoteAssets,
   readStagedRemoteAsset,
@@ -13,7 +12,7 @@ import {
 } from '../../src/import/remote.js';
 import { readCorpusManifest } from '../../src/manifest.js';
 import { MAJOR_VERSION } from '../../src/version.js';
-import { makeTestDir } from '../helpers.js';
+import { createPngBytes, createRepoRoot, makeTestDir } from '../helpers.js';
 
 const LISTING_HTML = `
   <html>
@@ -43,27 +42,6 @@ const SECOND_PAGE_HTML = `
     </head>
   </html>
 `;
-
-const createPngBytes = async (red: number, green: number, blue: number): Promise<Uint8Array> => {
-  const buffer = await sharp({
-    create: {
-      width: 2,
-      height: 2,
-      channels: 4,
-      background: { r: red, g: green, b: blue, alpha: 1 },
-    },
-  })
-    .png()
-    .toBuffer();
-
-  return new Uint8Array(buffer);
-};
-
-const createRepoRoot = async (): Promise<string> => {
-  const repoRoot = await makeTestDir('corpus-remote');
-  await mkdir(path.join(repoRoot, 'corpus'), { recursive: true });
-  return repoRoot;
-};
 
 const buildMockFetch = (): ((input: string | URL) => Promise<Response>) => {
   return async (input) => {
@@ -475,7 +453,6 @@ describe('remote corpus import', () => {
     expect(manifest.assets).toHaveLength(1);
 
     // Simulate clearing staging (delete staging dir so cross-run dedup has nothing to find there)
-    const { rm } = await import('node:fs/promises');
     await rm(first.stageDir, { recursive: true, force: true });
 
     // Second run with limit: 2 — the already-approved first image must be skipped,

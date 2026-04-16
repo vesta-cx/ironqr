@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import sharp from 'sharp';
 import {
   buildRealWorldBenchmarkCorpus,
   writeSelectedRealWorldBenchmarkFixture,
@@ -14,26 +13,7 @@ import {
   toRepoRelativePath,
   writeCorpusManifest,
 } from '../../src/manifest.js';
-import { makeTestDir } from '../helpers.js';
-
-const createRepoRoot = async (): Promise<string> => {
-  return makeTestDir('corpus');
-};
-
-const createPngBytes = async (red: number, green: number, blue: number): Promise<Uint8Array> => {
-  const buffer = await sharp({
-    create: {
-      width: 2,
-      height: 2,
-      channels: 4,
-      background: { r: red, g: green, b: blue, alpha: 1 },
-    },
-  })
-    .png()
-    .toBuffer();
-
-  return new Uint8Array(buffer);
-};
+import { createPngBytes, createRepoRoot, makeTestDir } from '../helpers.js';
 
 const writeFixture = async (filePath: string, bytes: Uint8Array): Promise<void> => {
   await mkdir(path.dirname(filePath), { recursive: true });
