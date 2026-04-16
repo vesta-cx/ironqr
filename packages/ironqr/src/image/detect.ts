@@ -102,29 +102,159 @@ export const detectFinderPatterns = (
   // closely. False positives in stylized data regions can have wildly different
   // h/v sizes and yet outscore real finders by averaged moduleSize. Drop those
   // before the top-3 sort.
-  const SQUARENESS_TOLERANCE = 1.35;
+  const SQUARENESS_TOLERANCE = 1.2;
   const squareCandidates = candidates.filter((c) => {
     const hv = Math.max(c.hModuleSize, c.vModuleSize) / Math.min(c.hModuleSize, c.vModuleSize);
     return hv <= SQUARENESS_TOLERANCE;
   });
 
-  // Return up to 3 non-overlapping candidates with largest module size (most confident)
+  // Keep more candidates than the 3 we will return so triple scoring has
+  // material to choose between. False positives that survive squareness can
+  // still outscore real finders by raw moduleSize, so we widen the pool.
   squareCandidates.sort((a, b) => b.moduleSize - a.moduleSize);
-
-  const result: FinderCandidate[] = [];
+  // Pool size dominates the C(n,3) cost; n=12 = 220 triples, n=16 = 560.
+  // We need the pool wide enough that real finders survive even when
+  // stylized data regions produce many higher-moduleSize false positives.
+  const MAX_POOL = 12;
+  const pool: FinderCandidate[] = [];
   for (const candidate of squareCandidates) {
-    const overlaps = result.some(
+    const overlaps = pool.some(
       (existing) =>
         Math.abs(existing.cx - candidate.cx) < candidate.moduleSize * 7 &&
         Math.abs(existing.cy - candidate.cy) < candidate.moduleSize * 7,
     );
-    if (!overlaps) {
-      result.push(candidate);
-    }
-    if (result.length === 3) break;
+    if (!overlaps) pool.push(candidate);
+    if (pool.length === MAX_POOL) break;
   }
 
-  return result;
+  if (pool.length < 3) return pool;
+
+  // Pick the triple whose three finders are most geometrically consistent
+  // with a real QR symbol: matching module sizes, two short sides of equal
+  // length meeting at ~90° (the third side is the hypotenuse). This rejects
+  // mixed-QR triples (multi-QR scenes) and stray false positives that
+  // survive squareness.
+  const best = pickBestTriple(pool);
+  return best ?? pool.slice(0, 3);
+};
+
+/**
+ * Scores every 3-combination of `pool` by QR L-shape consistency and returns
+ * the best triple, or null if no triple is plausible.
+ *
+ * A real QR finder triple has:
+ *   - three finders with matching module sizes (tight ratio)
+ *   - one finder is the right-angle vertex (top-left); the other two sit at
+ *     the ends of two perpendicular arms of equal length
+ *
+ * Score = module-size variance + length asymmetry + angle penalty. Lower wins.
+ */
+const pickBestTriple = (pool: readonly FinderCandidate[]): FinderCandidate[] | null => {
+  let best: { triple: FinderCandidate[]; score: number } | null = null;
+  for (let i = 0; i < pool.length - 2; i += 1) {
+    for (let j = i + 1; j < pool.length - 1; j += 1) {
+      for (let k = j + 1; k < pool.length; k += 1) {
+        const fa = pool[i];
+        const fb = pool[j];
+        const fc = pool[k];
+        if (!fa || !fb || !fc) continue;
+        const score = scoreTriple(fa, fb, fc);
+        if (score === null) continue;
+        if (best === null || score < best.score) {
+          best = { triple: [fa, fb, fc], score };
+        }
+      }
+    }
+  }
+  return best?.triple ?? null;
+};
+
+/** Returns an L-shape consistency score for the triple, or null when implausible. */
+const scoreTriple = (
+  fa: FinderCandidate,
+  fb: FinderCandidate,
+  fc: FinderCandidate,
+): number | null => {
+  // Reject triples whose module sizes disagree by more than 30%; they are
+  // almost certainly drawn from different QR symbols or include a false
+  // positive that masquerades as square.
+  const sizes = [fa.moduleSize, fb.moduleSize, fc.moduleSize];
+  const minSize = Math.min(...sizes);
+  const maxSize = Math.max(...sizes);
+  const sizeRatio = maxSize / minSize;
+  if (sizeRatio > 1.3) return null;
+
+  // The vertex finder is the one opposite the longest side (the hypotenuse).
+  const dAB = pointDist(fa.cx, fa.cy, fb.cx, fb.cy);
+  const dAC = pointDist(fa.cx, fa.cy, fc.cx, fc.cy);
+  const dBC = pointDist(fb.cx, fb.cy, fc.cx, fc.cy);
+
+  let vertex: FinderCandidate;
+  let armA: FinderCandidate;
+  let armB: FinderCandidate;
+  let hypotenuse: number;
+  let leg1: number;
+  let leg2: number;
+  if (dAB >= dAC && dAB >= dBC) {
+    vertex = fc;
+    armA = fa;
+    armB = fb;
+    hypotenuse = dAB;
+    leg1 = dAC;
+    leg2 = dBC;
+  } else if (dAC >= dAB && dAC >= dBC) {
+    vertex = fb;
+    armA = fa;
+    armB = fc;
+    hypotenuse = dAC;
+    leg1 = dAB;
+    leg2 = dBC;
+  } else {
+    vertex = fa;
+    armA = fb;
+    armB = fc;
+    hypotenuse = dBC;
+    leg1 = dAB;
+    leg2 = dAC;
+  }
+
+  const avgLeg = (leg1 + leg2) / 2;
+  const avgModuleSize = (fa.moduleSize + fb.moduleSize + fc.moduleSize) / 3;
+
+  // Legs must be at least 7 modules long (the finder span itself) for the
+  // triple to plausibly span a QR symbol.
+  if (avgLeg < avgModuleSize * 7) return null;
+
+  // Equal-leg score: how asymmetric the two short sides are.
+  const legAsymmetry = Math.abs(leg1 - leg2) / avgLeg;
+
+  // Pythagorean score: hypotenuse should be √2 × leg.
+  const expectedHypotenuse = avgLeg * Math.SQRT2;
+  const hypotenuseError = Math.abs(hypotenuse - expectedHypotenuse) / expectedHypotenuse;
+
+  // Module-size consistency.
+  const sizeError = sizeRatio - 1;
+
+  // Per-leg version plausibility: leg length / module size = (size - 7) where
+  // size = version*4 + 17, so leg/module = version*4 + 10. Must round to a
+  // valid version 1-40.
+  const modulesAcross = avgLeg / avgModuleSize;
+  const rawVersion = (modulesAcross - 10) / 4;
+  if (rawVersion < 0.5 || rawVersion > 40.5) return null;
+  const versionError =
+    Math.abs(rawVersion - Math.round(rawVersion)) / Math.max(1, Math.round(rawVersion));
+
+  // Avoid unused-var lint on `vertex` / `armA` / `armB` — they exist for
+  // future per-triple logic; mark them used.
+  void vertex;
+  void armA;
+  void armB;
+
+  return legAsymmetry * 2 + hypotenuseError * 2 + sizeError + versionError;
+};
+
+const pointDist = (ax: number, ay: number, bx: number, by: number): number => {
+  return Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2);
 };
 
 /**
