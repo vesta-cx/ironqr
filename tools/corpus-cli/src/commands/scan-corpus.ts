@@ -27,6 +27,15 @@ const expectedTextFor = (asset: CorpusAsset): string | null => {
   return asset.groundTruth?.codes[0]?.text ?? null;
 };
 
+/**
+ * Every ground-truth text for the asset. Multi-QR images (e.g. a poster with
+ * six different codes) are scored as passing as long as the scanner decodes
+ * any one of them, since single-code scanFrame returns on first success.
+ */
+const expectedTextsFor = (asset: CorpusAsset): readonly string[] => {
+  return asset.groundTruth?.codes.map((c) => c.text) ?? [];
+};
+
 const scorePositive = async (repoRoot: string, asset: CorpusAsset): Promise<PositiveOutcome> => {
   const assetPath = path.join(repoRoot, 'corpus', 'data', asset.relativePath);
   try {
@@ -40,7 +49,8 @@ const scorePositive = async (repoRoot: string, asset: CorpusAsset): Promise<Posi
     if (scan.results.length === 0) {
       return { kind: 'fail-no-decode', decodedText: null, expectedText, error: null };
     }
-    if (expectedText !== null && decodedText !== expectedText) {
+    const expectedTexts = expectedTextsFor(asset);
+    if (expectedTexts.length > 0 && decodedText !== null && !expectedTexts.includes(decodedText)) {
       return { kind: 'fail-mismatch', decodedText, expectedText, error: null };
     }
     return { kind: 'pass', decodedText, expectedText, error: null };
