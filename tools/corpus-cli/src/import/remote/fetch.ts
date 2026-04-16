@@ -1,6 +1,7 @@
 import { Effect } from 'effect';
+import type { FetchError } from '../../errors.js';
 import { normalizeUrlForDedup } from '../../url.js';
-import { tryPromise } from './effect.js';
+import { tryFetch } from './effect.js';
 import type { SourcePage } from './page.js';
 import { normalizeHost } from './policy.js';
 import { htmlToText, stripAnsi } from './text.js';
@@ -28,7 +29,7 @@ const BROWSER_HEADERS: Record<string, string> = {
 };
 
 const readLimitedBody = (response: Response, maxBytes: number, label: string) => {
-  return tryPromise(async () => {
+  return tryFetch(async () => {
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
       throw new Error(`Response for ${label} exceeds ${maxBytes} bytes`);
@@ -98,7 +99,7 @@ export const fetchFollowingSameHost = (
   accept: string,
   label: string,
 ) => {
-  return tryPromise(async () => {
+  return tryFetch(async () => {
     let currentUrl = url;
     for (let hop = 0; hop <= MAX_SAME_HOST_REDIRECTS; hop += 1) {
       const response = await fetchImpl(currentUrl, {
@@ -119,6 +120,7 @@ export const fetchFollowingSameHost = (
       }
 
       if (!response.ok) {
+        response.body?.cancel().catch(() => {});
         throw new Error(`Failed to fetch ${label} ${currentUrl}: ${response.status}`);
       }
 
@@ -180,7 +182,7 @@ interface WikimediaApiResponse {
 }
 
 const isWikimediaApiResponse = (value: unknown): value is WikimediaApiResponse => {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && 'query' in value;
 };
 
 /**
@@ -190,7 +192,7 @@ const isWikimediaApiResponse = (value: unknown): value is WikimediaApiResponse =
 export const fetchCommonsFileMeta = (
   pageUrl: string,
   fetchImpl: FetchLike,
-): Effect.Effect<CommonsFileMeta | null, unknown> => {
+): Effect.Effect<CommonsFileMeta | null, never> => {
   return Effect.gen(function* () {
     const match = /\/wiki\/(File:[^?#]+)/i.exec(pageUrl);
     if (!match?.[1]) return null;
@@ -201,7 +203,7 @@ export const fetchCommonsFileMeta = (
       `&titles=${encodeURIComponent(title)}` +
       `&prop=imageinfo&iiprop=extmetadata&format=json&origin=*`;
 
-    const response = yield* tryPromise(() =>
+    const response = yield* tryFetch(() =>
       fetchImpl(apiUrl, {
         headers: { ...BROWSER_HEADERS, accept: 'application/json' },
       }),
@@ -223,7 +225,7 @@ export const fetchCommonsFileMeta = (
       ...(license ? { license } : {}),
       ...(attribution ? { attribution } : {}),
     };
-  }).pipe(Effect.catch(() => Effect.succeed(null)));
+  }).pipe(Effect.catchTag('FetchError', () => Effect.succeed(null)));
 };
 
 /**
@@ -276,7 +278,7 @@ export const fetchCommonsSearchBatch = (
   query: string,
   fetchImpl: FetchLike,
   offset = 0,
-): Effect.Effect<CommonsSearchBatch, Error> => {
+): Effect.Effect<CommonsSearchBatch, FetchError | Error> => {
   return Effect.gen(function* () {
     const apiUrl =
       `https://commons.wikimedia.org/w/api.php?action=query&list=search` +
@@ -286,7 +288,7 @@ export const fetchCommonsSearchBatch = (
       `&sroffset=${offset}` +
       `&format=json&origin=*`;
 
-    const response = yield* tryPromise(() =>
+    const response = yield* tryFetch(() =>
       fetchImpl(apiUrl, {
         headers: { ...BROWSER_HEADERS, accept: 'application/json' },
       }),
@@ -330,7 +332,7 @@ export const resolveCommonsSearchPages = <E>(
   log: (line: string) => void,
   visitedSourcePageUrls: ReadonlySet<string>,
   onPage: (page: SourcePage) => Effect.Effect<void, E>,
-): Effect.Effect<number, E | Error> => {
+): Effect.Effect<number, E | FetchError | Error> => {
   return Effect.gen(function* () {
     const query = extractCommonsSearchQuery(seedUrl);
     if (!query) {
@@ -355,10 +357,8 @@ export const resolveCommonsSearchPages = <E>(
         yield* Effect.sleep(fetchDelayMs);
 
         const page = yield* fetchText(result.pageUrl, fetchImpl, true).pipe(
-          Effect.catch((error: unknown) => {
-            log(
-              `Skipped page ${result.pageUrl}: ${error instanceof Error ? error.message : String(error)}`,
-            );
+          Effect.catchTag('FetchError', (error) => {
+            log(`Skipped page ${result.pageUrl}: ${error.message}`);
             return Effect.succeed(null);
           }),
         );

@@ -7,9 +7,12 @@ interface ScanFrameResult {
   readonly payload: { readonly text: string; readonly kind?: string };
 }
 
-type ScanOutcome =
-  | { readonly ok: true; readonly results: readonly ScanFrameResult[] }
-  | { readonly ok: false; readonly error: unknown };
+interface ScanImageData {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8ClampedArray;
+  readonly colorSpace: 'srgb' | 'display-p3';
+}
 
 /** Scan a local image file for QR codes and return a normalized `AutoScan` result. */
 export const scanLocalImageFile = (imagePath: string): Promise<AutoScan> => {
@@ -19,28 +22,31 @@ export const scanLocalImageFile = (imagePath: string): Promise<AutoScan> => {
 const scanLocalImageFileEffect = (imagePath: string) => {
   return Effect.gen(function* () {
     const imageData = yield* readImageData(imagePath);
-    const scanResult = (yield* Effect.tryPromise(() =>
-      scanFrame(imageData).then(
-        (results: readonly ScanFrameResult[]) => ({ ok: true as const, results }),
-        (error: unknown) => ({ ok: false as const, error }),
+    const scanOutcome = yield* Effect.match(
+      Effect.tryPromise(
+        () => scanFrame(imageData as unknown as ImageData) as Promise<readonly ScanFrameResult[]>,
       ),
-    )) as ScanOutcome;
+      {
+        onFailure: (error) => ({ ok: false as const, error }),
+        onSuccess: (results) => ({ ok: true as const, results }),
+      },
+    );
 
-    if (!scanResult.ok) {
+    if (!scanOutcome.ok) {
       const message =
-        scanResult.error instanceof Error ? scanResult.error.message : String(scanResult.error);
+        scanOutcome.error instanceof Error ? scanOutcome.error.message : String(scanOutcome.error);
       console.warn(`Scan failed for ${imagePath}: ${message}`);
       return { attempted: true, succeeded: false, results: [] } satisfies AutoScan;
     }
 
-    if (scanResult.results.length === 0) {
+    if (scanOutcome.results.length === 0) {
       return { attempted: true, succeeded: true, results: [] } satisfies AutoScan;
     }
 
     return {
       attempted: true,
       succeeded: true,
-      results: scanResult.results.map((result) => ({
+      results: scanOutcome.results.map((result) => ({
         text: result.payload.text,
         kind: result.payload.kind,
       })),
@@ -59,7 +65,6 @@ const readImageData = (imagePath: string) => {
   });
 };
 
-const makeImageData = (width: number, height: number, pixels: Uint8ClampedArray): ImageData => {
-  // ImageData is a browser API; we construct a compatible object for ironqr's scanFrame
-  return { width, height, data: pixels, colorSpace: 'srgb' } as unknown as ImageData;
+const makeImageData = (width: number, height: number, pixels: Uint8ClampedArray): ScanImageData => {
+  return { width, height, data: pixels, colorSpace: 'srgb' };
 };

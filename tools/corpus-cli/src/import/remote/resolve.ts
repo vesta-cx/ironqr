@@ -28,7 +28,7 @@ export const resolveSourcePages = <E>(
   state: ResolveSourcePagesState,
   onPage: (page: SourcePage) => Effect.Effect<void, E>,
   depth = 0,
-): Effect.Effect<void, E | Error> => {
+): Effect.Effect<void, E> => {
   return Effect.gen(function* () {
     const emitLeaf = (leaf: SourcePage): Effect.Effect<void, E> => {
       if (state.yieldedLeaves.has(leaf.url)) return Effect.void;
@@ -44,7 +44,7 @@ export const resolveSourcePages = <E>(
 
     state.seenPages.add(page.url);
     const isSeedPage = depth === 0;
-    const pageLinks = extractPageLinks(page.url, page.html, isSeedPage);
+    const pageLinks = extractPageLinks(page.url, page.html, { allowFanOut: isSeedPage });
 
     if (pageLinks.length === 0) {
       yield* emitLeaf(page);
@@ -62,10 +62,8 @@ export const resolveSourcePages = <E>(
       yield* Effect.sleep(env.fetchDelayMs);
 
       const nextPage = yield* fetchText(pageLink, env.fetchImpl, true).pipe(
-        Effect.catch((error: unknown) => {
-          env.log(
-            `Skipped page ${pageLink}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+        Effect.catchTag('FetchError', (error) => {
+          env.log(`Skipped page ${pageLink}: ${error.message}`);
           return Effect.succeed(null);
         }),
       );

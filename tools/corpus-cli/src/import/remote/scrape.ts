@@ -1,5 +1,7 @@
+import { readdir } from 'node:fs/promises';
 import { Effect } from 'effect';
 import sharp from 'sharp';
+import { FetchError, type FilesystemError, ImageProcessingError } from '../../errors.js';
 import { appendVisitedSourcePage, readScrapeProgress } from '../../manifest.js';
 import { MAJOR_VERSION } from '../../version.js';
 import { AsyncQueue } from '../queue.js';
@@ -31,9 +33,15 @@ import {
   collectExistingScrapeStateEffect,
   ensureStageDir,
   normalizeUrlForDedup,
-  readStagedRemoteAssets,
+  readStagedRemoteAsset,
   writeStagedRemoteAssetEffect,
 } from './stage-store.js';
+
+const DEFAULT_FETCH_IMPL: FetchLike = fetch;
+
+class LimitReached {
+  readonly _tag = 'LimitReached' as const;
+}
 
 const NORMALIZED_STAGED_MEDIA_TYPE = 'image/webp';
 const NORMALIZED_STAGED_FILENAME = 'image.webp';
@@ -44,23 +52,26 @@ const STAGED_ID_URL_HASH_LENGTH = 8;
 const DEFAULT_STAGE_LIMIT = 100;
 
 const normalizeScrapedImage = (bytes: Uint8Array) => {
-  return tryPromise(async () => {
-    const pipeline = sharp(bytes)
-      .rotate()
-      .resize({
-        width: STAGED_IMAGE_MAX_DIMENSION,
-        height: STAGED_IMAGE_MAX_DIMENSION,
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .webp({ quality: STAGED_IMAGE_QUALITY });
+  return Effect.tryPromise({
+    try: async () => {
+      const pipeline = sharp(bytes)
+        .rotate()
+        .resize({
+          width: STAGED_IMAGE_MAX_DIMENSION,
+          height: STAGED_IMAGE_MAX_DIMENSION,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality: STAGED_IMAGE_QUALITY });
 
-    const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
-    return {
-      bytes: new Uint8Array(data),
-      width: info.width,
-      height: info.height,
-    };
+      const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
+      return {
+        bytes: new Uint8Array(data),
+        width: info.width,
+        height: info.height,
+      };
+    },
+    catch: (e) => new ImageProcessingError(e instanceof Error ? e.message : String(e), e),
   });
 };
 
@@ -161,7 +172,7 @@ const scrapeRemoteAssetsLoopEffect = (
         Effect.gen(function* () {
           resolvedSourcePages += 1;
           if (assets.length >= limit) {
-            return yield* Effect.fail({ _tag: 'LimitReached' } as const);
+            return yield* Effect.fail(new LimitReached());
           }
 
           yield* processSourcePage({
@@ -186,8 +197,7 @@ const scrapeRemoteAssetsLoopEffect = (
         });
 
       const catchLimit = Effect.catchIf(
-        (e: unknown): e is { readonly _tag: 'LimitReached' } =>
-          typeof e === 'object' && e !== null && '_tag' in e && e._tag === 'LimitReached',
+        (e: unknown): e is LimitReached => e instanceof LimitReached,
         () => Effect.void,
       );
 
@@ -257,7 +267,9 @@ const processSourcePage = (opts: ProcessSourcePageOptions) => {
       stageDir,
       onStagedAsset,
     } = opts;
-    const imageCandidates = extractImageCandidates(page.url, page.html, page.isDetail);
+    const imageCandidates = extractImageCandidates(page.url, page.html, {
+      isDetail: page.isDetail,
+    });
     const host = normalizeHost(new URL(page.url).hostname);
     let licenseHint = detectBestEffortLicense(host, page.html);
     let attributionText =
@@ -338,7 +350,9 @@ interface StageImageOptions {
   readonly log: (line: string) => void;
 }
 
-const stageImage = (opts: StageImageOptions): Effect.Effect<StagedRemoteAsset | null, unknown> => {
+const stageImage = (
+  opts: StageImageOptions,
+): Effect.Effect<StagedRemoteAsset | null, FilesystemError> => {
   return Effect.gen(function* () {
     const {
       page,
@@ -379,18 +393,20 @@ const stageImage = (opts: StageImageOptions): Effect.Effect<StagedRemoteAsset | 
     yield* writeStagedRemoteAssetEffect(stageDir, asset, normalized.bytes);
     return asset;
   }).pipe(
-    Effect.catch((error: unknown) => {
-      opts.log(
-        `Skipped ${opts.imageUrl}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return Effect.succeed(null);
-    }),
+    Effect.catchIf(
+      (e): e is FetchError | ImageProcessingError =>
+        e instanceof FetchError || e instanceof ImageProcessingError,
+      (error) => {
+        opts.log(`Skipped ${opts.imageUrl}: ${error.message}`);
+        return Effect.succeed(null);
+      },
+    ),
   );
 };
 
 const scrapeRemoteAssetsEffect = (
   options: ImportRemoteAssetOptions,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = DEFAULT_FETCH_IMPL,
 ) => {
   return Effect.gen(function* () {
     const stageDir = yield* ensureStageDir(options.repoRoot);
@@ -405,7 +421,7 @@ const scrapeRemoteAssetsEffect = (
  */
 export const scrapeRemoteAssets = (
   options: ImportRemoteAssetOptions,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = DEFAULT_FETCH_IMPL,
 ): Promise<ScrapeRemoteAssetsResult> => {
   return Effect.runPromise(scrapeRemoteAssetsEffect(options, fetchImpl));
 };
@@ -416,7 +432,7 @@ export const scrapeRemoteAssets = (
  */
 export const startScrapeRemoteAssets = async (
   options: ImportRemoteAssetOptions,
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike = DEFAULT_FETCH_IMPL,
 ): Promise<ScrapeRemoteAssetsSession> => {
   const stageDir = await Effect.runPromise(ensureStageDir(options.repoRoot));
   const queue = new AsyncQueue<StagedRemoteAsset>();
@@ -436,12 +452,16 @@ export const startScrapeRemoteAssets = async (
   return { stageDir, assets: queue, done };
 };
 
-/** Async-generator that yields every staged asset from an existing `stageDir`. */
+/** Async-generator that yields every staged asset from an existing `stageDir`, one at a time. */
 export const streamStagedRemoteAssets = async function* (
   stageDir: string,
 ): AsyncGenerator<StagedRemoteAsset> {
-  const assets = await readStagedRemoteAssets(stageDir);
-  for (const asset of assets) {
-    yield asset;
+  const entries = await readdir(stageDir, { withFileTypes: true });
+  const assetIds = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+  for (const assetId of assetIds) {
+    yield await readStagedRemoteAsset(stageDir, assetId);
   }
 };

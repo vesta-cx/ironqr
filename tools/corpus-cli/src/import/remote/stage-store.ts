@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import { Effect } from 'effect';
 import * as S from 'effect/Schema';
+import type { FilesystemError } from '../../errors.js';
 import { isEnoentError } from '../../fs-error.js';
 import { readCorpusManifest, readCorpusRejections } from '../../manifest.js';
 import { assertHttpUrl, normalizeUrlForDedup } from '../../url.js';
@@ -95,7 +96,7 @@ export const writeStagedRemoteAssetEffect = (
   stageDir: string,
   asset: StagedRemoteAsset,
   bytes: Uint8Array,
-): Effect.Effect<void, unknown> => {
+): Effect.Effect<void, FilesystemError> => {
   return tryPromise(async () => {
     validateStagedAsset(asset);
     const assetDir = getAssetDir(stageDir, asset.id);
@@ -118,7 +119,7 @@ export const writeStagedRemoteAsset = (
 export const updateStagedRemoteAssetEffect = (
   stageDir: string,
   asset: StagedRemoteAsset,
-): Effect.Effect<void, unknown> => {
+): Effect.Effect<void, FilesystemError> => {
   return tryPromise(async () => {
     validateStagedAsset(asset);
     await writeAssetManifest(stageDir, asset);
@@ -137,7 +138,7 @@ export const updateStagedRemoteAsset = (
 export const readStagedRemoteAssetEffect = (
   stageDir: string,
   assetId: string,
-): Effect.Effect<StagedRemoteAsset, unknown> => {
+): Effect.Effect<StagedRemoteAsset, FilesystemError> => {
   return Effect.gen(function* () {
     assertSafeSlug(assetId, 'asset id');
     const manifestPath = getAssetManifestPath(stageDir, assetId);
@@ -160,7 +161,7 @@ export const readStagedRemoteAsset = (
 /** Reads all staged assets from `stageDir`, sorted by ID. Returns an Effect. */
 export const readStagedRemoteAssetsEffect = (
   stageDir: string,
-): Effect.Effect<readonly StagedRemoteAsset[], unknown> => {
+): Effect.Effect<readonly StagedRemoteAsset[], FilesystemError> => {
   return Effect.gen(function* () {
     const entries = yield* tryPromise(() => readdir(stageDir, { withFileTypes: true }));
     const assets: StagedRemoteAsset[] = [];
@@ -195,8 +196,10 @@ export const removeRunDirIfEmptyEffect = (stageDir: string) => {
   return tryPromise(async () => {
     try {
       await rmdir(stageDir);
-    } catch {
-      // not empty or already gone — fine
+    } catch (error) {
+      if (isEnoentError(error)) return;
+      if ((error as NodeJS.ErrnoException).code === 'ENOTEMPTY') return;
+      throw error;
     }
   });
 };
@@ -213,15 +216,17 @@ export interface ExistingScrapeState {
  * rejections log, and any live staging runs. Used to skip images and pages that
  * have already been staged, imported, or rejected.
  */
-export const collectExistingScrapeStateEffect = (repoRoot: string) => {
-  return tryPromise(async () => {
+export const collectExistingScrapeStateEffect = (
+  repoRoot: string,
+): Effect.Effect<ExistingScrapeState, FilesystemError> => {
+  return Effect.gen(function* () {
     const seenSourceSha256 = new Set<string>();
     const seenSourcePageUrls = new Set<string>();
 
     // Collect hashes and source page URLs from already-imported corpus assets
     // so scraping never re-presents an image that has already been imported,
     // even after staging directories are cleared.
-    const manifest = await readCorpusManifest(repoRoot);
+    const manifest = yield* tryPromise(() => readCorpusManifest(repoRoot));
     for (const asset of manifest.assets) {
       if (asset.sourceSha256) {
         seenSourceSha256.add(asset.sourceSha256);
@@ -234,7 +239,7 @@ export const collectExistingScrapeStateEffect = (repoRoot: string) => {
     }
 
     // Also skip previously rejected images.
-    const rejectionsLog = await readCorpusRejections(repoRoot);
+    const rejectionsLog = yield* tryPromise(() => readCorpusRejections(repoRoot));
     for (const rejection of rejectionsLog.rejections) {
       seenSourceSha256.add(rejection.sourceSha256);
     }
@@ -242,40 +247,36 @@ export const collectExistingScrapeStateEffect = (repoRoot: string) => {
     // Also collect from any remaining staging run dirs (cross-run dedup within
     // the same staging lifetime).
     const stagingRoot = getStagingRoot(repoRoot);
-    let runDirs: readonly string[];
-    try {
-      const entries = await readdir(stagingRoot, { withFileTypes: true });
-      runDirs = entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => path.join(stagingRoot, entry.name));
-    } catch (error) {
-      if (isEnoentError(error)) {
-        return { seenSourceSha256, seenSourcePageUrls };
-      }
-      throw error;
-    }
+    const runDirs = yield* tryPromise(() => readdir(stagingRoot, { withFileTypes: true })).pipe(
+      Effect.map((entries) =>
+        entries
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => path.join(stagingRoot, entry.name)),
+      ),
+      Effect.catchTag('FilesystemError', (err) =>
+        isEnoentError(err.cause) ? Effect.succeed([] as string[]) : Effect.fail(err),
+      ),
+    );
 
     for (const runDir of runDirs) {
-      const assetEntries = await readdir(runDir, { withFileTypes: true });
+      const assetEntries = yield* tryPromise(() => readdir(runDir, { withFileTypes: true }));
       for (const assetEntry of assetEntries) {
         if (!assetEntry.isDirectory()) continue;
         const manifestPath = path.join(runDir, assetEntry.name, 'manifest.json');
-        try {
-          const raw = await readFile(manifestPath, 'utf8');
-          const parsed = JSON.parse(raw) as {
-            readonly sourceSha256?: unknown;
-            readonly sourcePageUrl?: unknown;
-          };
-          if (typeof parsed.sourceSha256 === 'string' && parsed.sourceSha256.length > 0) {
-            seenSourceSha256.add(parsed.sourceSha256);
-          }
-          if (typeof parsed.sourcePageUrl === 'string' && parsed.sourcePageUrl.length > 0) {
-            seenSourcePageUrls.add(normalizeUrlForDedup(parsed.sourcePageUrl));
-          }
-        } catch (error) {
-          if (!isEnoentError(error)) {
-            throw error;
-          }
+        const raw = yield* tryPromise(() => readFile(manifestPath, 'utf8')).pipe(
+          Effect.catchTag('FilesystemError', (err) =>
+            isEnoentError(err.cause) ? Effect.succeed(null) : Effect.fail(err),
+          ),
+        );
+        if (raw === null) continue;
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null) continue;
+        const p = parsed as Record<string, unknown>;
+        if (typeof p.sourceSha256 === 'string' && p.sourceSha256.length > 0) {
+          seenSourceSha256.add(p.sourceSha256);
+        }
+        if (typeof p.sourcePageUrl === 'string' && p.sourcePageUrl.length > 0) {
+          seenSourcePageUrls.add(normalizeUrlForDedup(p.sourcePageUrl));
         }
       }
     }

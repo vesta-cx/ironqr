@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Effect } from 'effect';
+import {
+  type CorpusIntegrityError,
+  FilesystemError,
+  type ImageProcessingError,
+  UnsupportedMediaError,
+} from '../errors.js';
 import { readCorpusManifest, writeCorpusManifest } from '../manifest.js';
 import type {
   CorpusAsset,
@@ -46,9 +52,15 @@ export const importLocalAssets = (
 
 const importLocalAssetsEffect = (
   options: ImportLocalAssetOptions,
-): Effect.Effect<ImportLocalAssetResult, unknown> => {
+): Effect.Effect<
+  ImportLocalAssetResult,
+  FilesystemError | UnsupportedMediaError | ImageProcessingError | CorpusIntegrityError
+> => {
   return Effect.gen(function* () {
-    const manifest = yield* Effect.tryPromise(() => readCorpusManifest(options.repoRoot));
+    const manifest = yield* Effect.tryPromise({
+      try: () => readCorpusManifest(options.repoRoot),
+      catch: (e) => new FilesystemError('Failed to read corpus manifest', e),
+    });
     const assets = [...manifest.assets];
     const imported: CorpusAsset[] = [];
     const deduped: CorpusAsset[] = [];
@@ -59,10 +71,15 @@ const importLocalAssetsEffect = (
       const mediaType = mediaTypeFromExtension(extension);
 
       if (!mediaType) {
-        throw new Error(`Unsupported file extension: ${extension || '<none>'}`);
+        return yield* Effect.fail(
+          new UnsupportedMediaError(`Unsupported file extension: ${extension || '<none>'}`),
+        );
       }
 
-      const bytes = yield* Effect.tryPromise(() => readFile(absolutePath));
+      const bytes = yield* Effect.tryPromise({
+        try: () => readFile(absolutePath),
+        catch: (e) => new FilesystemError(`Failed to read file: ${absolutePath}`, e),
+      });
       const source = buildSourceRecord(absolutePath, options);
       const result = yield* importAssetBytesEffect({
         repoRoot: options.repoRoot,
@@ -86,7 +103,10 @@ const importLocalAssetsEffect = (
     }
 
     const nextManifest = { version: MAJOR_VERSION, assets };
-    yield* Effect.tryPromise(() => writeCorpusManifest(options.repoRoot, nextManifest));
+    yield* Effect.tryPromise({
+      try: () => writeCorpusManifest(options.repoRoot, nextManifest),
+      catch: (e) => new FilesystemError('Failed to write corpus manifest', e),
+    });
 
     return {
       imported,

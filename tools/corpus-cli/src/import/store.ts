@@ -4,6 +4,12 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Effect } from 'effect';
 import sharp from 'sharp';
+import {
+  CorpusIntegrityError,
+  FilesystemError,
+  ImageProcessingError,
+  UnsupportedMediaError,
+} from '../errors.js';
 import { ensureCorpusLayout, getCorpusAssetsRoot } from '../manifest.js';
 import type {
   AssetReview,
@@ -70,22 +76,31 @@ export const extensionFromMediaType = (mediaType: string, fallbackPath: string):
     return fromPath;
   }
 
-  throw new Error(`Unsupported image media type: ${mediaType}`);
+  throw new UnsupportedMediaError(`Unsupported image media type: ${mediaType}`);
 };
 
 /** Effect-based version of `importAssetBytes`, for composition in larger Effect pipelines. */
 export const importAssetBytesEffect = (
   options: ImportAssetBytesOptions,
-): Effect.Effect<ImportAssetBytesResult, unknown> => {
+): Effect.Effect<
+  ImportAssetBytesResult,
+  FilesystemError | UnsupportedMediaError | ImageProcessingError | CorpusIntegrityError
+> => {
   return Effect.gen(function* () {
-    yield* Effect.tryPromise(() => ensureCorpusLayout(options.repoRoot));
+    yield* Effect.tryPromise({
+      try: () => ensureCorpusLayout(options.repoRoot),
+      catch: (e) => new FilesystemError('Failed to ensure corpus layout', e),
+    });
 
     const sourceSha256 = options.sourceSha256 ?? hashSha256(options.bytes);
     const normalizedBytes = yield* normalizeImportedImage(options.bytes);
     const mediaType = NORMALIZED_IMAGE_MEDIA_TYPE;
     const sha256 = hashSha256(normalizedBytes);
     const id = buildAssetId(sourceSha256);
-    const fileExtension = extensionFromMediaType(mediaType, options.sourcePathForExtension);
+    const fileExtension = yield* Effect.try({
+      try: () => extensionFromMediaType(mediaType, options.sourcePathForExtension),
+      catch: (e) => (e instanceof UnsupportedMediaError ? e : new UnsupportedMediaError(String(e))),
+    });
     const relativePath = `assets/${id}${fileExtension}`;
     const existingIndex = options.assets.findIndex((asset) => asset.id === id);
 
@@ -93,30 +108,39 @@ export const importAssetBytesEffect = (
       const existing = options.assets[existingIndex]!;
 
       if (existing.label !== options.label) {
-        throw new Error(`Asset ${id} already exists with label ${existing.label}`);
+        return yield* Effect.fail(
+          new CorpusIntegrityError(`Asset ${id} already exists with label ${existing.label}`),
+        );
       }
 
-      const asset: CorpusAsset = {
-        ...existing,
-        provenance: mergeProvenance(existing.provenance, options.provenance),
-        review: mergeReview(existing.review, {
-          ...(options.reviewStatus ? { status: options.reviewStatus } : {}),
-          ...(options.reviewer ? { reviewer: options.reviewer } : {}),
-          ...(options.reviewNotes ? { reviewNotes: options.reviewNotes } : {}),
-          ...(options.reviewedAt ? { reviewedAt: options.reviewedAt } : {}),
+      const asset = yield* Effect.try({
+        try: (): CorpusAsset => ({
+          ...existing,
+          provenance: mergeProvenance(existing.provenance, options.provenance),
+          review: mergeReview(existing.review, {
+            ...(options.reviewStatus ? { status: options.reviewStatus } : {}),
+            ...(options.reviewer ? { reviewer: options.reviewer } : {}),
+            ...(options.reviewNotes ? { reviewNotes: options.reviewNotes } : {}),
+            ...(options.reviewedAt ? { reviewedAt: options.reviewedAt } : {}),
+          }),
+          groundTruth: mergeCanonicalMetadata(
+            existing.groundTruth,
+            options.groundTruth,
+            'ground truth',
+          ),
+          autoScan: mergeCanonicalMetadata(
+            existing.autoScan,
+            options.autoScan,
+            'auto-scan evidence',
+          ),
+          licenseReview: mergeCanonicalMetadata(
+            existing.licenseReview,
+            options.licenseReview,
+            'license review',
+          ),
         }),
-        groundTruth: mergeCanonicalMetadata(
-          existing.groundTruth,
-          options.groundTruth,
-          'ground truth',
-        ),
-        autoScan: mergeCanonicalMetadata(existing.autoScan, options.autoScan, 'auto-scan evidence'),
-        licenseReview: mergeCanonicalMetadata(
-          existing.licenseReview,
-          options.licenseReview,
-          'license review',
-        ),
-      };
+        catch: (e) => new CorpusIntegrityError(e instanceof Error ? e.message : String(e)),
+      });
       options.assets[existingIndex] = asset;
       return { asset, deduped: true };
     }
@@ -144,12 +168,14 @@ export const importAssetBytesEffect = (
       ...(options.licenseReview ? { licenseReview: options.licenseReview } : {}),
     };
 
-    yield* Effect.tryPromise(() =>
-      writeFile(
-        path.join(getCorpusAssetsRoot(options.repoRoot), `${id}${fileExtension}`),
-        normalizedBytes,
-      ),
-    );
+    yield* Effect.tryPromise({
+      try: () =>
+        writeFile(
+          path.join(getCorpusAssetsRoot(options.repoRoot), `${id}${fileExtension}`),
+          normalizedBytes,
+        ),
+      catch: (e) => new FilesystemError('Failed to write asset file', e),
+    });
     options.assets.push(asset);
     return { asset, deduped: false };
   });
@@ -334,18 +360,21 @@ interface ImportAssetBytesResult {
 }
 
 const normalizeImportedImage = (bytes: Uint8Array) => {
-  return Effect.tryPromise(async () => {
-    const normalized = await sharp(bytes)
-      .rotate()
-      .resize({
-        width: NORMALIZED_IMAGE_MAX_DIMENSION,
-        height: NORMALIZED_IMAGE_MAX_DIMENSION,
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .webp({ quality: NORMALIZED_IMAGE_QUALITY })
-      .toBuffer();
+  return Effect.tryPromise({
+    try: async () => {
+      const normalized = await sharp(bytes)
+        .rotate()
+        .resize({
+          width: NORMALIZED_IMAGE_MAX_DIMENSION,
+          height: NORMALIZED_IMAGE_MAX_DIMENSION,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality: NORMALIZED_IMAGE_QUALITY })
+        .toBuffer();
 
-    return new Uint8Array(normalized);
+      return new Uint8Array(normalized);
+    },
+    catch: (e) => new ImageProcessingError('Failed to normalize image', e),
   });
 };
