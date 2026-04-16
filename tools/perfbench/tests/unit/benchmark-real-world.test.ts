@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   importLocalAssets,
   writeSelectedRealWorldBenchmarkFixture,
-} from '../../../corpus-cli/src/index.js';
+} from 'ironqr-corpus-cli';
 import { resolveRepoRootFromModuleUrl } from '../../src/cli.js';
 import { runRealWorldBenchmark, scoreRealWorldPositive } from '../../src/real-world-runner.js';
 import { makeTestDir } from '../helpers.js';

@@ -1,7 +1,12 @@
+import path from 'node:path';
+import { resolveRepoRootFromModuleUrl } from 'ironqr-corpus-cli';
 import type { RealWorldBenchmarkResult } from './real-world-runner.js';
 import type { BenchmarkResult } from './runner.js';
 
-const OUTPUT_FILE = `${import.meta.dirname}/../benchmark-results.json`;
+const OUTPUT_FILE = path.join(
+  resolveRepoRootFromModuleUrl(import.meta.url),
+  'benchmark-results.json',
+);
 
 export interface BenchmarkReport {
   readonly timestamp: string;

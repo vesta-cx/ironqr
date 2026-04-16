@@ -107,6 +107,8 @@ export const scoreRealWorldPositive = (
   };
 };
 
+// TODO: score all codes when multi-code detection lands — currently only
+// checks the first code, so multi-QR entries pass on partial results.
 const expectedTextFor = (entry: RealWorldBenchmarkEntry): string | null => {
   const first = entry.groundTruth?.codes[0];
   return first ? first.text : null;
