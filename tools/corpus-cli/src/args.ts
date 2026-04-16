@@ -1,4 +1,5 @@
 import type { CorpusAssetLabel, ReviewStatus } from './schema.js';
+import { CORPUS_ASSET_LABELS, REVIEW_STATUSES } from './schema.js';
 
 /** Names of the top-level CLI subcommands. */
 export type CommandName = 'scrape' | 'review' | 'import' | 'build-bench';
@@ -78,20 +79,20 @@ export const getOption = (args: ParsedArgs, name: string): string | undefined =>
 
 /** Parse and validate a `--label` option value; throws on invalid input. */
 export const parseLabel = (value: string | undefined): CorpusAssetLabel => {
-  if (value === 'qr-positive' || value === 'non-qr-negative') {
-    return value;
+  if (CORPUS_ASSET_LABELS.includes(value as CorpusAssetLabel)) {
+    return value as CorpusAssetLabel;
   }
 
-  throw new Error('Expected --label qr-positive|non-qr-negative');
+  throw new Error(`Expected --label ${CORPUS_ASSET_LABELS.join('|')}`);
 };
 
 /** Parse and validate a `--review` option value; throws on invalid input. */
-export const parseReviewStatus = (value: string | undefined): ReviewStatus => {
-  if (value === 'pending' || value === 'approved' || value === 'rejected') {
-    return value;
+const parseReviewStatus = (value: string | undefined): ReviewStatus => {
+  if (REVIEW_STATUSES.includes(value as ReviewStatus)) {
+    return value as ReviewStatus;
   }
 
-  throw new Error('Expected --review pending|approved|rejected');
+  throw new Error(`Expected --review ${REVIEW_STATUSES.join('|')}`);
 };
 
 /** Parse an optional `--review` option; returns `undefined` when value is absent. */

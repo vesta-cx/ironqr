@@ -1,3 +1,19 @@
+export type QrKind =
+  | 'url'
+  | 'otpauth'
+  | 'crypto'
+  | 'bookmark'
+  | 'email'
+  | 'phone'
+  | 'sms'
+  | 'mms'
+  | 'geo'
+  | 'wifi'
+  | 'vcard'
+  | 'vevent'
+  | 'mecard'
+  | 'text';
+
 /**
  * Detects the semantic type of a QR code payload string.
  * Returns a short lowercase label suitable for `GroundTruthCode.kind`.
@@ -15,7 +31,7 @@ const isValidUrl = (text: string, protocols: readonly string[]): boolean => {
   }
 };
 
-export const detectQrKind = (text: string): string => {
+export const detectQrKind = (text: string): QrKind => {
   const t = text.trim();
 
   // ── URI schemes validated strictly with new URL() ───────────────────────────
