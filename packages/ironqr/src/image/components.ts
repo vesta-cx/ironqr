@@ -34,8 +34,9 @@ export const labelConnectedComponents = (
   const findRoot = (label: number): number => {
     let current = label;
     while (parent[current] !== current) {
-      parent[current] = parent[parent[current] ?? 0] ?? 0;
-      current = parent[current] ?? 0;
+      const parentIndex = parent[current] as number;
+      parent[current] = parent[parentIndex] as number;
+      current = parent[current] as number;
     }
     return current;
   };
