@@ -2,7 +2,6 @@ node_modules
 coverage
 dist
 test-results
-.references
 .worktrees
 .plans
 .playwright
@@ -10,6 +9,8 @@ test-results
 .rts2_cache
 *.tsbuildinfo
 benchmark-results.json
+accuracy-benchmark-results.json
+performance-benchmark-results.json
 .turbo/
 .sc/corpus-cli.json
 corpus/staging/

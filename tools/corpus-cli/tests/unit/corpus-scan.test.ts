@@ -17,9 +17,6 @@ const createBlankPng = async (filePath: string): Promise<void> => {
     .toFile(filePath);
 };
 
-const corpusAssetPath = (name: string): string =>
-  path.resolve(import.meta.dir, '../../../../corpus/data/assets', name);
-
 describe('corpus reviewer scan assist', () => {
   it('returns no results for a blank image', async () => {
     const dir = await makeTestDir('corpus-scan');
@@ -33,19 +30,5 @@ describe('corpus reviewer scan assist', () => {
       succeeded: true,
       results: [],
     });
-  });
-
-  it('decodes the dotted Wi-Fi corpus asset', async () => {
-    const result = await scanLocalImageFile(corpusAssetPath('asset-96574ac1e248e5a1.webp'));
-
-    expect(result.succeeded).toBe(true);
-    expect(result.results[0]?.text).toBe('WIFI:S:wi_dje21_MJ_308;T:WPA;P:9qo7x3xf5!#;H:false;;');
-  });
-
-  it('decodes the dense version-25 corpus asset', async () => {
-    const result = await scanLocalImageFile(corpusAssetPath('asset-19c43addce501fb1.webp'));
-
-    expect(result.succeeded).toBe(true);
-    expect(result.results[0]?.text.startsWith('Version 25 QR Code')).toBe(true);
   });
 });

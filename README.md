@@ -7,8 +7,9 @@ their own workspace package.
 ## Workspaces
 
 - `packages/ironqr`: `ironqr`, the publishable QR SDK package
-- `tools/corpus-cli`: `ironqr-corpus-cli`, local corpus import, review, staging, and bench-curation tooling
-- `tools/perfbench`: `@ironqr/perfbench`, synthetic and real-world benchmark harness
+- `tools/corpus-cli`: `ironqr-corpus-cli`, local corpus import, review, and staging tooling
+- `tools/bench`: `@ironqr/bench`, benchmark CLI with `performance` and `accuracy` modes
+- `tools/perfbench`: `@ironqr/perfbench`, legacy synthetic benchmark internals feeding the bench CLI during migration
 - `packages/wasm`: `@ironqr/wasm`, the experimental JS-facing wasm boundary over `rust/`
 
 ## Common Commands
@@ -26,6 +27,8 @@ bun run package:quality
 
 ```bash
 bun run benchmark
+bun run bench performance
+bun run bench accuracy --engine ironqr --failures-only
 bun --filter ironqr-corpus-cli run cli --
 bun --filter ironqr-corpus-cli run cli -- scrape --label qr-positive https://example.com
 bun --filter ironqr-corpus-cli run cli -- review corpus/staging/<run-id>
