@@ -1,5 +1,3 @@
-export * from './real-world.js';
-
 export type Ecl = 'L' | 'M' | 'Q' | 'H';
 
 export interface PositiveEntry {

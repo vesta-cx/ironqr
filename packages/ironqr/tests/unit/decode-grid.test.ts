@@ -80,6 +80,10 @@ const flipFormatBits = (grid: boolean[][], count: number): boolean[][] => {
   return corrupted;
 };
 
+const transposeGrid = (grid: boolean[][]): boolean[][] => {
+  return grid[0]?.map((_, col) => grid.map((row) => row[col] ?? false)) ?? [];
+};
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('decodeGrid', () => {
@@ -164,6 +168,17 @@ describe('decodeGrid', () => {
     expect(clean.confidence).toBe(1);
     expect(correctedOneBit.confidence).toBeCloseTo(14 / 15, 8);
     expect(correctedThreeBits.confidence).toBeCloseTo(12 / 15, 8);
+  });
+
+  it('falls back to a mirrored decode path when the logical grid is transposed', async () => {
+    const dataCodewords = finalizeVersion1DataCodewords(alphanumericBits('HI'), 'M');
+    const transposedGrid = transposeGrid(buildVersion1Grid(dataCodewords, 'M', 0));
+
+    const result = await decodeGrid({ grid: transposedGrid });
+
+    expect(result.payload.text).toBe('HI');
+    expect(result.version).toBe(1);
+    expect(result.errorCorrectionLevel).toBe('M');
   });
 
   // ── AC3: EC level coverage ────────────────────────────────────────────────

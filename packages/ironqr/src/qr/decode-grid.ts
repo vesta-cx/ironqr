@@ -25,19 +25,11 @@ const EUC_KR_DECODER = new TextDecoder('euc-kr', { fatal: false });
 
 const FORMAT_INFO_BITS = 15;
 
-/**
- * Decodes a logical QR module grid all the way to a public scan result.
- *
- * @param input - Square boolean grid representing dark and light modules.
- * @returns A decoded QR payload with structural metadata.
- * @throws {ScannerError} Thrown when the grid is malformed or cannot be decoded.
- */
-export const decodeGridLogical = (input: {
-  readonly grid: readonly (readonly boolean[])[];
-}): Effect.Effect<DecodeGridResult, ScannerError> => {
+const decodeGridOnce = (
+  grid: readonly (readonly boolean[])[],
+): Effect.Effect<DecodeGridResult, ScannerError> => {
   return Effect.try({
     try: () => {
-      const { grid } = input;
       if (grid.length === 0) {
         throw new ScannerError('invalid_input', 'QR grid must not be empty.');
       }
@@ -114,6 +106,40 @@ export const decodeGridLogical = (input: {
             error instanceof Error ? error.message : `Unexpected decode error: ${String(error)}`,
           ),
   });
+};
+
+const transposeGrid = (grid: readonly (readonly boolean[])[]): boolean[][] => {
+  return grid[0]?.map((_, col) => grid.map((row) => row[col] ?? false)) ?? [];
+};
+
+/**
+ * Decodes a logical QR module grid all the way to a public scan result.
+ *
+ * Retries once against the transposed grid when the first pass fails. Some
+ * photographed symbols land with mirrored logical axes after geometric fitting
+ * even though the finder triplet is otherwise correct; QR decoders like ZXing
+ * recover those by attempting a mirrored decode path rather than discarding an
+ * otherwise-valid grid.
+ *
+ * @param input - Square boolean grid representing dark and light modules.
+ * @returns A decoded QR payload with structural metadata.
+ * @throws {ScannerError} Thrown when the grid is malformed or cannot be decoded.
+ */
+export const decodeGridLogical = (input: {
+  readonly grid: readonly (readonly boolean[])[];
+}): Effect.Effect<DecodeGridResult, ScannerError> => {
+  return decodeGridOnce(input.grid).pipe(
+    Effect.catchIf(
+      (error): error is ScannerError => error.code === 'decode_failed',
+      (originalError) =>
+        decodeGridOnce(transposeGrid(input.grid)).pipe(
+          Effect.catchIf(
+            (error): error is ScannerError => error.code === 'decode_failed',
+            () => Effect.fail(originalError),
+          ),
+        ),
+    ),
+  );
 };
 
 /**

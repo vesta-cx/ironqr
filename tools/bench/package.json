@@ -1,0 +1,38 @@
+{
+  "name": "@ironqr/bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "bench": "bun src/cli.ts",
+    "build": "tsup --config tsup.config.ts",
+    "clean": "rm -rf dist",
+    "lint": "biome check src tests package.json tsconfig.json tsup.config.ts .biomeignore",
+    "test": "bun test ./tests/unit/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@undecaf/zbar-wasm": "^0.11.0",
+    "@zxing/library": "^0.21.3",
+    "effect": "^4.0.0-beta.43",
+    "ironqr": "workspace:*",
+    "ironqr-corpus-cli": "workspace:*",
+    "quirc": "^1.0.0-alpha.4",
+    "sharp": "^0.34.4",
+    "zxing-wasm": "^3.0.2"
+  }
+}

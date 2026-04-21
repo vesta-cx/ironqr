@@ -10,6 +10,8 @@ const RGBA_CHANNELS = 4;
 const WHITE_PIXEL = 255;
 const SAUVOLA_K = 0.34;
 const SAUVOLA_DYNAMIC_RANGE = 128;
+const HYBRID_REGION_SIZE = 8;
+const HYBRID_MIN_DYNAMIC_RANGE = 24;
 
 const compositeOnWhite = (channelValue: number, alpha: number): number => {
   const foregroundWeight = alpha / WHITE_PIXEL;
@@ -210,6 +212,92 @@ export const sauvolaBinarize = (
       const stddev = variance > 0 ? Math.sqrt(variance) : 0;
       const threshold = mean * (1 + SAUVOLA_K * (stddev / SAUVOLA_DYNAMIC_RANGE - 1));
       binary[y * width + x] = (luma[y * width + x] as number) > threshold ? WHITE_PIXEL : 0;
+    }
+  }
+
+  return binary;
+};
+
+/**
+ * Binarizes a grayscale image using tiny adaptive blocks plus neighborhood smoothing.
+ *
+ * This hybrid path complements Otsu and Sauvola on small QR codes embedded in
+ * noisy photos. Each 8×8 block gets a local threshold, then nearby block
+ * thresholds are averaged to suppress compression artifacts.
+ *
+ * @param luma - Grayscale pixel values (0-255).
+ * @param width - Image width in pixels.
+ * @param height - Image height in pixels.
+ * @returns Binary array: 0 = dark, 255 = light.
+ */
+export const hybridBinarize = (luma: Uint8Array, width: number, height: number): Uint8Array => {
+  assertImagePlaneLength(luma.length, width, height, 'hybridBinarize');
+
+  const horizontalRegions = Math.ceil(width / HYBRID_REGION_SIZE);
+  const verticalRegions = Math.ceil(height / HYBRID_REGION_SIZE);
+  const blackPoints = new Float64Array(horizontalRegions * verticalRegions);
+  const blackPointAt = (x: number, y: number): number =>
+    numberAt(blackPoints, y * horizontalRegions + x);
+
+  for (let verticalRegion = 0; verticalRegion < verticalRegions; verticalRegion += 1) {
+    for (let horizontalRegion = 0; horizontalRegion < horizontalRegions; horizontalRegion += 1) {
+      let sum = 0;
+      let min = Number.POSITIVE_INFINITY;
+      let max = 0;
+
+      for (let y = 0; y < HYBRID_REGION_SIZE; y += 1) {
+        const py = Math.min(height - 1, verticalRegion * HYBRID_REGION_SIZE + y);
+        for (let x = 0; x < HYBRID_REGION_SIZE; x += 1) {
+          const px = Math.min(width - 1, horizontalRegion * HYBRID_REGION_SIZE + x);
+          const value = luma[py * width + px] as number;
+          sum += value;
+          if (value < min) min = value;
+          if (value > max) max = value;
+        }
+      }
+
+      let average = sum / (HYBRID_REGION_SIZE * HYBRID_REGION_SIZE);
+      if (max - min <= HYBRID_MIN_DYNAMIC_RANGE) {
+        average = min / 2;
+        if (verticalRegion > 0 && horizontalRegion > 0) {
+          const neighborAverage =
+            (blackPointAt(horizontalRegion, verticalRegion - 1) +
+              2 * blackPointAt(horizontalRegion - 1, verticalRegion) +
+              blackPointAt(horizontalRegion - 1, verticalRegion - 1)) /
+            4;
+          if (min < neighborAverage) average = neighborAverage;
+        }
+      }
+
+      blackPoints[verticalRegion * horizontalRegions + horizontalRegion] = average;
+    }
+  }
+
+  const clamp = (value: number, min: number, max: number): number =>
+    Math.max(min, Math.min(max, value));
+
+  const binary = new Uint8Array(width * height);
+  for (let verticalRegion = 0; verticalRegion < verticalRegions; verticalRegion += 1) {
+    for (let horizontalRegion = 0; horizontalRegion < horizontalRegions; horizontalRegion += 1) {
+      const left = clamp(horizontalRegion, 2, horizontalRegions - 3);
+      const top = clamp(verticalRegion, 2, verticalRegions - 3);
+      let thresholdSum = 0;
+      for (let dx = -2; dx <= 2; dx += 1) {
+        for (let dy = -2; dy <= 2; dy += 1) {
+          thresholdSum += blackPointAt(left + dx, top + dy);
+        }
+      }
+      const threshold = thresholdSum / 25;
+
+      for (let y = 0; y < HYBRID_REGION_SIZE; y += 1) {
+        const py = verticalRegion * HYBRID_REGION_SIZE + y;
+        if (py >= height) continue;
+        for (let x = 0; x < HYBRID_REGION_SIZE; x += 1) {
+          const px = horizontalRegion * HYBRID_REGION_SIZE + x;
+          if (px >= width) continue;
+          binary[py * width + px] = (luma[py * width + px] as number) > threshold ? WHITE_PIXEL : 0;
+        }
+      }
     }
   }
 

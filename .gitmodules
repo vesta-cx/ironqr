@@ -1,0 +1,12 @@
+[submodule "tools/bench/vendors/jsqr"]
+	path = tools/bench/vendors/jsqr
+	url = https://github.com/cozmo/jsQR.git
+[submodule "tools/bench/vendors/zxing-js-library"]
+	path = tools/bench/vendors/zxing-js-library
+	url = https://github.com/zxing-js/library.git
+[submodule "tools/bench/vendors/zxing-wasm"]
+	path = tools/bench/vendors/zxing-wasm
+	url = https://github.com/Sec-ant/zxing-wasm.git
+[submodule "tools/bench/vendors/quirc"]
+	path = tools/bench/vendors/quirc
+	url = https://github.com/dlbeer/quirc.git

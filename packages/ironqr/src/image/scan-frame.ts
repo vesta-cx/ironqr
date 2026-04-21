@@ -1,7 +1,14 @@
 import { Effect } from 'effect';
+import type { Point } from '../contracts/geometry.js';
 import type { BrowserImageSource, ScanOptions, ScanResult } from '../contracts/scan.js';
 import { decodeGridLogical, ScannerError } from '../qr/index.js';
-import { otsuBinarize, sauvolaBinarize, toChannelGray, toGrayscale } from './binarize.js';
+import {
+  hybridBinarize,
+  otsuBinarize,
+  sauvolaBinarize,
+  toChannelGray,
+  toGrayscale,
+} from './binarize.js';
 import {
   detectFinderCandidatePool,
   type FinderCandidate,
@@ -11,8 +18,11 @@ import {
 import { locateAlignmentPatternCorrespondences } from './detect-alignment.js';
 import { detectFinderCandidatesMatcher } from './detect-finders.js';
 import { detectFinderCandidatesFlood } from './detect-flood.js';
+import { detectAlignmentCandidatesQuad, detectFinderCandidatesQuad } from './detect-quads.js';
 import {
+  buildGridResolutionFromHomography,
   candidateVersions,
+  fitHomography,
   type GridResolution,
   resolveGrid,
   resolveGridFromCorners,
@@ -26,6 +36,9 @@ import { sampleGrid } from './sample.js';
 const DEFAULT_MAX_CANDIDATES = 8;
 const MAX_TRIPLE_MULTIPLIER = 4;
 const MERGED_POOL_DUPLICATE_RADIUS = 3;
+const QUAD_FINDER_MAX_ASPECT = 2;
+const QUAD_FINDER_CANDIDATE_LIMIT = 24;
+const QUAD_ALIGNMENT_CANDIDATE_LIMIT = 5;
 
 /**
  * Builds the single-frame QR scanning pipeline as an Effect program.
@@ -156,6 +169,10 @@ export const scanFrame = (input: BrowserImageSource, options: ScanOptions = {}) 
       }
     }
 
+    if (results.length > 0) return results;
+
+    const quadFallbackResult = yield* tryDecodeQuadFallback(luma, contrast, width, height);
+    if (quadFallbackResult !== null) results.push(quadFallbackResult);
     return results;
   });
 };
@@ -190,6 +207,208 @@ const tryDecodeResolution = (
       segments: decoded.segments,
     } satisfies ScanResult;
   });
+};
+
+const tryDecodeQuadFallback = (
+  luma: Uint8Array,
+  _contrast: ReturnType<typeof createOklabContrastField>,
+  width: number,
+  height: number,
+): Effect.Effect<ScanResult | null, ScannerError> => {
+  return Effect.gen(function* () {
+    const binary = hybridBinarize(luma, width, height);
+    const quadFinders = detectFinderCandidatesQuad(binary, width, height)
+      .filter((finder) => finderAspect(finder) <= QUAD_FINDER_MAX_ASPECT)
+      .sort((left, right) => right.moduleSize - left.moduleSize)
+      .slice(0, QUAD_FINDER_CANDIDATE_LIMIT);
+    if (quadFinders.length < 3) return null;
+
+    const alignmentCandidates = detectAlignmentCandidatesQuad(binary, width, height);
+    if (alignmentCandidates.length === 0) return null;
+
+    for (const triple of enumerateFinderTriples(quadFinders)) {
+      for (const version of candidateVersions(triple, 4)) {
+        if (version < 2) continue;
+        const { topLeft, topRight, bottomLeft } = orientFinderTriple(triple);
+        const expectedAlignment = expectedAlignmentPoint(topLeft, topRight, bottomLeft);
+        const candidateAlignments = alignmentCandidates
+          .slice()
+          .sort(
+            (left, right) =>
+              Math.hypot(left.x - expectedAlignment.x, left.y - expectedAlignment.y) -
+              Math.hypot(right.x - expectedAlignment.x, right.y - expectedAlignment.y),
+          )
+          .slice(0, QUAD_ALIGNMENT_CANDIDATE_LIMIT);
+
+        for (const alignment of candidateAlignments) {
+          const resolution = resolveCenterBasedGrid(triple, version, alignment);
+          if (resolution === null) continue;
+
+          const result = yield* tryDecodeResolutionNearest(resolution, binary, width, height);
+          if (result !== null) return result;
+        }
+      }
+    }
+
+    return null;
+  });
+};
+
+const tryDecodeResolutionNearest = (
+  resolution: GridResolution,
+  binary: Uint8Array,
+  width: number,
+  height: number,
+): Effect.Effect<ScanResult | null, ScannerError> => {
+  return Effect.gen(function* () {
+    const grid = sampleGridNearest(width, height, resolution, binary);
+    const decoded = yield* decodeGridLogical({ grid }).pipe(
+      Effect.catchIf(
+        (error): error is ScannerError =>
+          error instanceof ScannerError && error.code === 'decode_failed',
+        () => Effect.succeed(null),
+      ),
+    );
+    if (decoded === null) return null;
+
+    return {
+      payload: decoded.payload,
+      confidence: decoded.confidence,
+      version: decoded.version,
+      errorCorrectionLevel: decoded.errorCorrectionLevel,
+      bounds: resolution.bounds,
+      corners: resolution.corners,
+      headers: decoded.headers,
+      segments: decoded.segments,
+    } satisfies ScanResult;
+  });
+};
+
+const sampleGridNearest = (
+  width: number,
+  height: number,
+  resolution: GridResolution,
+  binary: Uint8Array,
+): boolean[][] => {
+  return Array.from({ length: resolution.size }, (_, row) =>
+    Array.from({ length: resolution.size }, (_, col) => {
+      const point = resolution.samplePoint(row, col);
+      const px = Math.max(0, Math.min(width - 1, Math.floor(point.x)));
+      const py = Math.max(0, Math.min(height - 1, Math.floor(point.y)));
+      return binary[py * width + px] === 0;
+    }),
+  );
+};
+
+const orientFinderTriple = (
+  triple: FinderTriple,
+): {
+  readonly topLeft: FinderCandidate;
+  readonly topRight: FinderCandidate;
+  readonly bottomLeft: FinderCandidate;
+} => {
+  const [fa, fb, fc] = triple;
+  const dAB = Math.hypot(fb.cx - fa.cx, fb.cy - fa.cy);
+  const dAC = Math.hypot(fc.cx - fa.cx, fc.cy - fa.cy);
+  const dBC = Math.hypot(fc.cx - fb.cx, fc.cy - fb.cy);
+
+  let topLeft: FinderCandidate;
+  let topRight: FinderCandidate;
+  let bottomLeft: FinderCandidate;
+  if (dAB >= dAC && dAB >= dBC) {
+    topLeft = fc;
+    topRight = fa;
+    bottomLeft = fb;
+  } else if (dAC >= dAB && dAC >= dBC) {
+    topLeft = fb;
+    topRight = fa;
+    bottomLeft = fc;
+  } else {
+    topLeft = fa;
+    topRight = fb;
+    bottomLeft = fc;
+  }
+
+  const cross =
+    (topRight.cx - topLeft.cx) * (bottomLeft.cy - topLeft.cy) -
+    (topRight.cy - topLeft.cy) * (bottomLeft.cx - topLeft.cx);
+  if (cross < 0) [topRight, bottomLeft] = [bottomLeft, topRight];
+
+  return { topLeft, topRight, bottomLeft };
+};
+
+const expectedAlignmentPoint = (
+  topLeft: FinderCandidate,
+  topRight: FinderCandidate,
+  bottomLeft: FinderCandidate,
+): Point => {
+  const bottomRight = {
+    x: topRight.cx - topLeft.cx + bottomLeft.cx,
+    y: topRight.cy - topLeft.cy + bottomLeft.cy,
+  };
+  const moduleSize = (topLeft.moduleSize + topRight.moduleSize + bottomLeft.moduleSize) / 3;
+  const modulesBetweenFinderPatterns =
+    (Math.hypot(bottomLeft.cx - topLeft.cx, bottomLeft.cy - topLeft.cy) +
+      Math.hypot(topRight.cx - topLeft.cx, topRight.cy - topLeft.cy)) /
+    2 /
+    moduleSize;
+  const correctionToTopLeft = 1 - 3 / Math.max(modulesBetweenFinderPatterns, 1);
+
+  return {
+    x: topLeft.cx + correctionToTopLeft * (bottomRight.x - topLeft.cx),
+    y: topLeft.cy + correctionToTopLeft * (bottomRight.y - topLeft.cy),
+  };
+};
+
+const resolveCenterBasedGrid = (
+  triple: FinderTriple,
+  version: number,
+  alignment: Point,
+): GridResolution | null => {
+  const { topLeft, topRight, bottomLeft } = orientFinderTriple(triple);
+  const size = version * 4 + 17;
+  const pairs = [
+    [
+      { x: 3, y: 3 },
+      { x: topLeft.cx, y: topLeft.cy },
+    ],
+    [
+      { x: size - 4, y: 3 },
+      { x: topRight.cx, y: topRight.cy },
+    ],
+    [
+      { x: 3, y: size - 4 },
+      { x: bottomLeft.cx, y: bottomLeft.cy },
+    ],
+    [{ x: size - 7, y: size - 7 }, alignment],
+  ] as const;
+
+  const homography = fitHomography(pairs);
+  if (homography === null) return null;
+  return buildGridResolutionFromHomography(version, size, homography);
+};
+
+const enumerateFinderTriples = (finders: readonly FinderCandidate[]): readonly FinderTriple[] => {
+  const triples: FinderTriple[] = [];
+  for (let i = 0; i < finders.length - 2; i += 1) {
+    for (let j = i + 1; j < finders.length - 1; j += 1) {
+      for (let k = j + 1; k < finders.length; k += 1) {
+        const first = finders[i];
+        const second = finders[j];
+        const third = finders[k];
+        if (!first || !second || !third) continue;
+        triples.push([first, second, third]);
+      }
+    }
+  }
+  return triples;
+};
+
+const finderAspect = (finder: FinderCandidate): number => {
+  return (
+    Math.max(finder.hModuleSize, finder.vModuleSize) /
+    Math.max(1e-6, Math.min(finder.hModuleSize, finder.vModuleSize))
+  );
 };
 
 const normalizeMaxCandidates = (value: number | undefined): number => {
