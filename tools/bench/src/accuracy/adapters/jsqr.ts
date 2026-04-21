@@ -1,7 +1,12 @@
 import { createRequire } from 'node:module';
 import { readImageData } from '../../shared/image.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
-import { createCapabilities, failureResult, successResult } from './shared.js';
+import {
+  createAvailableAvailability,
+  createCapabilities,
+  failureResult,
+  successResult,
+} from './shared.js';
 
 interface JsqrCode {
   readonly data: string;
@@ -43,5 +48,6 @@ export const jsqrAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'js',
   }),
+  availability: createAvailableAvailability,
   scanImage: scanWithJsqr,
 };

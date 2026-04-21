@@ -1,4 +1,9 @@
-import type { AccuracyEngineCapabilities, AccuracyScanCode, AccuracyScanResult } from '../types.js';
+import type {
+  AccuracyEngineAvailability,
+  AccuracyEngineCapabilities,
+  AccuracyScanCode,
+  AccuracyScanResult,
+} from '../types.js';
 
 export const normalizeError = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error);
@@ -24,6 +29,11 @@ export const failureResult = (error: unknown): AccuracyScanResult => {
 export const createCapabilities = (
   capabilities: AccuracyEngineCapabilities,
 ): AccuracyEngineCapabilities => capabilities;
+
+export const createAvailableAvailability = (): AccuracyEngineAvailability => ({
+  available: true,
+  reason: null,
+});
 
 export const normalizeDecodedText = (text: string): string => text.replace(/\0+$/u, '');
 

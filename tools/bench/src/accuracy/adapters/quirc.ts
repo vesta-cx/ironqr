@@ -3,6 +3,7 @@ import path from 'node:path';
 import { buildLuminanceBuffer, readImageData } from '../../shared/image.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
 import {
+  createAvailableAvailability,
   createCapabilities,
   failureResult,
   normalizeDecodedText,
@@ -76,5 +77,6 @@ export const quircAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'wasm',
   }),
+  availability: createAvailableAvailability,
   scanImage: scanWithQuirc,
 };

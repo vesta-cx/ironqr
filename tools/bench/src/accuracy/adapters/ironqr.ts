@@ -1,7 +1,12 @@
 import { scanFrame } from '../../../../../packages/ironqr/src/index.js';
 import { readImageData } from '../../shared/image.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
-import { createCapabilities, failureResult, successResult } from './shared.js';
+import {
+  createAvailableAvailability,
+  createCapabilities,
+  failureResult,
+  successResult,
+} from './shared.js';
 
 const scanWithIronqr = async (imagePath: string): Promise<AccuracyScanResult> => {
   try {
@@ -27,5 +32,6 @@ export const ironqrAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'js',
   }),
+  availability: createAvailableAvailability,
   scanImage: scanWithIronqr,
 };

@@ -1,7 +1,12 @@
 import { BinaryBitmap, HybridBinarizer, QRCodeReader, RGBLuminanceSource } from '@zxing/library';
 import { buildLuminanceBuffer, invertLuminanceBuffer, readImageData } from '../../shared/image.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
-import { createCapabilities, failureResult, successResult } from './shared.js';
+import {
+  createAvailableAvailability,
+  createCapabilities,
+  failureResult,
+  successResult,
+} from './shared.js';
 
 const decodeText = (luminance: Uint8ClampedArray, width: number, height: number): string | null => {
   const bitmap = new BinaryBitmap(
@@ -40,5 +45,6 @@ export const zxingAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'js',
   }),
+  availability: createAvailableAvailability,
   scanImage: scanWithZxing,
 };

@@ -2,7 +2,13 @@ import { createRequire } from 'node:module';
 import { prepareZXingModule, readBarcodes } from 'zxing-wasm/reader';
 import { cloneRgbaBuffer, readImageData } from '../../shared/image.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
-import { createCapabilities, failureResult, serializeAsync, successResult } from './shared.js';
+import {
+  createAvailableAvailability,
+  createCapabilities,
+  failureResult,
+  serializeAsync,
+  successResult,
+} from './shared.js';
 
 const require = createRequire(import.meta.url);
 const ZXING_READER_WASM_PATH = require.resolve('zxing-wasm/reader/zxing_reader.wasm');
@@ -56,5 +62,6 @@ export const zxingCppAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'wasm',
   }),
+  availability: createAvailableAvailability,
   scanImage: scanWithZXingCpp,
 };

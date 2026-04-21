@@ -1,6 +1,14 @@
 import { resolveRepoRootFromModuleUrl } from '../../corpus-cli/src/repo-root.js';
-import { printAccuracySummary, writeAccuracyReport } from './accuracy/report.js';
-import { resolveAccuracyEngines, runAccuracyBenchmark } from './accuracy/runner.js';
+import {
+  printAccuracyEngineCatalog,
+  printAccuracySummary,
+  writeAccuracyReport,
+} from './accuracy/report.js';
+import {
+  inspectAccuracyEngines,
+  resolveAccuracyEngines,
+  runAccuracyBenchmark,
+} from './accuracy/runner.js';
 import {
   printPerformanceSummary,
   runPerformanceBenchmark,
@@ -10,6 +18,7 @@ import {
 interface CliOptions {
   readonly engines: readonly string[];
   readonly failuresOnly: boolean;
+  readonly listEngines: boolean;
 }
 
 const parseArgs = (
@@ -18,12 +27,17 @@ const parseArgs = (
   const [mode, ...rest] = argv;
   const engines: string[] = [];
   let failuresOnly = false;
+  let listEngines = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (!arg) continue;
     if (arg === '--failures-only') {
       failuresOnly = true;
+      continue;
+    }
+    if (arg === '--list-engines') {
+      listEngines = true;
       continue;
     }
     if (arg === '--engine') {
@@ -42,12 +56,14 @@ const parseArgs = (
 
   return {
     mode,
-    options: { engines, failuresOnly },
+    options: { engines, failuresOnly, listEngines },
   };
 };
 
 const printUsage = (): void => {
-  console.log('Usage: bun run bench <performance|accuracy> [--engine <id>] [--failures-only]');
+  console.log(
+    'Usage: bun run bench <performance|accuracy|engines> [--engine <id>] [--failures-only] [--list-engines]',
+  );
 };
 
 const runPerformance = async (): Promise<void> => {
@@ -59,10 +75,19 @@ const runPerformance = async (): Promise<void> => {
 
 const runAccuracy = async (options: CliOptions): Promise<void> => {
   const repoRoot = resolveRepoRootFromModuleUrl(import.meta.url);
+  if (options.listEngines) {
+    printAccuracyEngineCatalog(inspectAccuracyEngines());
+    return;
+  }
+
   const engines = resolveAccuracyEngines(options.engines);
   const result = await runAccuracyBenchmark(repoRoot, engines);
   printAccuracySummary(result, repoRoot, { failuresOnly: options.failuresOnly });
   await writeAccuracyReport(result, repoRoot);
+};
+
+const runEngines = (): void => {
+  printAccuracyEngineCatalog(inspectAccuracyEngines());
 };
 
 const main = async (): Promise<void> => {
@@ -78,6 +103,9 @@ const main = async (): Promise<void> => {
       return;
     case 'accuracy':
       await runAccuracy(options);
+      return;
+    case 'engines':
+      runEngines();
       return;
     default:
       printUsage();

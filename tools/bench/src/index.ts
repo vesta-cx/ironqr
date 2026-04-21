@@ -1,6 +1,13 @@
-export { printAccuracySummary, writeAccuracyReport } from './accuracy/report.js';
+export type { AccuracyBridgeRequest, AccuracyBridgeResponse } from './accuracy/bridge.js';
+export { createBridgeAccuracyEngine } from './accuracy/bridge.js';
+export {
+  printAccuracyEngineCatalog,
+  printAccuracySummary,
+  writeAccuracyReport,
+} from './accuracy/report.js';
 export {
   expectedTextsFor,
+  inspectAccuracyEngines,
   listAccuracyEngines,
   resolveAccuracyEngines,
   runAccuracyBenchmark,
@@ -11,7 +18,9 @@ export type {
   AccuracyAssetResult,
   AccuracyBenchmarkResult,
   AccuracyEngine,
+  AccuracyEngineAvailability,
   AccuracyEngineCapabilities,
+  AccuracyEngineDescriptor,
   AccuracyEngineSummary,
   AccuracyScanResult,
   EngineAssetResult,

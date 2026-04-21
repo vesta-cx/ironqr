@@ -1,23 +1,53 @@
 import path from 'node:path';
 import { readCorpusManifest } from '../../../corpus-cli/src/manifest.js';
 import type { CorpusAsset } from '../../../corpus-cli/src/schema.js';
+import { barcodeDetectorAccuracyEngine } from './adapters/barcode-detector.js';
 import { ironqrAccuracyEngine } from './adapters/ironqr.js';
 import { jsqrAccuracyEngine } from './adapters/jsqr.js';
 import { quircAccuracyEngine } from './adapters/quirc.js';
+import { zbarAccuracyEngine } from './adapters/zbar.js';
 import { zxingAccuracyEngine } from './adapters/zxing.js';
 import { zxingCppAccuracyEngine } from './adapters/zxing-cpp.js';
 import type {
   AccuracyAssetResult,
   AccuracyBenchmarkResult,
   AccuracyEngine,
+  AccuracyEngineDescriptor,
   AccuracyEngineSummary,
   EngineAssetResult,
   NegativeOutcome,
   PositiveOutcome,
 } from './types.js';
 
+const ACCURACY_ASSET_CONCURRENCY = 4;
+
 const uniqueTexts = (texts: readonly string[]): readonly string[] => {
   return [...new Set(texts)];
+};
+
+const mapConcurrent = async <Input, Output>(
+  values: readonly Input[],
+  concurrency: number,
+  map: (value: Input, index: number) => Promise<Output>,
+): Promise<Output[]> => {
+  if (values.length === 0) return [];
+
+  const results = new Array<Output>(values.length);
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < values.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const value = values[currentIndex];
+      if (value === undefined) continue;
+      results[currentIndex] = await map(value, currentIndex);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, () => worker()));
+
+  return results;
 };
 
 export const expectedTextsFor = (asset: CorpusAsset): readonly string[] => {
@@ -123,22 +153,51 @@ export const listAccuracyEngines = (): readonly AccuracyEngine[] => {
     zxingAccuracyEngine,
     zxingCppAccuracyEngine,
     quircAccuracyEngine,
+    zbarAccuracyEngine,
+    barcodeDetectorAccuracyEngine,
   ];
+};
+
+const describeEngine = (engine: AccuracyEngine): AccuracyEngineDescriptor => {
+  const availability = engine.availability();
+  return {
+    id: engine.id,
+    kind: engine.kind,
+    capabilities: engine.capabilities,
+    available: availability.available,
+    reason: availability.reason,
+  };
+};
+
+export const inspectAccuracyEngines = (): readonly AccuracyEngineDescriptor[] => {
+  return listAccuracyEngines().map(describeEngine);
 };
 
 export const resolveAccuracyEngines = (
   engineIds: readonly string[] = [],
 ): readonly AccuracyEngine[] => {
-  const available = listAccuracyEngines();
-  if (engineIds.length === 0) return available;
+  const engines = listAccuracyEngines();
+  if (engineIds.length === 0) {
+    return engines.filter((engine) => engine.availability().available);
+  }
 
   const requested = new Set(engineIds);
-  const selected = available.filter((engine) => requested.has(engine.id));
+  const selected = engines.filter((engine) => requested.has(engine.id));
   if (selected.length !== requested.size) {
     const found = new Set(selected.map((engine) => engine.id));
     const missing = engineIds.filter((engineId) => !found.has(engineId));
     throw new Error(`Unknown accuracy engine(s): ${missing.join(', ')}`);
   }
+
+  const unavailable = selected.filter((engine) => !engine.availability().available);
+  if (unavailable.length > 0) {
+    const reasons = unavailable.map((engine) => {
+      const availability = engine.availability();
+      return `${engine.id}: ${availability.reason ?? 'unavailable'}`;
+    });
+    throw new Error(`Unavailable accuracy engine(s): ${reasons.join('; ')}`);
+  }
+
   return selected;
 };
 
@@ -210,25 +269,21 @@ export const runAccuracyBenchmark = async (
   const manifest = await readCorpusManifest(repoRoot);
   const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
 
-  const assets = await Promise.all(
-    approvedAssets.map(
-      async (asset): Promise<AccuracyAssetResult> => ({
-        assetId: asset.id,
-        label: asset.label,
-        expectedTexts: expectedTextsFor(asset),
-        results: await Promise.all(
-          engines.map((engine) => scoreAssetForEngine(repoRoot, asset, engine)),
-        ),
-      }),
-    ),
+  const assets = await mapConcurrent(
+    approvedAssets,
+    ACCURACY_ASSET_CONCURRENCY,
+    async (asset): Promise<AccuracyAssetResult> => ({
+      assetId: asset.id,
+      label: asset.label,
+      expectedTexts: expectedTextsFor(asset),
+      results: await Promise.all(
+        engines.map((engine) => scoreAssetForEngine(repoRoot, asset, engine)),
+      ),
+    }),
   );
 
   return {
-    engines: engines.map((engine) => ({
-      id: engine.id,
-      kind: engine.kind,
-      capabilities: engine.capabilities,
-    })),
+    engines: engines.map(describeEngine),
     assets,
     summaries: engines.map((engine) => summarizeEngine(engine.id, assets)),
   };

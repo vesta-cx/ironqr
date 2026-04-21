@@ -14,13 +14,19 @@ export interface AccuracyEngineCapabilities {
   readonly multiCode: boolean;
   readonly inversion: 'native' | 'caller' | 'none';
   readonly rotation: 'native' | 'none';
-  readonly runtime: 'js' | 'wasm';
+  readonly runtime: 'js' | 'wasm' | 'browser';
+}
+
+export interface AccuracyEngineAvailability {
+  readonly available: boolean;
+  readonly reason: string | null;
 }
 
 export interface AccuracyEngine {
   readonly id: string;
   readonly kind: 'first-party' | 'third-party';
   readonly capabilities: AccuracyEngineCapabilities;
+  readonly availability: () => AccuracyEngineAvailability;
   scanImage: (imagePath: string) => Promise<AccuracyScanResult>;
 }
 
@@ -77,8 +83,12 @@ export interface AccuracyEngineSummary {
   readonly falsePositiveRate: number;
 }
 
+export interface AccuracyEngineDescriptor
+  extends Pick<AccuracyEngine, 'id' | 'kind' | 'capabilities'>,
+    AccuracyEngineAvailability {}
+
 export interface AccuracyBenchmarkResult {
-  readonly engines: readonly Pick<AccuracyEngine, 'id' | 'kind' | 'capabilities'>[];
+  readonly engines: readonly AccuracyEngineDescriptor[];
   readonly assets: readonly AccuracyAssetResult[];
   readonly summaries: readonly AccuracyEngineSummary[];
 }

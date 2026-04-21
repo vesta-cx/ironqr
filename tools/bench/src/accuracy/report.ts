@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AccuracyBenchmarkResult } from './types.js';
+import type { AccuracyBenchmarkResult, AccuracyEngineDescriptor } from './types.js';
 
 const getOutputFile = (repoRoot: string): string => {
   return path.join(repoRoot, 'accuracy-benchmark-results.json');
@@ -9,6 +9,25 @@ const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
 
 const truncate = (value: string, max = 60): string => {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+};
+
+const describeCapabilities = (engine: AccuracyEngineDescriptor): string => {
+  return [
+    engine.kind,
+    engine.capabilities.runtime,
+    engine.capabilities.multiCode ? 'multi' : 'single',
+    `invert:${engine.capabilities.inversion}`,
+    `rotate:${engine.capabilities.rotation}`,
+  ].join(', ');
+};
+
+export const printAccuracyEngineCatalog = (engines: readonly AccuracyEngineDescriptor[]): void => {
+  console.log('── Accuracy Engines ───────────────────────────────────');
+  for (const engine of engines) {
+    const availability = engine.available ? 'ready' : `unavailable (${engine.reason ?? 'unknown'})`;
+    console.log(`  ${engine.id}: ${availability}; ${describeCapabilities(engine)}`);
+  }
+  console.log('───────────────────────────────────────────────────────');
 };
 
 export const printAccuracySummary = (

@@ -26,6 +26,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@undecaf/zbar-wasm": "^0.11.0",
     "@zxing/library": "^0.21.3",
     "effect": "^4.0.0-beta.43",
     "ironqr": "workspace:*",

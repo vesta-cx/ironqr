@@ -36,16 +36,26 @@ export const cloneRgbaBuffer = (data: Uint8ClampedArray): Uint8ClampedArray<Arra
   return cloned;
 };
 
-export const readImageData = async (imagePath: string): Promise<ScanImageData> => {
-  const { data, info } = await sharp(imagePath)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+const imageDataCache = new Map<string, Promise<ScanImageData>>();
 
-  return {
-    width: info.width,
-    height: info.height,
-    data: new Uint8ClampedArray(data),
-    colorSpace: 'srgb',
-  };
+export const readImageData = async (imagePath: string): Promise<ScanImageData> => {
+  let cached = imageDataCache.get(imagePath);
+  if (!cached) {
+    cached = (async () => {
+      const { data, info } = await sharp(imagePath)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      return {
+        width: info.width,
+        height: info.height,
+        data: new Uint8ClampedArray(data),
+        colorSpace: 'srgb',
+      } satisfies ScanImageData;
+    })();
+    imageDataCache.set(imagePath, cached);
+  }
+
+  return await cached;
 };
