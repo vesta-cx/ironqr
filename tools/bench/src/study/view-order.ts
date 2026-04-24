@@ -34,8 +34,18 @@ interface ViewProposalAssetResult {
     readonly boundedProposalCount: number;
     readonly clusterCount: number;
     readonly processedRepresentativeCount: number;
+    readonly firstDecodedClusterRank: number | null;
+    readonly decodedClusterRanks: readonly number[];
+    readonly clusterOutcomes: ViewProposalClusterOutcomes;
     readonly timings: ViewProposalScanTimingSummary;
   } | null;
+}
+
+interface ViewProposalClusterOutcomes {
+  readonly decoded: number;
+  readonly duplicate: number;
+  readonly killed: number;
+  readonly exhausted: number;
 }
 
 interface ViewProposalScanTimingSummary {
@@ -102,9 +112,22 @@ interface ViewProposalSummary extends Record<string, unknown> {
   readonly decodedAssetCount: number;
   readonly falsePositiveAssetCount: number;
   readonly cache: StudySummaryInput<ViewProposalsConfig, ViewProposalAssetResult>['cache'];
+  readonly clusterBudgetEvidence: ViewProposalClusterBudgetEvidence;
   readonly recommendation: readonly string[];
   readonly topViews: readonly ViewProposalSummaryRow[];
   readonly slowestViews: readonly ViewProposalSummaryRow[];
+}
+
+interface ViewProposalClusterBudgetEvidence {
+  readonly decodedAssetCount: number;
+  readonly firstDecodedClusterRankP50: number | null;
+  readonly firstDecodedClusterRankP90: number | null;
+  readonly firstDecodedClusterRankP95: number | null;
+  readonly firstDecodedClusterRankMax: number | null;
+  readonly processedRepresentativeCountP50: number | null;
+  readonly processedRepresentativeCountP90: number | null;
+  readonly processedRepresentativeCountP95: number | null;
+  readonly processedRepresentativeCountMax: number | null;
 }
 
 interface ViewProposalSummaryRow {
@@ -226,6 +249,7 @@ export const viewProposalsStudyPlugin: StudyPlugin<
     log(`${asset.id}: loading image ${image.width}x${image.height}`);
     const results = await scanFrame(image, {
       allowMultiple: true,
+      maxProposals: 10_000,
       proposalViewIds: listDefaultBinaryViewIds(),
       traceSink,
       metricsSink,
@@ -638,14 +662,36 @@ const scanSummary = (
 ) => {
   const finished = events.find((event) => event.type === 'scan-finished');
   if (!finished || finished.type !== 'scan-finished') return null;
+  const decodedClusterRanks = events.flatMap((event) =>
+    event.type === 'cluster-finished' && event.outcome === 'decoded' ? [event.clusterRank] : [],
+  );
   return {
     proposalCount: finished.proposalCount,
     boundedProposalCount: finished.boundedProposalCount,
     clusterCount: finished.clusterCount,
     processedRepresentativeCount: finished.processedRepresentativeCount,
+    firstDecodedClusterRank: decodedClusterRanks[0] ?? null,
+    decodedClusterRanks,
+    clusterOutcomes: summarizeClusterOutcomes(events),
     timings: summarizeTimingSpans(timingSpans),
   };
 };
+
+const summarizeClusterOutcomes = (
+  events: readonly IronqrTraceEvent[],
+): ViewProposalClusterOutcomes => ({
+  decoded: events.filter(
+    (event) => event.type === 'cluster-finished' && event.outcome === 'decoded',
+  ).length,
+  duplicate: events.filter(
+    (event) => event.type === 'cluster-finished' && event.outcome === 'duplicate',
+  ).length,
+  killed: events.filter((event) => event.type === 'cluster-finished' && event.outcome === 'killed')
+    .length,
+  exhausted: events.filter(
+    (event) => event.type === 'cluster-finished' && event.outcome === 'exhausted',
+  ).length,
+});
 
 const summarizeTimingSpans = (
   timingSpans: readonly ScanTimingSpan[],
@@ -737,12 +783,43 @@ const summarizeViewProposalResults = ({
     falsePositiveAssetCount: results.filter((result) => result.falsePositiveTexts.length > 0)
       .length,
     cache,
+    clusterBudgetEvidence: summarizeClusterBudgetEvidence(results),
     recommendation,
     topViews: [...rows].sort((left, right) => viewRankScore(right) - viewRankScore(left)),
     slowestViews: [...rows]
       .sort((left, right) => right.totalDurationMs - left.totalDurationMs)
       .slice(0, 20),
   };
+};
+
+const summarizeClusterBudgetEvidence = (
+  results: readonly ViewProposalAssetResult[],
+): ViewProposalClusterBudgetEvidence => {
+  const decodedRanks = results
+    .map((result) => result.scan?.firstDecodedClusterRank ?? null)
+    .filter((rank): rank is number => rank !== null)
+    .sort((left, right) => left - right);
+  const processedRepresentatives = results
+    .map((result) => result.scan?.processedRepresentativeCount ?? null)
+    .filter((count): count is number => count !== null)
+    .sort((left, right) => left - right);
+  return {
+    decodedAssetCount: decodedRanks.length,
+    firstDecodedClusterRankP50: percentile(decodedRanks, 0.5),
+    firstDecodedClusterRankP90: percentile(decodedRanks, 0.9),
+    firstDecodedClusterRankP95: percentile(decodedRanks, 0.95),
+    firstDecodedClusterRankMax: decodedRanks.at(-1) ?? null,
+    processedRepresentativeCountP50: percentile(processedRepresentatives, 0.5),
+    processedRepresentativeCountP90: percentile(processedRepresentatives, 0.9),
+    processedRepresentativeCountP95: percentile(processedRepresentatives, 0.95),
+    processedRepresentativeCountMax: processedRepresentatives.at(-1) ?? null,
+  };
+};
+
+const percentile = (values: readonly number[], fraction: number): number | null => {
+  if (values.length === 0) return null;
+  const index = Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * fraction) - 1));
+  return values[index] ?? null;
 };
 
 interface MutableViewProposalSummaryRow {
