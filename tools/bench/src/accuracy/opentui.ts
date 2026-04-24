@@ -127,13 +127,13 @@ export class BenchOpenTuiDashboard {
         id: 'chart',
         title: 'Timing by outcome',
         accent: THEME.cyan,
-        height: 13,
+        height: 15,
       });
       const scorecard = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'scorecard',
         title: 'Accuracy scorecard',
         accent: THEME.green,
-        height: 10,
+        height: 11,
       });
 
       const tablesRow = new BoxRenderable(renderer, {
@@ -263,27 +263,32 @@ export class BenchOpenTuiDashboard {
     const recentRows = Math.max(4, height - 24);
 
     panels.header.content = headerText(this.dashboard);
-    panels.chart.body.content = withoutTitle(
+    panels.chart.body.content = panelBody(
       renderTimingChart(this.dashboard, {
         width: contentWidth,
         barHeight: height < 34 ? 3 : 4,
       }),
+      10,
     );
-    panels.scorecard.body.content = withoutTitle(
+    panels.scorecard.body.content = panelBody(
       renderScorecard(this.dashboard, { width: contentWidth }),
+      7,
     );
-    panels.active.body.content = withoutTitle(
+    panels.active.body.content = panelBody(
       renderActiveWorkers(this.dashboard, {
         width: leftWidth,
         nowMs: Date.now(),
         maxRows: tableRows,
       }),
+      tableRows + 1,
     );
-    panels.slowest.body.content = withoutTitle(
+    panels.slowest.body.content = panelBody(
       renderSlowestFreshScans(this.dashboard, { width: leftWidth, maxRows: tableRows }),
+      tableRows + 1,
     );
-    panels.recent.body.content = withoutTitle(
+    panels.recent.body.content = panelBody(
       renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
+      recentRows + 1,
     );
     panels.footer.content = renderRunFooter(this.dashboard);
   }
@@ -324,6 +329,10 @@ const createPanel = (
     fg: options.accent,
     bg: 'transparent',
     selectable: false,
+    width: '100%',
+    height: 1,
+    flexGrow: 0,
+    flexShrink: 0,
   });
   const body = new TextRenderable(renderer, {
     id: `bench-dashboard-${options.id}-body`,
@@ -331,6 +340,7 @@ const createPanel = (
     fg: THEME.text,
     bg: 'transparent',
     selectable: false,
+    width: '100%',
     flexGrow: 1,
     flexShrink: 1,
   });
@@ -339,7 +349,9 @@ const createPanel = (
   return { box, title, body };
 };
 
-const withoutTitle = (lines: readonly string[]): string => lines.slice(1).join('\n');
+const panelBody = (lines: readonly string[], maxRows: number): string => {
+  return lines.slice(1, maxRows + 1).join('\n');
+};
 
 const headerText = (dashboard: BenchDashboardModel): string => {
   const percent = dashboard.totalJobs > 0 ? dashboard.completedJobs / dashboard.totalJobs : 0;
