@@ -167,7 +167,6 @@ export class BenchOpenTuiDashboard {
         title: 'Active workers',
         accent: THEME.blue,
         flexGrow: 1,
-        marginBottom: 1,
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
@@ -327,7 +326,6 @@ const createPanel = (
     readonly accent: string;
     readonly height?: number;
     readonly flexGrow?: number;
-    readonly marginBottom?: number;
   },
 ): OpenTuiPanel => {
   const boxOptions = {
@@ -346,7 +344,6 @@ const createPanel = (
     ...boxOptions,
     ...(options.height === undefined ? {} : { height: options.height }),
     ...(options.flexGrow === undefined ? {} : { flexGrow: options.flexGrow }),
-    ...(options.marginBottom === undefined ? {} : { marginBottom: options.marginBottom }),
   });
   const title = new TextRenderable(renderer, {
     id: `bench-dashboard-${options.id}-title`,
