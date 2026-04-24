@@ -13,6 +13,12 @@ import {
   onDashboardScanStarted,
 } from './dashboard/model.js';
 import { renderScorecard } from './dashboard/scorecard.js';
+import {
+  renderActiveWorkers,
+  renderRecentScans,
+  renderSideBySide,
+  renderSlowestFreshScans,
+} from './dashboard/tables.js';
 import { renderTimingChart } from './dashboard/timing-chart.js';
 import type { EngineAssetResult } from './types.js';
 
@@ -162,6 +168,15 @@ export const createAccuracyProgressReporter = (options: {
     lines.push(...renderTimingChart(dashboard, { width }));
     lines.push('');
     lines.push(...renderScorecard(dashboard, { width }));
+    lines.push('');
+    const activeWorkers = renderActiveWorkers(dashboard, {
+      width: Math.floor(width / 2),
+      nowMs: Date.now(),
+    });
+    const slowest = renderSlowestFreshScans(dashboard, { width: Math.floor(width / 2) });
+    lines.push(...renderSideBySide(activeWorkers, slowest, { width }));
+    lines.push('');
+    lines.push(...renderRecentScans(dashboard, { width, maxRows: 12 }));
     lines.push('');
     lines.push('bench accuracy');
     lines.push(`stage: ${stage} — ${message}`);

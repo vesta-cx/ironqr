@@ -8,6 +8,12 @@ import {
   onDashboardScanStarted,
 } from '../../src/accuracy/dashboard/model.js';
 import { renderScorecard } from '../../src/accuracy/dashboard/scorecard.js';
+import {
+  renderActiveWorkers,
+  renderRecentScans,
+  renderSideBySide,
+  renderSlowestFreshScans,
+} from '../../src/accuracy/dashboard/tables.js';
 import { renderTimingChart } from '../../src/accuracy/dashboard/timing-chart.js';
 import type { EngineAssetResult } from '../../src/accuracy/types.js';
 
@@ -215,6 +221,48 @@ describe('scorecard widget', () => {
     expect(output).toContain('1/2 50.0% avg 1.7s');
     expect(output).toContain('fp 1');
     expect(output).toContain('1/1');
+  });
+});
+
+describe('table widgets', () => {
+  it('renders active workers, slowest scans, and recent scans', () => {
+    const model = createBenchDashboardModel();
+    onDashboardBenchmarkStarted(model, 2, ['ironqr'], 1);
+    onDashboardScanStarted(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-active-123456789',
+      relativePath: 'assets/asset-active-123456789.webp',
+      cached: false,
+      cacheable: true,
+      nowMs: 1_000,
+    });
+    onDashboardScanFinished(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-slow',
+      relativePath: 'assets/asset-slow.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'qr-positive',
+        outcome: 'fail-no-decode',
+        durationMs: 12_000,
+        matchedTexts: [],
+        decodedTexts: [],
+      }),
+      wroteToCache: false,
+      nowMs: Date.UTC(2026, 3, 24, 2, 45, 12),
+    });
+
+    expect(renderActiveWorkers(model, { width: 80, nowMs: 3_300 }).join('\n')).toContain(
+      'asset-active-1234…',
+    );
+    expect(renderSlowestFreshScans(model, { width: 80 }).join('\n')).toContain('asset-slow');
+    expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('02:45:12');
+    expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('decoded=0 matched=0');
+  });
+
+  it('renders two widgets side by side', () => {
+    const output = renderSideBySide(['left', 'a'], ['right', 'b'], { width: 20, gap: 2 });
+    expect(output).toEqual(['left       right', 'a          b']);
   });
 });
 
