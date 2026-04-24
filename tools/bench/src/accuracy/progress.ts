@@ -1,4 +1,18 @@
 import process from 'node:process';
+import {
+  createBenchDashboardModel,
+  onDashboardAssetPrepared,
+  onDashboardAssetsStarted,
+  onDashboardBenchmarkStarted,
+  onDashboardDone,
+  onDashboardImageLoadFinished,
+  onDashboardImageLoadStarted,
+  onDashboardManifestLoaded,
+  onDashboardManifestStarted,
+  onDashboardScanFinished,
+  onDashboardScanStarted,
+} from './dashboard/model.js';
+import { renderTimingChart } from './dashboard/timing-chart.js';
 import type { EngineAssetResult } from './types.js';
 
 type BenchmarkStage = 'manifest' | 'assets' | 'benchmark' | 'report' | 'done';
@@ -123,6 +137,7 @@ export const createAccuracyProgressReporter = (options: {
   let stopped = false;
   const recent: ProgressRecentRow[] = [];
   const engines = new Map<string, ProgressEngineState>();
+  const dashboard = createBenchDashboardModel();
 
   const logPlain = (line: string): void => {
     if (!enabled) return;
@@ -141,6 +156,8 @@ export const createAccuracyProgressReporter = (options: {
   const render = (): void => {
     if (!useTui || stopped) return;
     const lines: string[] = [];
+    lines.push(...renderTimingChart(dashboard, { width: stderr.columns ?? 120 }));
+    lines.push('');
     lines.push('bench accuracy');
     lines.push(`stage: ${stage} — ${message}`);
     if (totalJobs > 0) {
@@ -218,12 +235,14 @@ export const createAccuracyProgressReporter = (options: {
 
   return {
     onManifestStarted: () => {
+      onDashboardManifestStarted(dashboard);
       stage = 'manifest';
       message = 'reading approved corpus manifest';
       logPlain('stage manifest: reading approved corpus manifest');
       queueRender();
     },
     onManifestLoaded: (nextAssetCount, engineIds, nextCacheEnabled) => {
+      onDashboardManifestLoaded(dashboard, nextAssetCount, engineIds, nextCacheEnabled);
       assetCount = nextAssetCount;
       cacheEnabled = nextCacheEnabled;
       totalJobs = nextAssetCount * engineIds.length;
@@ -235,6 +254,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onAssetsStarted: (nextAssetCount) => {
+      onDashboardAssetsStarted(dashboard, nextAssetCount);
       stage = 'assets';
       assetCount = nextAssetCount;
       message = `preparing ${nextAssetCount} lazy asset descriptors`;
@@ -242,6 +262,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onAssetPrepared: (assetId, prepared, total) => {
+      onDashboardAssetPrepared(dashboard, assetId, prepared, total);
       preparedAssets = prepared;
       message = `prepared ${prepared}/${total} asset descriptors`;
       if (!useTui && (prepared === total || prepared % 10 === 0)) {
@@ -250,6 +271,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onBenchmarkStarted: (nextAssetCount, engineIds, nextWorkerCount) => {
+      onDashboardBenchmarkStarted(dashboard, nextAssetCount, engineIds, nextWorkerCount);
       stage = 'benchmark';
       assetCount = nextAssetCount;
       workerCount = nextWorkerCount;
@@ -261,6 +283,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onScanStarted: ({ engineId, assetId, relativePath, cached, cacheable }) => {
+      onDashboardScanStarted(dashboard, { engineId, assetId, relativePath, cached, cacheable });
       const engine = ensureEngine(engineId);
       if (cached) {
         cacheHits += 1;
@@ -281,6 +304,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onImageLoadStarted: ({ engineId, assetId, relativePath }) => {
+      onDashboardImageLoadStarted(dashboard, { engineId, assetId, relativePath });
       const engine = ensureEngine(engineId);
       engine.imageLoadingAssetId = assetId;
       if (!useTui) {
@@ -289,6 +313,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onImageLoadFinished: ({ engineId, assetId, width, height }) => {
+      onDashboardImageLoadFinished(dashboard, { engineId, assetId });
       const engine = ensureEngine(engineId);
       if (engine.imageLoadingAssetId === assetId) {
         engine.imageLoadingAssetId = null;
@@ -299,6 +324,7 @@ export const createAccuracyProgressReporter = (options: {
       queueRender();
     },
     onScanFinished: ({ engineId, assetId, relativePath, result, wroteToCache }) => {
+      onDashboardScanFinished(dashboard, { engineId, assetId, relativePath, result, wroteToCache });
       const engine = ensureEngine(engineId);
       completedJobs += 1;
       engine.completed += 1;
@@ -338,6 +364,8 @@ export const createAccuracyProgressReporter = (options: {
     },
     stop: () => {
       if (stopped) return;
+      stopped = true;
+      onDashboardDone(dashboard);
       stage = 'done';
       message = 'complete';
       if (useTui) {
