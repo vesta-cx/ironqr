@@ -47,6 +47,9 @@ export const assertAllowedSeed = (seedUrl: string): URL => {
   if (!ALLOWED_SOURCE_HOSTS.has(host)) {
     throw new Error(`Seed host is not in the allowlist: ${host}`);
   }
+  if (url.protocol !== 'https:') {
+    throw new Error(`Seed URL must use HTTPS: ${seedUrl}`);
+  }
 
   return url;
 };

@@ -1,4 +1,15 @@
-export const ALIGNMENT_PATTERN_CENTERS = [
+const freezeNumberTable = <T extends readonly (readonly number[])[]>(table: T): T => {
+  for (const row of table) Object.freeze(row);
+  return Object.freeze(table);
+};
+
+/**
+ * QR alignment-pattern center coordinates indexed by `version - 1`.
+ *
+ * Values come from the QR Model 2 standard; each nested row lists module
+ * coordinates for that version's alignment-pattern centers.
+ */
+export const ALIGNMENT_PATTERN_CENTERS = freezeNumberTable([
   [],
   [6, 18],
   [6, 22],
@@ -39,9 +50,15 @@ export const ALIGNMENT_PATTERN_CENTERS = [
   [6, 32, 58, 84, 110, 136, 162],
   [6, 26, 54, 82, 110, 138, 166],
   [6, 30, 58, 86, 114, 142, 170],
-] as const;
+] as const);
 
-export const RS_BLOCK_TABLE = [
+/**
+ * QR Reed-Solomon block table indexed by `(version - 1) * 4 + levelIndex`.
+ *
+ * Level index order is L, M, Q, H. Rows contain one or two triples of
+ * `[blockCount, totalCodewords, dataCodewords]`.
+ */
+export const RS_BLOCK_TABLE = freezeNumberTable([
   [1, 26, 19],
   [1, 26, 16],
   [1, 26, 13],
@@ -202,4 +219,4 @@ export const RS_BLOCK_TABLE = [
   [18, 75, 47, 31, 76, 48],
   [34, 54, 24, 34, 55, 25],
   [20, 45, 15, 61, 46, 16],
-] as const;
+] as const);

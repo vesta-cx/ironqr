@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { GridResolution } from '../../src/image/geometry.js';
-import { locateAlignmentPatternCorrespondences } from '../../src/image/index.js';
+import type { GridResolution } from '../../src/pipeline/geometry.js';
+import { locateAlignmentPatternCorrespondences } from '../../src/pipeline/refine.js';
 
 describe('locateAlignmentPatternCorrespondences', () => {
   it('finds the version-2 alignment center near a drifted prediction', () => {
@@ -48,6 +48,38 @@ describe('locateAlignmentPatternCorrespondences', () => {
     expect(points[0]?.moduleCol).toBe(18);
     expect(Math.abs((points[0]?.pixelX ?? 0) - actual.x)).toBeLessThanOrEqual(4);
     expect(Math.abs((points[0]?.pixelY ?? 0) - actual.y)).toBeLessThanOrEqual(4);
+  });
+
+  it('rejects off-image alignment predictions instead of scanning a giant search window', () => {
+    const width = 1000;
+    const height = 404;
+    const binary = new Uint8Array(width * height).fill(255);
+    const resolution: GridResolution = {
+      version: 3,
+      size: 29,
+      corners: {
+        topLeft: { x: 876, y: 208 },
+        topRight: { x: 928, y: 104 },
+        bottomRight: { x: 810, y: 256 },
+        bottomLeft: { x: 856, y: 338 },
+      },
+      bounds: {
+        x: 810,
+        y: 104,
+        width: 118,
+        height: 234,
+      },
+      homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      samplePoint: (gridRow, gridCol) => {
+        if (gridRow === 22 && gridCol === 22) {
+          return { x: 2328.667614434665, y: -847.847312971413 };
+        }
+        return { x: 880 + gridCol, y: 200 + gridRow };
+      },
+    };
+
+    const points = locateAlignmentPatternCorrespondences(resolution, binary, width, height);
+    expect(points).toEqual([]);
   });
 });
 

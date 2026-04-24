@@ -335,7 +335,7 @@ export const createClackUi = ({ verbose = false }: { verbose?: boolean } = {}): 
             ...(options.validate ? { validate: options.validate } : {}),
           }),
         );
-        return value;
+        return typeof value === 'string' ? value : '';
       });
     },
     async confirm(options: ConfirmPromptOptions): Promise<boolean> {

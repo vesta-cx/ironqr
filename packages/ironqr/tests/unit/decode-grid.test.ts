@@ -9,6 +9,8 @@ import {
   getFormatInfoSecondCopyPositions,
   getRemainderBits,
   getVersionBlockInfo,
+  getVersionInfoFirstCopyPositions,
+  getVersionInfoSecondCopyPositions,
 } from '../../src/qr/index.js';
 import { helloWorldV1MGrid } from '../fixtures/hello-world-v1-m.js';
 import { helloWorldV7MGrid } from '../fixtures/hello-world-v7-m.js';
@@ -66,6 +68,27 @@ const flipFormatBits = (grid: boolean[][], count: number): boolean[][] => {
 
   for (let index = 0; index < count; index += 1) {
     const first = FORMAT_INFO_FIRST_COPY_POSITIONS[index];
+    const second = secondCopyPositions[index];
+    if (!first || !second) continue;
+
+    const [firstRow, firstCol] = first;
+    const [secondRow, secondCol] = second;
+    const firstGridRow = corrupted[firstRow];
+    const secondGridRow = corrupted[secondRow];
+    if (firstGridRow) firstGridRow[firstCol] = !firstGridRow[firstCol];
+    if (secondGridRow) secondGridRow[secondCol] = !secondGridRow[secondCol];
+  }
+
+  return corrupted;
+};
+
+const flipVersionBits = (grid: boolean[][], count: number): boolean[][] => {
+  const corrupted = grid.map((row) => row.slice());
+  const firstCopyPositions = getVersionInfoFirstCopyPositions(grid.length);
+  const secondCopyPositions = getVersionInfoSecondCopyPositions(grid.length);
+
+  for (let index = 0; index < count; index += 1) {
+    const first = firstCopyPositions[index];
     const second = secondCopyPositions[index];
     if (!first || !second) continue;
 
@@ -164,6 +187,22 @@ describe('decodeGrid', () => {
     expect(clean.confidence).toBe(1);
     expect(correctedOneBit.confidence).toBeCloseTo(14 / 15, 8);
     expect(correctedThreeBits.confidence).toBeCloseTo(12 / 15, 8);
+  });
+
+  it('rescues a format-info codeword beyond BCH tolerance by trying near-miss candidates', async () => {
+    const dataCodewords = finalizeVersion1DataCodewords(alphanumericBits('HI'), 'M');
+    const cleanGrid = buildVersion1Grid(dataCodewords, 'M', 0);
+    const fourBitsOff = flipFormatBits(cleanGrid, 4);
+
+    const rescued = await decodeGrid({ grid: fourBitsOff });
+    expect(rescued.payload.text).toBe('HI');
+    expect(rescued.confidence).toBeCloseTo(11 / 15, 8);
+  });
+
+  it('rescues a version-7 grid when noisy version bits no longer decode within BCH tolerance', async () => {
+    const rescued = await decodeGrid({ grid: flipVersionBits(helloWorldV7MGrid, 4) });
+    expect(rescued.version).toBe(7);
+    expect(rescued.payload.text).toBe('HELLO WORLD');
   });
 
   // ── AC3: EC level coverage ────────────────────────────────────────────────

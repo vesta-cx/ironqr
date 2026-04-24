@@ -56,16 +56,40 @@ Recommended review checklist:
 ## Commands
 
 ```bash
-bun --filter ironqr-corpus-cli run cli --
-bun --filter ironqr-corpus-cli run cli -- scrape --label qr-positive --limit 25 https://pixabay.com/images/search/qr%20code/
-bun --filter ironqr-corpus-cli run cli -- review corpus/staging/<run-id>
-bun --filter ironqr-corpus-cli run cli -- import path/to/file.png
-bun --filter ironqr-corpus-cli run cli -- import corpus/staging/<run-id>
-bun --filter ironqr-corpus-cli run cli -- build-bench
+bun run corpus
+bun run corpus:scrape --limit 25 --source commons --query 'QR Code'
+bun run corpus:scrape --limit 25 --source pixabay-api --query 'qr code'
+bun run corpus:scrape --limit 25 https://commons.wikimedia.org/w/index.php?search=QR+Code&title=Special%3AMediaSearch&type=image
+bun run corpus:scrape --limit 25 'https://pixabay.com/api/?q=qr+code&image_type=photo&safesearch=true&order=popular'
+bun run corpus:review corpus/staging/<run-id>
+bun run corpus:import path/to/file.png
+bun run corpus:import corpus/staging/<run-id>
+bun run corpus:build-bench
+bun run corpus:generate-bases --count-per-type 100
+bun run corpus:generate-distortions --coverage-min 1 --coverage-max 3
 ```
 
 Missing required args prompt in TTY sessions.
+Interactive `scrape` prompts can pick a preset seed source (Wikimedia Commons or Pixabay API) or enter custom URL(s).
+`--source commons|pixabay-api` selects a preset non-interactively; `--query` customizes the preset search term.
 No subcommand runs guided scrape → review → import flow.
+
+## Pixabay API setup
+
+Create a single repo-root `.env` file, then the `tools/corpus-cli/.env` symlink will pick it up automatically:
+
+```bash
+PIXABAY_API_KEY=your_api_key_here
+```
+
+The corpus CLI uses the official Pixabay API instead of scraping Cloudflare-protected search HTML.
+To match Pixabay's API rules, the tool now:
+
+- caches Pixabay API search requests for 24 hours under `.sc/request-cache/`
+- records Pixabay provenance and creator attribution on staged assets
+- downloads images into local staging/corpus storage instead of hotlinking Pixabay URLs
+- keeps the human review/import step in the loop for every asset
+- removes artificial per-request sleeps for sub-100-image Pixabay staging runs, then falls back to a 750ms adapter throttle for larger runs
 
 ## Review flow
 
@@ -79,3 +103,23 @@ Local and staged imports both normalize imported assets to WebP and scale them d
 
 Committed perfbench fixture only includes assets user explicitly selected during `build-bench`.
 That keeps perfbench regression set small, stable, and reviewable.
+
+## Generated QR corpus
+
+Synthetic QR assets live under `corpus/generated/` and are intentionally kept separate from the canonical reviewed corpus under `corpus/data/`.
+
+- `QR_PROJECT_ROOT=/path/to/qr bun run corpus:generate-bases --count-per-type 100 --qr-project-root "$QR_PROJECT_ROOT"`
+  - renders 100 stylized base QR images per payload type using a configurable QR generator checkout
+  - stores exact structured payload fields and appearance settings in `corpus/generated/manifest.json`
+- `bun run corpus:generate-distortions --coverage-min 1 --coverage-max 3`
+  - builds a large distortion recipe catalog
+  - applies every recipe to at least one, and at most three, base QR assets
+  - records every applied transformation in `synthetic.transformations[]`
+
+The generated manifest reuses the normal corpus-asset shape but adds optional `synthetic` metadata so generated bases and derived variants can record:
+
+- payload type + structured payload fields
+- exact encoded QR text
+- appearance settings (theme, module style, dot size, frame text, etc.)
+- layered distortions / compositing steps
+- parent asset ids for derived variants

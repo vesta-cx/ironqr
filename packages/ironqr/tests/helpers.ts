@@ -5,7 +5,7 @@
  * (plain, inverted, low-contrast, color) for use across unit test files.
  */
 import type { ImageDataLike } from '../src/contracts/scan.js';
-import { applyHomography, fitHomography } from '../src/image/geometry.js';
+import { applyHomography, fitHomography } from '../src/pipeline/geometry.js';
 import {
   buildDataModulePositions,
   buildFormatInfoCodeword,

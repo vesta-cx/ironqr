@@ -12,20 +12,15 @@ export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Res
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_SAME_HOST_REDIRECTS = 5;
+const MAX_RETRYABLE_FETCH_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = 1_500;
 
-// Send a browser-like request so sites that gate on UA/headers don't 403 us.
-// Corpus acquisition is manual/interactive, not mass automated scraping.
-const BROWSER_HEADERS: Record<string, string> = {
-  'user-agent':
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+// Keep request headers minimal.
+// Real browsers send a coherent fingerprint across UA, Client Hints, TLS, and cookie state.
+// Pretending to be Chrome from a Bun fetch made Pixabay/Cloudflare challenge us with 403s.
+// Minimal headers plus Bun's native fetch path are accepted more reliably here.
+const REQUEST_HEADERS: Record<string, string> = {
   'accept-language': 'en-US,en;q=0.9',
-  'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"macOS"',
-  'sec-fetch-dest': 'document',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-site': 'none',
-  'upgrade-insecure-requests': '1',
 };
 
 const readLimitedBody = (response: Response, maxBytes: number, label: string) => {
@@ -89,6 +84,44 @@ const assertSameHostRedirect = (from: string, to: string): void => {
   }
 };
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const parseRetryAfterMs = (value: string | null): number | null => {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const at = Date.parse(value);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, at - Date.now());
+};
+
+const isCloudflareChallenge = (response: Response): boolean =>
+  response.status === 403 && response.headers.get('cf-mitigated') === 'challenge';
+
+const isPixabayHost = (url: string): boolean =>
+  normalizeHost(new URL(url).hostname) === 'pixabay.com';
+
+const isRetryableResponse = (url: string, response: Response): boolean => {
+  if (response.status === 429) return true;
+  return isPixabayHost(url) && response.status === 403 && !isCloudflareChallenge(response);
+};
+
+const retryDelayMs = (response: Response, attempt: number): number => {
+  const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+  if (retryAfterMs !== null) return retryAfterMs;
+  return RETRY_BACKOFF_MS * 2 ** attempt;
+};
+
+const formatChallengeError = (url: string, label: string): string => {
+  if (isPixabayHost(url)) {
+    return `Failed to fetch ${label} ${url}: 403 (Pixabay returned a Cloudflare challenge to this CLI fetch. Use Wikimedia Commons, a custom seed URL, or direct Pixabay detail-page/image URLs instead of the Pixabay search preset.)`;
+  }
+  return `Failed to fetch ${label} ${url}: 403 (Cloudflare challenge)`;
+};
+
 /**
  * Fetches `url` following same-host redirects up to `MAX_SAME_HOST_REDIRECTS`.
  * Throws on cross-host redirects, protocol downgrades, or non-2xx responses.
@@ -102,30 +135,46 @@ export const fetchFollowingSameHost = (
   return tryFetch(async () => {
     let currentUrl = url;
     for (let hop = 0; hop <= MAX_SAME_HOST_REDIRECTS; hop += 1) {
-      const response = await fetchImpl(currentUrl, {
-        headers: { ...BROWSER_HEADERS, accept },
-        redirect: 'manual',
-      });
+      for (let attempt = 0; attempt < MAX_RETRYABLE_FETCH_ATTEMPTS; attempt += 1) {
+        const response = await fetchImpl(currentUrl, {
+          headers: { ...REQUEST_HEADERS, accept },
+          redirect: 'manual',
+        });
 
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (!location) {
-          throw new Error(`Redirect without location while fetching ${label} ${currentUrl}`);
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) {
+            throw new Error(`Redirect without location while fetching ${label} ${currentUrl}`);
+          }
+
+          const nextUrl = new URL(location, currentUrl).toString();
+          assertSameHostRedirect(currentUrl, nextUrl);
+          response.body?.cancel().catch(() => {});
+          currentUrl = nextUrl;
+          break;
         }
 
-        const nextUrl = new URL(location, currentUrl).toString();
-        assertSameHostRedirect(currentUrl, nextUrl);
-        response.body?.cancel().catch(() => {});
-        currentUrl = nextUrl;
-        continue;
-      }
+        if (response.ok) {
+          return { response, finalUrl: currentUrl };
+        }
 
-      if (!response.ok) {
+        if (isCloudflareChallenge(response)) {
+          response.body?.cancel().catch(() => {});
+          throw new Error(formatChallengeError(currentUrl, label));
+        }
+
+        if (
+          isRetryableResponse(currentUrl, response) &&
+          attempt + 1 < MAX_RETRYABLE_FETCH_ATTEMPTS
+        ) {
+          response.body?.cancel().catch(() => {});
+          await sleep(retryDelayMs(response, attempt));
+          continue;
+        }
+
         response.body?.cancel().catch(() => {});
         throw new Error(`Failed to fetch ${label} ${currentUrl}: ${response.status}`);
       }
-
-      return { response, finalUrl: currentUrl };
     }
 
     throw new Error(`Too many redirects while fetching ${label} ${url}`);
@@ -206,7 +255,7 @@ export const fetchCommonsFileMeta = (
 
     const response = yield* tryFetch(() =>
       fetchImpl(apiUrl, {
-        headers: { ...BROWSER_HEADERS, accept: 'application/json' },
+        headers: { ...REQUEST_HEADERS, accept: 'application/json' },
       }),
     );
     if (!response.ok) return null;
@@ -246,6 +295,21 @@ interface CommonsSearchResult {
 interface CommonsSearchBatch {
   readonly results: readonly CommonsSearchResult[];
   readonly sroffset: number | null;
+}
+
+/** Structured Pixabay image hit consumed by the Pixabay API adapter. */
+export interface PixabaySearchResult {
+  readonly id?: number;
+  readonly pageUrl: string;
+  readonly imageUrl: string;
+  readonly tags?: string;
+  readonly user?: string;
+}
+
+/** One page of Pixabay API search results plus the next page number, if any. */
+export interface PixabaySearchBatch {
+  readonly results: readonly PixabaySearchResult[];
+  readonly nextPage: number | null;
 }
 
 interface CommonsSearchApiResponse {
@@ -299,7 +363,7 @@ export const fetchCommonsSearchBatch = (
 
     const response = yield* tryFetch(() =>
       fetchImpl(apiUrl, {
-        headers: { ...BROWSER_HEADERS, accept: 'application/json' },
+        headers: { ...REQUEST_HEADERS, accept: 'application/json' },
       }),
     );
 
@@ -384,6 +448,106 @@ export const resolveCommonsSearchPages = <E>(
     }
 
     return resolved;
+  });
+};
+
+interface PixabayApiResponse {
+  readonly totalHits?: number;
+  readonly hits?: ReadonlyArray<{
+    readonly id?: number;
+    readonly pageURL?: string;
+    readonly largeImageURL?: string;
+    readonly webformatURL?: string;
+    readonly previewURL?: string;
+    readonly tags?: string;
+    readonly user?: string;
+  }>;
+}
+
+const isPixabayApiResponse = (value: unknown): value is PixabayApiResponse =>
+  typeof value === 'object' && value !== null;
+
+/** Returns true if the URL is a Pixabay image-search API seed URL. */
+export const isPixabayApiSearchUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' &&
+      normalizeHost(parsed.hostname) === 'pixabay.com' &&
+      parsed.pathname === '/api/'
+    );
+  } catch {
+    return false;
+  }
+};
+
+const buildPixabayApiUrl = (
+  seedUrl: string,
+  apiKey: string,
+  page: number,
+  perPage: number,
+): string => {
+  const parsed = new URL(seedUrl);
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Pixabay API seed URL must use HTTPS: ${seedUrl}`);
+  }
+  parsed.searchParams.delete('key');
+  parsed.searchParams.set('key', apiKey);
+  parsed.searchParams.set('page', String(page));
+  parsed.searchParams.set('per_page', String(perPage));
+  return parsed.toString();
+};
+
+type PixabayApiHit = NonNullable<PixabayApiResponse['hits']>[number];
+
+const pickPixabayImageUrl = (hit: PixabayApiHit): string | null => {
+  return hit.largeImageURL ?? hit.webformatURL ?? hit.previewURL ?? null;
+};
+
+/** Fetches one page of Pixabay API search results. */
+export const fetchPixabaySearchBatch = (
+  seedUrl: string,
+  apiKey: string,
+  fetchImpl: FetchLike,
+  page: number,
+  perPage: number,
+): Effect.Effect<PixabaySearchBatch, FetchError | Error> => {
+  return Effect.gen(function* () {
+    const apiUrl = buildPixabayApiUrl(seedUrl, apiKey, page, perPage);
+    const response = yield* tryFetch(() =>
+      fetchImpl(apiUrl, {
+        headers: { ...REQUEST_HEADERS, accept: 'application/json' },
+      }),
+    );
+
+    if (!response.ok) {
+      return yield* Effect.fail(new Error(`Pixabay API returned ${response.status}`));
+    }
+
+    const bodyBytes = yield* readLimitedBody(response, MAX_SEARCH_API_BYTES, 'Pixabay API');
+    const raw: unknown = JSON.parse(new TextDecoder().decode(bodyBytes));
+    if (!isPixabayApiResponse(raw)) {
+      return { results: [], nextPage: null };
+    }
+
+    const results: PixabaySearchResult[] = [];
+    for (const hit of raw.hits ?? []) {
+      const pageUrl = typeof hit.pageURL === 'string' ? hit.pageURL : null;
+      const imageUrl = pickPixabayImageUrl(hit);
+      if (!pageUrl || !imageUrl) continue;
+      results.push({
+        ...(typeof hit.id === 'number' ? { id: hit.id } : {}),
+        pageUrl,
+        imageUrl,
+        ...(typeof hit.tags === 'string' && hit.tags.trim().length > 0 ? { tags: hit.tags } : {}),
+        ...(typeof hit.user === 'string' && hit.user.trim().length > 0 ? { user: hit.user } : {}),
+      });
+    }
+
+    const totalHits = typeof raw.totalHits === 'number' ? raw.totalHits : 0;
+    const nextPage = page * perPage < totalHits && results.length > 0 ? page + 1 : null;
+
+    return { results, nextPage };
   });
 };
 

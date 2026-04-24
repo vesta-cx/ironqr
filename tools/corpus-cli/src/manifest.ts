@@ -86,7 +86,7 @@ export const ensureCorpusLayout = async (repoRoot: string): Promise<void> => {
 export const readCorpusManifest = (repoRoot: string): Promise<CorpusManifest> =>
   readVersionedJsonFile(
     getCorpusManifestPath(repoRoot),
-    S.decodeUnknownSync(CorpusManifestSchema),
+    S.decodeUnknownSync(CorpusManifestSchema) as (input: unknown) => CorpusManifest,
     { version: MAJOR_VERSION, assets: [] },
   );
 
@@ -121,7 +121,7 @@ export const getCorpusRejectionsPath = (repoRoot: string): string => {
 export const readCorpusRejections = (repoRoot: string): Promise<CorpusRejectionsLog> =>
   readVersionedJsonFile(
     getCorpusRejectionsPath(repoRoot),
-    S.decodeUnknownSync(CorpusRejectionsLogSchema),
+    S.decodeUnknownSync(CorpusRejectionsLogSchema) as (input: unknown) => CorpusRejectionsLog,
     { version: MAJOR_VERSION, rejections: [] },
   );
 
@@ -146,12 +146,19 @@ export const appendCorpusRejection = async (
 export const getCorpusScrapeProgressPath = (repoRoot: string): string =>
   path.join(getCorpusDataRoot(repoRoot), 'scrape-progress.json');
 
-/** Read the scrape-progress file; returns an empty record when the file is absent. */
-export const readScrapeProgress = (repoRoot: string): Promise<ScrapeProgress> =>
-  readVersionedJsonFile(
-    getCorpusScrapeProgressPath(repoRoot),
-    S.decodeUnknownSync(ScrapeProgressSchema),
-    { version: MAJOR_VERSION, visitedSourcePageUrls: [] },
+const normalizeScrapeProgress = (progress: ScrapeProgress): ScrapeProgress => ({
+  version: MAJOR_VERSION,
+  visitedSourcePageUrls: [...new Set(progress.visitedSourcePageUrls.map(normalizeUrlForDedup))],
+});
+
+/** Read the scrape-progress file; returns an empty normalized record when the file is absent. */
+export const readScrapeProgress = async (repoRoot: string): Promise<ScrapeProgress> =>
+  normalizeScrapeProgress(
+    await readVersionedJsonFile(
+      getCorpusScrapeProgressPath(repoRoot),
+      S.decodeUnknownSync(ScrapeProgressSchema) as (input: unknown) => ScrapeProgress,
+      { version: MAJOR_VERSION, visitedSourcePageUrls: [] },
+    ),
   );
 
 /** Record a visited source-page URL in the progress file, skipping if already present. */

@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'bun:test';
 import { Effect } from 'effect';
 import {
-  detectFinderPatterns,
-  otsuBinarize,
-  resolveGrid,
-  sampleGrid,
-  toGrayscale,
-} from '../../src/image/index.js';
+  createNormalizedImage,
+  MAX_IMAGE_SOURCE_BYTES,
+  normalizeImageInput,
+} from '../../src/pipeline/frame.js';
+import { createGeometryCandidates, resolveGrid } from '../../src/pipeline/geometry.js';
+import {
+  detectBestFinderEvidence,
+  generateProposalBatchForView,
+  generateProposals,
+  rankProposalCandidates,
+  summarizeProposalBatches,
+} from '../../src/pipeline/proposals.js';
+import { sampleGrid } from '../../src/pipeline/samplers.js';
+import { createTraceCollector } from '../../src/pipeline/trace.js';
+import { createViewBank, otsuBinarize, toGrayscale } from '../../src/pipeline/views.js';
 import { decodeGridLogical } from '../../src/qr/index.js';
 import {
   appendBits,
@@ -22,7 +31,7 @@ describe('single-image baseline pipeline (internal modules)', () => {
     const height = 10;
     const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
     const imageData = makeImageData(width, height, pixels);
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     expect(luma.every((value) => value === 255)).toBe(true);
   });
 
@@ -34,7 +43,7 @@ describe('single-image baseline pipeline (internal modules)', () => {
       pixels[i + 3] = 255;
     }
     const imageData = makeImageData(width, height, pixels);
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     expect(luma.every((value) => value === 0)).toBe(true);
   });
 
@@ -43,7 +52,7 @@ describe('single-image baseline pipeline (internal modules)', () => {
     const height = 4;
     const pixels = new Uint8ClampedArray(width * height * 4);
     const imageData = makeImageData(width, height, pixels);
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     expect(luma.every((value) => value === 255)).toBe(true);
   });
 
@@ -55,7 +64,7 @@ describe('single-image baseline pipeline (internal modules)', () => {
       pixels[i + 3] = 128;
     }
     const imageData = makeImageData(width, height, pixels);
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     for (const value of luma) {
       expect(value).toBeGreaterThanOrEqual(126);
       expect(value).toBeLessThanOrEqual(129);
@@ -70,11 +79,103 @@ describe('single-image baseline pipeline (internal modules)', () => {
     expect(binary.every((value) => value === 255)).toBe(true);
   });
 
-  it('detectFinderPatterns returns fewer than 3 candidates for a blank image', () => {
+  it('rejects oversized canvas-like browser sources before bitmap conversion', async () => {
+    await expect(
+      Effect.runPromise(normalizeImageInput({ width: 8193, height: 1 })),
+    ).rejects.toThrow('must not exceed 8192px per side');
+  });
+
+  it('rejects oversized Blob-like browser sources before bitmap conversion', async () => {
+    await expect(
+      Effect.runPromise(
+        normalizeImageInput({
+          size: MAX_IMAGE_SOURCE_BYTES + 1,
+          type: 'image/png',
+          arrayBuffer: async () => new ArrayBuffer(0),
+        }),
+      ),
+    ).rejects.toThrow('Browser image source size must not exceed');
+  });
+
+  it('orders proposal views by the current view-study priority list', () => {
+    const imageData = makeImageData(2, 2, new Uint8ClampedArray(2 * 2 * 4).fill(255));
+    const bank = createViewBank(createNormalizedImage(imageData));
+
+    expect(bank.listProposalViewIds()).toEqual([
+      'gray:otsu:normal',
+      'oklab-l:hybrid:normal',
+      'gray:sauvola:normal',
+      'oklab-l:sauvola:normal',
+      'oklab-l:otsu:normal',
+      'b:hybrid:normal',
+      'gray:hybrid:normal',
+      'r:otsu:normal',
+      'r:sauvola:normal',
+      'g:sauvola:normal',
+      'b:otsu:normal',
+      'g:otsu:normal',
+      'g:hybrid:normal',
+      'b:sauvola:normal',
+      'r:hybrid:normal',
+      'oklab+b:hybrid:normal',
+      'gray:hybrid:inverted',
+      'gray:otsu:inverted',
+    ]);
+  });
+
+  it('generates a first-class proposal batch for one binary view', () => {
+    const imageData = gridToImageData(buildHiGrid());
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const trace = createTraceCollector();
+    const batch = generateProposalBatchForView(bank, 'gray:otsu:normal', { traceSink: trace });
+    const generated = generateProposals(bank, { viewIds: ['gray:otsu:normal'] });
+    const summary = summarizeProposalBatches([batch]);
+
+    expect(batch.binaryViewId).toBe('gray:otsu:normal');
+    expect(batch.summary.binaryViewId).toBe(batch.binaryViewId);
+    expect(batch.summary.proposalCount).toBe(batch.proposals.length);
+    expect(batch.proposals.length).toBeGreaterThan(0);
+    expect(generated.map((proposal) => proposal.id)).toEqual(
+      batch.proposals.map((proposal) => proposal.id),
+    );
+    expect(summary.viewCount).toBe(1);
+    expect(summary.proposalCount).toBe(batch.proposals.length);
+    expect(trace.events.some((event) => event.type === 'proposal-view-generated')).toBe(true);
+  });
+
+  it('keeps inferred quad geometry as a seed on the finder-triple proposal', () => {
+    const imageData = gridToImageData(buildHiGrid());
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const batch = generateProposalBatchForView(bank, 'gray:otsu:normal');
+    const proposal = batch.proposals[0];
+
+    expect(proposal?.kind).toBe('finder-triple');
+    if (proposal?.kind !== 'finder-triple') return;
+    expect(proposal.geometrySeeds?.some((seed) => seed.kind === 'inferred-quad')).toBe(true);
+    expect(batch.proposals.some((candidate) => candidate.kind === 'quad')).toBe(false);
+    expect(
+      createGeometryCandidates(proposal).some(
+        (candidate) => candidate.geometryMode === 'quad-homography',
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps ranking-time geometry candidates for decode reuse', () => {
+    const imageData = gridToImageData(buildHiGrid());
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const ranked = rankProposalCandidates(bank, generateProposals(bank));
+
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked[0]?.proposal.proposalScore).toBeGreaterThan(0);
+    expect(ranked[0]?.initialGeometryCandidates.length).toBeGreaterThan(0);
+    expect(ranked[0]?.initialGeometryCandidates[0]?.proposalId).toBe(ranked[0]?.proposal.id);
+  });
+
+  it('detectBestFinderEvidence returns fewer than 3 candidates for a blank image', () => {
     const width = 210;
     const height = 210;
     const binary = new Uint8Array(width * height).fill(255);
-    const finders = detectFinderPatterns(binary, width, height);
+    const finders = detectBestFinderEvidence(binary, width, height);
     expect(finders.length).toBeLessThan(3);
   });
 
@@ -88,17 +189,17 @@ describe('single-image baseline pipeline (internal modules)', () => {
 
   it('detects 3 finder patterns in a synthetic v1-M QR image at 10px/module', () => {
     const imageData = gridToImageData(buildHiGrid());
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     const binary = otsuBinarize(luma, imageData.width, imageData.height);
-    const finders = detectFinderPatterns(binary, imageData.width, imageData.height);
+    const finders = detectBestFinderEvidence(binary, imageData.width, imageData.height);
     expect(finders.length).toBe(3);
   });
 
   it('resolveGrid returns a valid GridResolution from 3 finder candidates', () => {
     const imageData = gridToImageData(buildHiGrid());
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     const binary = otsuBinarize(luma, imageData.width, imageData.height);
-    const finders = detectFinderPatterns(binary, imageData.width, imageData.height);
+    const finders = detectBestFinderEvidence(binary, imageData.width, imageData.height);
     expect(finders.length).toBe(3);
     const [topLeft, topRight, bottomLeft] = finders;
     if (!topLeft || !topRight || !bottomLeft) throw new Error('Expected exactly three finders.');
@@ -111,9 +212,9 @@ describe('single-image baseline pipeline (internal modules)', () => {
 
   it('full internal pipeline decodes a synthetic v1-M "HI" QR image', async () => {
     const imageData = gridToImageData(buildHiGrid());
-    const luma = toGrayscale(imageData);
+    const luma = toGrayscale(createNormalizedImage(imageData));
     const binary = otsuBinarize(luma, imageData.width, imageData.height);
-    const finders = detectFinderPatterns(binary, imageData.width, imageData.height);
+    const finders = detectBestFinderEvidence(binary, imageData.width, imageData.height);
     expect(finders.length).toBe(3);
     const [topLeft, topRight, bottomLeft] = finders;
     if (!topLeft || !topRight || !bottomLeft) throw new Error('Expected exactly three finders.');
@@ -130,12 +231,12 @@ describe('single-image baseline pipeline (internal modules)', () => {
     expect(result.errorCorrectionLevel).toBe('M');
   });
 
-  it('not-found path: detectFinderPatterns returns fewer than 3 candidates for a blank image', () => {
+  it('not-found path: detectBestFinderEvidence returns fewer than 3 candidates for a blank image', () => {
     const width = 210;
     const height = 210;
     const luma = new Uint8Array(width * height).fill(255);
     const binary = otsuBinarize(luma, width, height);
-    const finders = detectFinderPatterns(binary, width, height);
+    const finders = detectBestFinderEvidence(binary, width, height);
     expect(finders.length).toBeLessThan(3);
   });
 });

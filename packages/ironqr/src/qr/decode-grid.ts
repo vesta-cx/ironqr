@@ -5,11 +5,15 @@ import {
   ALPHANUMERIC_CHARSET,
   buildDataModulePositions,
   buildFunctionModuleMask,
-  decodeFormatInfo,
-  decodeVersionInfo,
+  type DecodedFormatInfoCandidate,
+  type DecodedVersionInfoCandidate,
+  decodeFormatInfoCandidates,
+  decodeVersionInfoCandidates,
   getRemainderBits,
   getVersionBlockInfo,
   getVersionFromSize,
+  type QrErrorCorrectionLevel,
+  type QrVersionBlockInfo,
   unmask,
 } from './qr-spec.js';
 import { correctRsBlock, ReedSolomonError } from './reed-solomon.js';
@@ -20,10 +24,34 @@ const SHIFT_JIS_DECODER = new TextDecoder('shift_jis', { fatal: false });
 const ASCII_DECODER = new TextDecoder('us-ascii', { fatal: false });
 const UTF16BE_DECODER = new TextDecoder('utf-16be', { fatal: false });
 const BIG5_DECODER = new TextDecoder('big5', { fatal: false });
-const GBK_DECODER = new TextDecoder('gbk', { fatal: false });
+const GB18030_DECODER = new TextDecoder('gb18030', { fatal: false });
 const EUC_KR_DECODER = new TextDecoder('euc-kr', { fatal: false });
 
 const FORMAT_INFO_BITS = 15;
+
+interface CachedDecodeLayout {
+  readonly version: number;
+  readonly reserved: boolean[][];
+  readonly dataPositions: readonly (readonly [number, number])[];
+  readonly remainderBits: number;
+}
+
+interface DecodedGridPrelude {
+  readonly size: number;
+  readonly version: number;
+  readonly matrix: boolean[][];
+  readonly errorCorrectionLevel: QrErrorCorrectionLevel;
+  readonly maskPattern: number;
+  readonly hammingDistance: number;
+}
+
+const MAX_FORMAT_INFO_RESCUE_DISTANCE = 5;
+const MAX_FORMAT_INFO_RESCUE_CANDIDATES = 4;
+const MAX_VERSION_INFO_RESCUE_DISTANCE = 8;
+const MAX_VERSION_INFO_RESCUE_CANDIDATES = 4;
+
+const decodeLayoutCache = new Map<string, CachedDecodeLayout>();
+const blockInfoCache = new Map<string, QrVersionBlockInfo>();
 
 /**
  * Decodes a logical QR module grid all the way to a public scan result.
@@ -35,43 +63,149 @@ const FORMAT_INFO_BITS = 15;
 export const decodeGridLogical = (input: {
   readonly grid: readonly (readonly boolean[])[];
 }): Effect.Effect<DecodeGridResult, ScannerError> => {
+  return Effect.gen(function* () {
+    const candidates = yield* Effect.try({
+      try: () => prepareDecodeGridPreludes(input.grid),
+      catch: (error) =>
+        error instanceof ScannerError
+          ? error
+          : new ScannerError(
+              'internal_error',
+              error instanceof Error ? error.message : `Unexpected decode error: ${String(error)}`,
+            ),
+    });
+
+    let lastDecodeError: ScannerError | null = null;
+    for (const prepared of candidates) {
+      const decoded = yield* decodePreparedGrid(prepared).pipe(
+        Effect.catchIf(
+          (error: unknown): error is ScannerError =>
+            error instanceof ScannerError && error.code === 'decode_failed',
+          (error) => {
+            lastDecodeError = error;
+            return Effect.succeed(null);
+          },
+        ),
+      );
+      if (decoded !== null) return decoded;
+    }
+
+    if (lastDecodeError) return yield* Effect.fail(lastDecodeError);
+    return yield* Effect.fail(
+      new ScannerError('decode_failed', 'All QR decode prelude candidates failed.'),
+    );
+  });
+};
+
+const prepareDecodeGridPreludes = (
+  grid: readonly (readonly boolean[])[],
+): readonly DecodedGridPrelude[] => {
+  if (grid.length === 0) {
+    throw new ScannerError('invalid_input', 'QR grid must not be empty.');
+  }
+
+  const size = grid.length;
+  for (const row of grid) {
+    if (row.length !== size) {
+      throw new ScannerError('invalid_input', 'QR grid must be square.');
+    }
+  }
+
+  const version = getVersionFromSize(size);
+  const matrix = grid.map((row) => [...row]);
+  const formatCandidates = buildFormatPreludeCandidates(matrix);
+  const versionCandidates = buildVersionPreludeCandidates(matrix, version);
+  const preludes: DecodedGridPrelude[] = [];
+  const seen = new Set<string>();
+
+  for (const formatCandidate of formatCandidates) {
+    for (const versionCandidate of versionCandidates) {
+      const key = `${versionCandidate.version}:${formatCandidate.errorCorrectionLevel}:${formatCandidate.maskPattern}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      preludes.push({
+        size,
+        version: versionCandidate.version,
+        matrix,
+        errorCorrectionLevel: formatCandidate.errorCorrectionLevel,
+        maskPattern: formatCandidate.maskPattern,
+        hammingDistance: formatCandidate.hammingDistance,
+      });
+    }
+  }
+
+  if (preludes.length === 0) {
+    throw new ScannerError('decode_failed', 'Could not build any QR decode preludes.');
+  }
+
+  return preludes;
+};
+
+const buildFormatPreludeCandidates = (
+  matrix: boolean[][],
+): readonly DecodedFormatInfoCandidate[] => {
+  const strict = decodeFormatInfoCandidates(matrix, { maxDistance: 3, limit: 1 });
+  const rescue = decodeFormatInfoCandidates(matrix, {
+    maxDistance: MAX_FORMAT_INFO_RESCUE_DISTANCE,
+    limit: MAX_FORMAT_INFO_RESCUE_CANDIDATES,
+  });
+  const candidates = dedupeFormatPreludeCandidates([...strict, ...rescue]);
+  if (candidates.length > 0) return candidates;
+
+  throw new ScannerError('decode_failed', 'Could not decode QR format information.');
+};
+
+const dedupeFormatPreludeCandidates = (
+  candidates: readonly DecodedFormatInfoCandidate[],
+): readonly DecodedFormatInfoCandidate[] => {
+  const bestByKey = new Map<string, DecodedFormatInfoCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.errorCorrectionLevel}:${candidate.maskPattern}`;
+    const current = bestByKey.get(key);
+    if (!current || candidate.hammingDistance < current.hammingDistance) {
+      bestByKey.set(key, candidate);
+    }
+  }
+  return [...bestByKey.values()].sort(
+    (left, right) => left.hammingDistance - right.hammingDistance,
+  );
+};
+
+const buildVersionPreludeCandidates = (
+  matrix: boolean[][],
+  sizeImpliedVersion: number,
+): readonly DecodedVersionInfoCandidate[] => {
+  if (sizeImpliedVersion < 7) {
+    return [{ version: sizeImpliedVersion, hammingDistance: 0 }];
+  }
+
+  const strict = decodeVersionInfoCandidates(matrix, { maxDistance: 3, limit: 1 });
+  if (strict[0]?.version === sizeImpliedVersion) return strict;
+
+  const rescue = decodeVersionInfoCandidates(matrix, {
+    maxDistance: MAX_VERSION_INFO_RESCUE_DISTANCE,
+    limit: MAX_VERSION_INFO_RESCUE_CANDIDATES,
+  });
+  const sizeMatched = rescue.find((candidate) => candidate.version === sizeImpliedVersion);
+  return [sizeMatched ?? { version: sizeImpliedVersion, hammingDistance: 0 }];
+};
+
+const decodePreparedGrid = (
+  prepared: DecodedGridPrelude,
+): Effect.Effect<DecodeGridResult, ScannerError> => {
   return Effect.try({
     try: () => {
-      const { grid } = input;
-      if (grid.length === 0) {
-        throw new ScannerError('invalid_input', 'QR grid must not be empty.');
-      }
-
-      const size = grid.length;
-      for (const row of grid) {
-        if (row.length !== size) {
-          throw new ScannerError('invalid_input', 'QR grid must be square.');
-        }
-      }
-
-      const versionFromSize = getVersionFromSize(size);
-      const matrix = grid.map((row) => row.slice());
-      const { errorCorrectionLevel, maskPattern, hammingDistance } = decodeFormatInfo(matrix);
-      const decodedVersion = decodeVersionInfo(matrix);
-
-      if (decodedVersion !== versionFromSize) {
-        throw new ScannerError(
-          'decode_failed',
-          `QR version info mismatch: grid size implies v${versionFromSize}, version bits decode to v${decodedVersion}.`,
-        );
-      }
-
-      // Strip the data mask, rebuild RS blocks, correct them, and only then parse the segment stream.
-      const reserved = buildFunctionModuleMask(size, versionFromSize);
-      const unmasked = unmask(matrix, maskPattern, reserved);
-      const dataBits = extractDataBits(unmasked, reserved);
-      const blockInfo = getVersionBlockInfo(versionFromSize, errorCorrectionLevel);
-      const expectedBits = blockInfo.totalCodewords * 8 + getRemainderBits(versionFromSize);
+      const layout = getCachedDecodeLayout(prepared.size, prepared.version);
+      const matrix = prepared.matrix.map((row) => [...row]);
+      const unmasked = unmask(matrix, prepared.maskPattern, layout.reserved);
+      const dataBits = extractDataBits(unmasked, layout.dataPositions);
+      const blockInfo = getCachedBlockInfo(prepared.version, prepared.errorCorrectionLevel);
+      const expectedBits = blockInfo.totalCodewords * 8 + layout.remainderBits;
 
       if (dataBits.length !== expectedBits) {
         throw new ScannerError(
           'decode_failed',
-          `Unexpected data module count for version ${versionFromSize}-${errorCorrectionLevel}: got ${dataBits.length}, expected ${expectedBits}.`,
+          `Unexpected data module count for version ${prepared.version}-${prepared.errorCorrectionLevel}: got ${dataBits.length}, expected ${expectedBits}.`,
         );
       }
 
@@ -79,7 +213,7 @@ export const decodeGridLogical = (input: {
       const codewords = Array.from(bytesFromBits(codewordBits));
       const blocks = splitInterleavedCodewords(codewords, blockInfo);
       const dataCodewords = correctAndReinterleaveDataCodewords(blocks);
-      const payload = decodePayloadFromDataCodewords(dataCodewords, versionFromSize);
+      const payload = decodePayloadFromDataCodewords(dataCodewords, prepared.version);
 
       return {
         payload: {
@@ -87,20 +221,20 @@ export const decodeGridLogical = (input: {
           text: payload.text,
           bytes: payload.bytes,
         },
-        confidence: formatInfoConfidence(hammingDistance),
-        version: versionFromSize,
-        errorCorrectionLevel,
+        confidence: formatInfoConfidence(prepared.hammingDistance),
+        version: prepared.version,
+        errorCorrectionLevel: prepared.errorCorrectionLevel,
         bounds: {
           x: 0,
           y: 0,
-          width: size,
-          height: size,
+          width: prepared.size,
+          height: prepared.size,
         },
         corners: {
           topLeft: { x: 0, y: 0 },
-          topRight: { x: size, y: 0 },
-          bottomRight: { x: size, y: size },
-          bottomLeft: { x: 0, y: size },
+          topRight: { x: prepared.size, y: 0 },
+          bottomRight: { x: prepared.size, y: prepared.size },
+          bottomLeft: { x: 0, y: prepared.size },
         },
         headers: payload.headers.length > 0 ? payload.headers : [['mode', 'unknown']],
         segments: payload.segments,
@@ -114,6 +248,35 @@ export const decodeGridLogical = (input: {
             error instanceof Error ? error.message : `Unexpected decode error: ${String(error)}`,
           ),
   });
+};
+
+const getCachedDecodeLayout = (size: number, version: number): CachedDecodeLayout => {
+  const key = `${size}:${version}`;
+  const cached = decodeLayoutCache.get(key);
+  if (cached) return cached;
+
+  const reserved = buildFunctionModuleMask(size, version);
+  const layout = {
+    version,
+    reserved,
+    dataPositions: buildDataModulePositions(size, reserved),
+    remainderBits: getRemainderBits(version),
+  } satisfies CachedDecodeLayout;
+  decodeLayoutCache.set(key, layout);
+  return layout;
+};
+
+const getCachedBlockInfo = (
+  version: number,
+  errorCorrectionLevel: QrErrorCorrectionLevel,
+): QrVersionBlockInfo => {
+  const key = `${version}:${errorCorrectionLevel}`;
+  const cached = blockInfoCache.get(key);
+  if (cached) return cached;
+
+  const blockInfo = getVersionBlockInfo(version, errorCorrectionLevel);
+  blockInfoCache.set(key, blockInfo);
+  return blockInfo;
 };
 
 /**
@@ -219,8 +382,8 @@ const decodeText = (bytes: Uint8Array, encoding: string): string => {
       return UTF16BE_DECODER.decode(bytes);
     case 'big5':
       return BIG5_DECODER.decode(bytes);
-    case 'gbk':
-      return GBK_DECODER.decode(bytes);
+    case 'gb18030':
+      return GB18030_DECODER.decode(bytes);
     case 'euc-kr':
       return EUC_KR_DECODER.decode(bytes);
     default:
@@ -276,14 +439,20 @@ const decodeNumeric = (reader: BitReader, count: number): string => {
   let remaining = count;
 
   while (remaining >= 3) {
-    text += reader.read(10).toString().padStart(3, '0');
+    const value = reader.read(10);
+    if (value > 999) throw new ScannerError('decode_failed', 'Invalid numeric segment group.');
+    text += value.toString().padStart(3, '0');
     remaining -= 3;
   }
 
   if (remaining === 2) {
-    text += reader.read(7).toString().padStart(2, '0');
+    const value = reader.read(7);
+    if (value > 99) throw new ScannerError('decode_failed', 'Invalid numeric segment group.');
+    text += value.toString().padStart(2, '0');
   } else if (remaining === 1) {
-    text += reader.read(4).toString();
+    const value = reader.read(4);
+    if (value > 9) throw new ScannerError('decode_failed', 'Invalid numeric segment digit.');
+    text += value.toString();
   }
 
   return text;
@@ -372,7 +541,7 @@ const getEciEncodingLabel = (assignmentNumber: number): string => {
     case 28:
       return 'big5';
     case 29:
-      return 'gbk';
+      return 'gb18030';
     case 30:
       return 'euc-kr';
     default:
@@ -555,14 +724,16 @@ const bytesFromBits = (bits: readonly number[]): Uint8Array => {
  * Reads data-module bits from an unmasked QR matrix.
  *
  * @param matrix - Unmasked QR matrix.
- * @param reserved - Function-module reservation mask.
+ * @param dataPositions - Precomputed data-module coordinates.
  * @returns Data bits in QR scan order.
  */
-const extractDataBits = (matrix: boolean[][], reserved: boolean[][]): number[] => {
-  const positions = buildDataModulePositions(matrix.length, reserved);
+const extractDataBits = (
+  matrix: boolean[][],
+  dataPositions: readonly (readonly [number, number])[],
+): number[] => {
   const bits: number[] = [];
 
-  for (const [row, col] of positions) {
+  for (const [row, col] of dataPositions) {
     bits.push(matrix[row]?.[col] ? 1 : 0);
   }
 
@@ -640,10 +811,7 @@ const correctAndReinterleaveDataCodewords = (blocks: RawBlock[]): number[] => {
         block.ecCodewords.length,
       );
 
-      return {
-        dataCodewords: Array.from(corrected.slice(0, block.dataCodewords.length)),
-        ecCodewords: Array.from(corrected.slice(block.dataCodewords.length)),
-      };
+      return Array.from(corrected.slice(0, block.dataCodewords.length));
     } catch (error) {
       if (error instanceof ReedSolomonError) {
         throw new ScannerError('decode_failed', error.message);
@@ -658,7 +826,7 @@ const correctAndReinterleaveDataCodewords = (blocks: RawBlock[]): number[] => {
   // Assemble corrected blocks in sequential (logical) order: all of block 0, then block 1, etc.
   // Do NOT re-interleave — the segment parser expects the raw logical codeword sequence.
   for (const block of correctedBlocks) {
-    result.push(...block.dataCodewords);
+    result.push(...block);
   }
 
   return result;

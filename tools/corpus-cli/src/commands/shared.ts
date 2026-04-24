@@ -8,7 +8,35 @@ import type { AutoScan, CorpusAssetLabel, GroundTruth, ReviewStatus } from '../s
 import { assertInteractiveSession } from '../tty.js';
 import type { CliUi } from '../ui.js';
 
-export const DEFAULT_FETCH_DELAY_MS = 1000;
+export const DEFAULT_FETCH_DELAY_MS = 3000;
+
+const DEFAULT_SEARCH_TERM = 'qr code';
+
+const buildCommonsQrSearchUrl = (searchTerm: string): string => {
+  const url = new URL('https://commons.wikimedia.org/w/index.php');
+  url.searchParams.set('search', searchTerm);
+  url.searchParams.set('title', 'Special:MediaSearch');
+  url.searchParams.set('type', 'image');
+  return url.toString();
+};
+
+const requirePixabayApiKey = (): void => {
+  if ((process.env.PIXABAY_API_KEY ?? '').trim().length === 0) {
+    throw new Error('PIXABAY_API_KEY is required when --source pixabay-api is selected');
+  }
+};
+
+const buildPixabayApiSearchUrl = (searchTerm: string): string => {
+  const url = new URL('https://pixabay.com/api/');
+  url.searchParams.set('q', searchTerm);
+  url.searchParams.set('image_type', 'photo');
+  url.searchParams.set('safesearch', 'true');
+  url.searchParams.set('order', 'popular');
+  return url.toString();
+};
+
+const COMMONS_QR_SEARCH_URL = buildCommonsQrSearchUrl(DEFAULT_SEARCH_TERM);
+const PIXABAY_API_QR_SEARCH_URL = buildPixabayApiSearchUrl(DEFAULT_SEARCH_TERM);
 
 /** Split a whitespace/comma-separated URL string into individual URL strings. */
 export const splitUrlInput = (value: string): string[] => {
@@ -73,7 +101,7 @@ export const promptOptionalText = async (
     message,
     ...(initialValue !== undefined ? { initialValue } : {}),
   });
-  const trimmed = rawValue.trim();
+  const trimmed = typeof rawValue === 'string' ? rawValue.trim() : '';
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
@@ -274,6 +302,36 @@ export const buildAutoScanGroundTruth = (
   };
 };
 
+type PresetScrapeSource = 'commons-qr-search' | 'pixabay-api-qr-search';
+
+const normalizeSearchTerm = (value: string | undefined): string => {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_SEARCH_TERM;
+};
+
+const parsePresetScrapeSource = (value: string | undefined): PresetScrapeSource | undefined => {
+  if (!value) return undefined;
+  if (value === 'commons' || value === 'commons-qr-search') return 'commons-qr-search';
+  if (value === 'pixabay' || value === 'pixabay-api' || value === 'pixabay-api-qr-search') {
+    return 'pixabay-api-qr-search';
+  }
+  throw new Error('Expected --source commons|pixabay-api');
+};
+
+const promptPresetSearchTerm = async (
+  context: Pick<AppContext, 'ui'>,
+  sourceLabel: string,
+  initialValue: string,
+): Promise<string> => {
+  return (
+    await context.ui.text({
+      message: `${sourceLabel} search term`,
+      initialValue,
+      validate: (value) => (value.trim().length > 0 ? undefined : 'Search term is required'),
+    })
+  ).trim();
+};
+
 /** Resolve scrape seed URLs from positional args or an interactive prompt. */
 export const resolveSeedUrls = async (
   context: Pick<AppContext, 'ui'>,
@@ -283,12 +341,58 @@ export const resolveSeedUrls = async (
     return args.positionals;
   }
 
+  const explicitSource = parsePresetScrapeSource(getOption(args, 'source'));
+  if (explicitSource === 'commons-qr-search') {
+    return [buildCommonsQrSearchUrl(normalizeSearchTerm(getOption(args, 'query')))];
+  }
+  if (explicitSource === 'pixabay-api-qr-search') {
+    requirePixabayApiKey();
+    return [buildPixabayApiSearchUrl(normalizeSearchTerm(getOption(args, 'query')))];
+  }
+
   assertInteractiveSession('Seed URL required in non-interactive mode');
+  const source = await context.ui.select<'commons-qr-search' | 'pixabay-api-qr-search' | 'custom'>({
+    message: 'Choose scrape source',
+    initialValue: 'commons-qr-search',
+    options: [
+      {
+        value: 'commons-qr-search',
+        label: 'Wikimedia Commons QR search',
+        hint: 'MediaSearch for “QR Code”',
+      },
+      {
+        value: 'pixabay-api-qr-search',
+        label: 'Pixabay API QR search',
+        hint: 'pixabay.com/api?q=qr+code (requires PIXABAY_API_KEY)',
+      },
+      {
+        value: 'custom',
+        label: 'Custom URL(s)',
+        hint: 'enter one or more seed URLs manually',
+      },
+    ],
+  });
+
+  if (source === 'commons-qr-search') {
+    const searchTerm = normalizeSearchTerm(
+      getOption(args, 'query') ??
+        (await promptPresetSearchTerm(context, 'Wikimedia Commons', DEFAULT_SEARCH_TERM)),
+    );
+    return [buildCommonsQrSearchUrl(searchTerm)];
+  }
+  if (source === 'pixabay-api-qr-search') {
+    requirePixabayApiKey();
+    const searchTerm = normalizeSearchTerm(
+      getOption(args, 'query') ??
+        (await promptPresetSearchTerm(context, 'Pixabay API', DEFAULT_SEARCH_TERM)),
+    );
+    return [buildPixabayApiSearchUrl(searchTerm)];
+  }
+
   return splitUrlInput(
     await context.ui.text({
       message: 'Seed URL(s), separated by spaces or commas',
-      placeholder:
-        'https://commons.wikimedia.org/w/index.php?search=QR+Code&title=Special%3AMediaSearch&type=image',
+      placeholder: COMMONS_QR_SEARCH_URL,
       validate: (value) =>
         splitUrlInput(value).length > 0 ? undefined : 'At least one URL is required',
     }),

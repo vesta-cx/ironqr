@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Effect } from 'effect';
+import { resolveSeedFetchDelayMs } from '../../src/import/remote/adapters.js';
+import { fetchText, isPixabayApiSearchUrl } from '../../src/import/remote/fetch.js';
+import { assertAllowedSeed } from '../../src/import/remote/policy.js';
 import {
   importStagedRemoteAssets,
   readStagedRemoteAsset,
@@ -22,6 +26,9 @@ const LISTING_HTML = `
     </body>
   </html>
 `;
+
+const PIXABAY_API_QR_SEARCH_URL =
+  'https://pixabay.com/api/?q=qr+code&image_type=photo&safesearch=true&order=popular';
 
 const FIRST_PAGE_HTML = `
   <html>
@@ -84,7 +91,215 @@ const buildMockFetch = (): ((input: string | URL) => Promise<Response>) => {
   };
 };
 
+const buildPixabayApiFetch = (counts?: {
+  readonly apiCalls?: { count: number };
+}): ((input: string | URL) => Promise<Response>) => {
+  return async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    const parsed = new URL(url);
+    const firstBytes = await createPngBytes(255, 255, 255);
+    const secondBytes = await createPngBytes(0, 0, 0);
+
+    if (
+      parsed.origin === 'https://pixabay.com' &&
+      parsed.pathname === '/api/' &&
+      parsed.searchParams.get('key') === 'test-key' &&
+      parsed.searchParams.get('page') === '1'
+    ) {
+      if (counts?.apiCalls) counts.apiCalls.count += 1;
+      return new Response(
+        JSON.stringify({
+          totalHits: 2,
+          hits: [
+            {
+              id: 123,
+              pageURL: 'https://pixabay.com/photos/first-qr-123/',
+              largeImageURL: 'https://cdn.pixabay.com/first.png',
+              tags: 'qr code, paper',
+              user: 'alice',
+            },
+            {
+              id: 456,
+              pageURL: 'https://pixabay.com/photos/second-qr-456/',
+              largeImageURL: 'https://cdn.pixabay.com/second.png',
+              tags: 'qr code, sticker',
+              user: 'bob',
+            },
+          ],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    if (url === 'https://cdn.pixabay.com/first.png') {
+      return new Response(Buffer.from(firstBytes), {
+        headers: { 'content-type': 'image/png' },
+      });
+    }
+
+    if (url === 'https://cdn.pixabay.com/second.png') {
+      return new Response(Buffer.from(secondBytes), {
+        headers: { 'content-type': 'image/png' },
+      });
+    }
+
+    return new Response('not found', { status: 404 });
+  };
+};
+
 describe('remote corpus import', () => {
+  it('keeps fetch headers minimal so Cloudflare-hosted seeds do not get browser-fingerprint challenges', async () => {
+    const seen: RequestInit[] = [];
+    const fetchImpl = async (_input: string | URL, init?: RequestInit): Promise<Response> => {
+      seen.push(init ?? {});
+      return new Response('<html><title>ok</title></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    };
+
+    await expect(
+      Effect.runPromise(
+        fetchText('https://pixabay.com/images/search/qr%20code/', fetchImpl, false),
+      ),
+    ).resolves.toMatchObject({ url: 'https://pixabay.com/images/search/qr%20code/' });
+
+    expect(seen[0]?.headers).toEqual({
+      'accept-language': 'en-US,en;q=0.9',
+      accept: 'text/html,application/xhtml+xml',
+    });
+  });
+
+  it('surfaces a clear error when Pixabay search pages return a Cloudflare challenge', async () => {
+    const fetchImpl = async (_input: string | URL): Promise<Response> =>
+      new Response('<html><title>Just a moment...</title></html>', {
+        status: 403,
+        headers: {
+          'content-type': 'text/html',
+          'cf-mitigated': 'challenge',
+        },
+      });
+
+    await expect(
+      Effect.runPromise(
+        fetchText('https://pixabay.com/images/search/qr%20code/', fetchImpl, false),
+      ),
+    ).rejects.toThrow('Pixabay returned a Cloudflare challenge to this CLI fetch');
+  });
+
+  it('rejects non-HTTPS remote seeds before fetching', () => {
+    expect(() => assertAllowedSeed('http://pixabay.com/api/?q=qr')).toThrow('must use HTTPS');
+    expect(isPixabayApiSearchUrl('http://pixabay.com/api/?q=qr')).toBe(false);
+  });
+
+  it('uses burst pacing for Pixabay API runs under 100 staged assets', () => {
+    expect(resolveSeedFetchDelayMs(PIXABAY_API_QR_SEARCH_URL, 99, 3_000)).toBe(0);
+    expect(resolveSeedFetchDelayMs(PIXABAY_API_QR_SEARCH_URL, 100, 3_000)).toBe(750);
+    expect(
+      resolveSeedFetchDelayMs(
+        'https://commons.wikimedia.org/w/index.php?search=QR+Code&title=Special%3AMediaSearch&type=image',
+        99,
+        3_000,
+      ),
+    ).toBe(3_000);
+  });
+
+  it('stages assets from the Pixabay API with attribution and license evidence', async () => {
+    const repoRoot = await createRepoRoot();
+    const originalApiKey = process.env.PIXABAY_API_KEY;
+    process.env.PIXABAY_API_KEY = 'test-key';
+
+    try {
+      const staged = await scrapeRemoteAssets(
+        {
+          repoRoot,
+          seedUrls: [PIXABAY_API_QR_SEARCH_URL],
+          label: 'qr-positive',
+          limit: 2,
+        },
+        buildPixabayApiFetch(),
+      );
+
+      expect(staged.assets).toHaveLength(2);
+      expect(staged.assets[0]).toMatchObject({
+        seedUrl: PIXABAY_API_QR_SEARCH_URL,
+        sourcePageUrl: 'https://pixabay.com/photos/first-qr-123/',
+        imageUrl: 'https://cdn.pixabay.com/first.png',
+        pageTitle: 'Pixabay #123: qr code, paper',
+        attributionText: 'Image by alice on Pixabay',
+        bestEffortLicense: 'Pixabay License',
+      });
+      expect(staged.assets[0]?.licenseEvidenceText).toContain('Pixabay API docs');
+    } finally {
+      if (originalApiKey === undefined) {
+        delete process.env.PIXABAY_API_KEY;
+      } else {
+        process.env.PIXABAY_API_KEY = originalApiKey;
+      }
+    }
+  });
+
+  it('caches Pixabay API search batches for 24 hours', async () => {
+    const repoRoot = await createRepoRoot();
+    const originalApiKey = process.env.PIXABAY_API_KEY;
+    process.env.PIXABAY_API_KEY = 'test-key';
+    const apiCalls = { count: 0 };
+    const fetchImpl = buildPixabayApiFetch({ apiCalls });
+
+    try {
+      await scrapeRemoteAssets(
+        {
+          repoRoot,
+          seedUrls: [PIXABAY_API_QR_SEARCH_URL],
+          label: 'qr-positive',
+          limit: 1,
+        },
+        fetchImpl,
+      );
+
+      await scrapeRemoteAssets(
+        {
+          repoRoot,
+          seedUrls: [PIXABAY_API_QR_SEARCH_URL],
+          label: 'qr-positive',
+          limit: 1,
+        },
+        fetchImpl,
+      );
+
+      expect(apiCalls.count).toBe(1);
+    } finally {
+      if (originalApiKey === undefined) {
+        delete process.env.PIXABAY_API_KEY;
+      } else {
+        process.env.PIXABAY_API_KEY = originalApiKey;
+      }
+    }
+  });
+
+  it('fails clearly when the Pixabay API preset is used without PIXABAY_API_KEY', async () => {
+    const repoRoot = await createRepoRoot();
+    const originalApiKey = process.env.PIXABAY_API_KEY;
+    delete process.env.PIXABAY_API_KEY;
+
+    try {
+      await expect(
+        scrapeRemoteAssets(
+          {
+            repoRoot,
+            seedUrls: [PIXABAY_API_QR_SEARCH_URL],
+            label: 'qr-positive',
+            limit: 1,
+          },
+          buildPixabayApiFetch(),
+        ),
+      ).rejects.toThrow('Pixabay API seed requires PIXABAY_API_KEY');
+    } finally {
+      if (originalApiKey !== undefined) {
+        process.env.PIXABAY_API_KEY = originalApiKey;
+      }
+    }
+  });
+
   it('stages remote assets in per-image folders, then imports them with remote provenance', async () => {
     const repoRoot = await createRepoRoot();
 

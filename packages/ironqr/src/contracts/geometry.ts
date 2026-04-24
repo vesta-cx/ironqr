@@ -1,16 +1,19 @@
 import * as S from 'effect/Schema';
 
+const FiniteNumberSchema = S.Number.check(S.isFinite());
+const NonNegativeFiniteNumberSchema = S.Number.check(S.isFinite(), S.isGreaterThanOrEqualTo(0));
+
 export const PointSchema = S.Struct({
-  x: S.Number,
-  y: S.Number,
+  x: FiniteNumberSchema,
+  y: FiniteNumberSchema,
 });
 export type Point = S.Schema.Type<typeof PointSchema>;
 
 export const BoundsSchema = S.Struct({
-  x: S.Number,
-  y: S.Number,
-  width: S.Number,
-  height: S.Number,
+  x: FiniteNumberSchema,
+  y: FiniteNumberSchema,
+  width: NonNegativeFiniteNumberSchema,
+  height: NonNegativeFiniteNumberSchema,
 });
 export type Bounds = S.Schema.Type<typeof BoundsSchema>;
 

@@ -4,6 +4,25 @@ let tablesInitialized = false;
 const EXP_TABLE = new Uint8Array(512);
 const LOG_TABLE = new Uint8Array(256);
 
+const validateEcCodewords = (ecCodewords: number, receivedLength?: number): void => {
+  if (!Number.isInteger(ecCodewords) || ecCodewords <= 0 || ecCodewords > 255) {
+    throw new ReedSolomonError(`Invalid Reed-Solomon ECC width: ${ecCodewords}.`);
+  }
+  if (receivedLength !== undefined && ecCodewords > receivedLength) {
+    throw new ReedSolomonError(
+      `ECC width ${ecCodewords} exceeds received block length ${receivedLength}.`,
+    );
+  }
+};
+
+const validateCodewords = (values: readonly number[], label: string): void => {
+  for (const [index, value] of values.entries()) {
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      throw new ReedSolomonError(`${label}[${index}] is not a byte: ${value}.`);
+    }
+  }
+};
+
 /**
  * Lazily initializes the GF(256) log and exponent tables used by QR Reed-Solomon math.
  *
@@ -124,8 +143,8 @@ export class ReedSolomonError extends Error {
    *
    * @param message - Human-readable decode failure detail.
    */
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'ReedSolomonError';
   }
 }
@@ -270,19 +289,7 @@ class GenericGFPoly {
       return GenericGFPoly.zero();
     }
 
-    const result = new Array<number>(this.coefficients.length + other.coefficients.length - 1).fill(
-      0,
-    );
-
-    for (let leftIndex = 0; leftIndex < this.coefficients.length; leftIndex += 1) {
-      for (let rightIndex = 0; rightIndex < other.coefficients.length; rightIndex += 1) {
-        result[leftIndex + rightIndex] =
-          (result[leftIndex + rightIndex] ?? 0) ^
-          gfMultiply(this.coefficients[leftIndex] ?? 0, other.coefficients[rightIndex] ?? 0);
-      }
-    }
-
-    return new GenericGFPoly(result);
+    return new GenericGFPoly(polynomialMultiply(this.coefficients, other.coefficients));
   }
 
   /**
@@ -453,6 +460,8 @@ const findErrorMagnitudes = (
  * @returns The ECC bytes for the provided data block.
  */
 export const rsEncode = (data: readonly number[], ecCodewords: number): Uint8Array => {
+  validateEcCodewords(ecCodewords);
+  validateCodewords(data, 'data');
   const generator = buildGeneratorPolynomial(ecCodewords);
   const buffer = new Uint8Array(data.length + ecCodewords);
   buffer.set(data);
@@ -481,6 +490,8 @@ export const rsEncode = (data: readonly number[], ecCodewords: number): Uint8Arr
  * @returns The corrected block codewords.
  */
 export const correctRsBlock = (received: readonly number[], ecCodewords: number): Uint8Array => {
+  validateEcCodewords(ecCodewords, received.length);
+  validateCodewords(received, 'received');
   initializeTables();
 
   try {
@@ -527,11 +538,9 @@ export const correctRsBlock = (received: readonly number[], ecCodewords: number)
       throw error;
     }
 
-    if (error instanceof Error) {
-      throw new ReedSolomonError(error.message);
-    }
-
-    throw new ReedSolomonError('Unknown Reed-Solomon decoding failure.');
+    throw new ReedSolomonError('Reed-Solomon decoding failed.', {
+      cause: error instanceof Error ? error : undefined,
+    });
   }
 };
 
@@ -544,10 +553,6 @@ export const correctRsBlock = (received: readonly number[], ecCodewords: number)
  */
 export const verifyRsBlock = (data: readonly number[], ecc: readonly number[]): boolean => {
   const expected = rsEncode(data, ecc.length);
-
-  if (expected.length !== ecc.length) {
-    return false;
-  }
 
   for (let index = 0; index < ecc.length; index += 1) {
     if ((expected[index] ?? 0) !== (ecc[index] ?? 0)) {

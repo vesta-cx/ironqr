@@ -32,21 +32,99 @@ export const ScannerErrorSchema = S.Struct({
 });
 export type ScannerErrorShape = S.Schema.Type<typeof ScannerErrorSchema>;
 
+export const ScanPathMetadataLevelSchema = S.Literals(['none', 'basic', 'full']);
+export type ScanPathMetadataLevel = S.Schema.Type<typeof ScanPathMetadataLevelSchema>;
+
+export const ScanAttemptMetadataLevelSchema = S.Literals(['none', 'summary', 'full']);
+export type ScanAttemptMetadataLevel = S.Schema.Type<typeof ScanAttemptMetadataLevelSchema>;
+
+export const ScanViewMetadataLevelSchema = S.Literals(['none', 'summary']);
+export type ScanViewMetadataLevel = S.Schema.Type<typeof ScanViewMetadataLevelSchema>;
+
+export const ScanFailureMetadataLevelSchema = S.Literals(['none', 'summary']);
+export type ScanFailureMetadataLevel = S.Schema.Type<typeof ScanFailureMetadataLevelSchema>;
+
+export const ScanProposalMetadataLevelSchema = S.Literals(['none', 'summary']);
+export type ScanProposalMetadataLevel = S.Schema.Type<typeof ScanProposalMetadataLevelSchema>;
+
+export const ScanTimingMetadataLevelSchema = S.Literals(['none', 'summary', 'full']);
+export type ScanTimingMetadataLevel = S.Schema.Type<typeof ScanTimingMetadataLevelSchema>;
+
+export const ScanTraceEventsLevelSchema = S.Literals(['off', 'summary', 'full']);
+export type ScanTraceEventsLevel = S.Schema.Type<typeof ScanTraceEventsLevelSchema>;
+
+export const ScanObservabilityResultSchema = S.Struct({
+  path: S.optional(ScanPathMetadataLevelSchema),
+  attempts: S.optional(ScanAttemptMetadataLevelSchema),
+});
+export type ScanObservabilityResult = S.Schema.Type<typeof ScanObservabilityResultSchema>;
+
+export const ScanObservabilityScanSchema = S.Struct({
+  views: S.optional(ScanViewMetadataLevelSchema),
+  failure: S.optional(ScanFailureMetadataLevelSchema),
+  proposals: S.optional(ScanProposalMetadataLevelSchema),
+  timings: S.optional(ScanTimingMetadataLevelSchema),
+});
+export type ScanObservabilityScan = S.Schema.Type<typeof ScanObservabilityScanSchema>;
+
+export const ScanObservabilityTraceSchema = S.Struct({
+  events: S.optional(ScanTraceEventsLevelSchema),
+});
+export type ScanObservabilityTrace = S.Schema.Type<typeof ScanObservabilityTraceSchema>;
+
+export const ScanObservabilityOptionsSchema = S.Struct({
+  result: S.optional(ScanObservabilityResultSchema),
+  scan: S.optional(ScanObservabilityScanSchema),
+  trace: S.optional(ScanObservabilityTraceSchema),
+});
+export type ScanObservabilityOptions = S.Schema.Type<typeof ScanObservabilityOptionsSchema>;
+
+const ScanBudgetLimitSchema = S.Number.check(
+  S.isFinite(),
+  S.isInt(),
+  S.isBetween({ minimum: 1, maximum: 10_000 }),
+);
+const QrVersionSchema = S.Number.check(
+  S.isFinite(),
+  S.isInt(),
+  S.isBetween({ minimum: 1, maximum: 40 }),
+);
+const ConfidenceSchema = S.Number.check(S.isFinite(), S.isBetween({ minimum: 0, maximum: 1 }));
+const DecodeGridSchema = S.Array(S.Array(S.Boolean)).check(
+  S.makeFilter<readonly (readonly boolean[])[]>(
+    (grid) => {
+      const size = grid.length;
+      return (
+        size >= 21 &&
+        size <= 177 &&
+        grid.every((row) => row.length === size) &&
+        (size - 21) % 4 === 0
+      );
+    },
+    { expected: 'a non-empty square QR grid whose size maps to QR version 1..40' },
+  ),
+);
+
 export const ScanOptionsSchema = S.Struct({
   allowMultiple: S.optional(S.Boolean),
-  debug: S.optional(S.Boolean),
-  maxCandidates: S.optional(S.Number),
-});
+  /** @deprecated Prefer `maxProposals`. Kept as a compatibility alias during migration. */
+  maxCandidates: S.optional(ScanBudgetLimitSchema),
+  maxProposals: S.optional(ScanBudgetLimitSchema),
+  maxProposalsPerView: S.optional(ScanBudgetLimitSchema),
+  observability: S.optional(ScanObservabilityOptionsSchema),
+}).check(
+  S.makeFilter(
+    (options: {
+      readonly maxCandidates?: number | undefined;
+      readonly maxProposals?: number | undefined;
+    }) => options.maxCandidates === undefined || options.maxProposals === undefined,
+    { expected: 'maxCandidates and maxProposals must not both be provided' },
+  ),
+);
 export type ScanOptions = S.Schema.Type<typeof ScanOptionsSchema>;
 
-export const DecodeGridOptionsSchema = S.Struct({
-  debug: S.optional(S.Boolean),
-});
-export type DecodeGridOptions = S.Schema.Type<typeof DecodeGridOptionsSchema>;
-
 export const DecodeGridInputSchema = S.Struct({
-  grid: S.Array(S.Array(S.Boolean)),
-  options: S.optional(DecodeGridOptionsSchema),
+  grid: DecodeGridSchema,
 });
 export type DecodeGridInput = S.Schema.Type<typeof DecodeGridInputSchema>;
 
@@ -77,8 +155,8 @@ export type DecodedSegment = S.Schema.Type<typeof DecodedSegmentSchema>;
 
 export const ScanResultSchema = S.Struct({
   payload: DecodedPayloadSchema,
-  confidence: S.Number,
-  version: S.Number,
+  confidence: ConfidenceSchema,
+  version: QrVersionSchema,
   errorCorrectionLevel: ErrorCorrectionLevelSchema,
   bounds: BoundsSchema,
   corners: CornerSetSchema,
@@ -97,30 +175,57 @@ export type DecodeGridResult = S.Schema.Type<typeof DecodeGridResultSchema>;
  * (tests, workers, Bun/Node tooling) where callers already pass `{ width,
  * height, data }` buffers without constructing a real `ImageData` instance.
  */
+export type ImageColorSpace = 'srgb' | 'display-p3';
+
 export interface ImageDataLike {
   readonly width: number;
   readonly height: number;
   readonly data: Uint8ClampedArray;
-  readonly colorSpace?: string;
+  readonly colorSpace?: ImageColorSpace;
+}
+
+/** Structural subset of Blob/File inputs accepted by `createImageBitmap`. */
+export interface BlobLikeImageSource {
+  readonly size: number;
+  readonly type: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** Structural subset of canvas/image-like inputs accepted by `createImageBitmap`. */
+export interface CanvasLikeImageSource {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Structural subset of ImageBitmap-like inputs accepted by the browser adapter path. */
+export interface ImageBitmapLikeSource {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
+}
+
+/** Structural subset of VideoFrame-like inputs accepted by `createImageBitmap`. */
+export interface VideoFrameLikeSource {
+  readonly displayWidth?: number;
+  readonly displayHeight?: number;
+  readonly codedWidth?: number;
+  readonly codedHeight?: number;
+  close(): void;
 }
 
 export type BrowserImageSource =
-  | Blob
-  | File
-  | ImageBitmap
-  | ImageData
   | ImageDataLike
-  | HTMLCanvasElement
-  | HTMLImageElement
-  | OffscreenCanvas
-  | VideoFrame;
+  | BlobLikeImageSource
+  | CanvasLikeImageSource
+  | ImageBitmapLikeSource
+  | VideoFrameLikeSource;
 
 export type ScanImageInput = BrowserImageSource;
 export type ScanFrameInput = BrowserImageSource;
-export type ScanStreamInput = MediaStream | HTMLVideoElement;
+export type ScanStreamInput = unknown;
 
 export interface ScanStreamOptions extends ScanOptions {
   readonly onResult?: (result: ScanResult) => void;
   readonly onError?: (error: unknown) => void;
-  readonly signal?: AbortSignal;
+  readonly signal?: unknown;
 }

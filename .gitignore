@@ -11,7 +11,16 @@ test-results
 *.tsbuildinfo
 benchmark-results.json
 .turbo/
-.sc/corpus-cli.json
+.env
+.sc/
+tools/corpus-cli/.env
 corpus/staging/
+corpus/generated/
 tools/corpus-cli/tests/.tmp/
 tools/perfbench/tests/.tmp/
+tools/bench/.cache/
+tools/bench/reports/
+tools/bench/tests/.tmp/
+
+.DS_Store
+RANKED_PROPOSAL_PIPELINE_IMPLEMENTATION_CONTRACT.md

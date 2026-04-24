@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getOption, type ParsedArgs, parseLabel, parseOptionalReviewStatus } from '../args.js';
 import type { AppContext } from '../context.js';
 import { importLocalAssets } from '../import/local.js';
+import { getTrustedPlatformLicense } from '../import/remote/license-trust.js';
 import {
   importStagedRemoteAssets,
   readStagedRemoteAssets,
@@ -250,7 +251,7 @@ const fillMissingStagedMetadata = async (
       reviewer = await resolveReviewer(context, undefined);
     }
 
-    let confirmedLicense = asset.confirmedLicense ?? license;
+    let confirmedLicense = asset.confirmedLicense ?? license ?? getTrustedPlatformLicense(asset);
     if (!confirmedLicense) {
       confirmedLicense = await context.ui.text({
         message: `Confirmed license for ${asset.id}`,

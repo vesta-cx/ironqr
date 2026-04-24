@@ -30,12 +30,16 @@
     "package:quality": "turbo run package:quality --filter=ironqr",
     "changeset:version": "changeset version",
     "changeset:publish": "changeset publish",
+    "bench": "bun run --cwd tools/bench bench",
     "benchmark": "turbo run benchmark --filter=@ironqr/perfbench",
     "corpus": "bun run --cwd tools/corpus-cli corpus",
     "corpus:scrape": "bun run --cwd tools/corpus-cli corpus:scrape",
     "corpus:review": "bun run --cwd tools/corpus-cli corpus:review",
     "corpus:import": "bun run --cwd tools/corpus-cli corpus:import",
     "corpus:build-bench": "bun run --cwd tools/corpus-cli corpus:build-bench",
+    "corpus:scan": "bun run --cwd tools/corpus-cli corpus:scan",
+    "corpus:generate-bases": "bun run --cwd tools/corpus-cli corpus:generate-bases",
+    "corpus:generate-distortions": "bun run --cwd tools/corpus-cli corpus:generate-distortions",
     "prepare": "husky"
   },
   "workspaces": [

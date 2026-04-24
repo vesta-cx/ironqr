@@ -6,6 +6,7 @@ import {
   PointSchema,
   ScannerErrorSchema,
   ScannerNotImplementedError,
+  ScanOptionsSchema,
   ScanResultSchema,
   scanImage,
 } from '../../src/index.js';
@@ -15,6 +16,7 @@ describe('package scaffold exports', () => {
     expect(PointSchema).toBeDefined();
     expect(BoundsSchema).toBeDefined();
     expect(DecodeGridInputSchema).toBeDefined();
+    expect(ScanOptionsSchema).toBeDefined();
     expect(ScanResultSchema).toBeDefined();
     expect(ScannerErrorSchema).toBeDefined();
   });
@@ -28,6 +30,30 @@ describe('package scaffold exports', () => {
     } catch (err) {
       expect(err).not.toBeInstanceOf(ScannerNotImplementedError);
     }
+  });
+
+  it('accepts the new scan observability options shape', () => {
+    const decodeScanOptions = S.decodeUnknownSync(ScanOptionsSchema);
+
+    expect(
+      decodeScanOptions({
+        allowMultiple: true,
+        maxProposals: 12,
+        observability: {
+          result: { path: 'basic', attempts: 'summary' },
+          scan: { proposals: 'summary', timings: 'full', failure: 'summary' },
+          trace: { events: 'summary' },
+        },
+      }),
+    ).toEqual({
+      allowMultiple: true,
+      maxProposals: 12,
+      observability: {
+        result: { path: 'basic', attempts: 'summary' },
+        scan: { proposals: 'summary', timings: 'full', failure: 'summary' },
+        trace: { events: 'summary' },
+      },
+    });
   });
 
   it('rejects scanner error payloads with unknown public error codes', () => {

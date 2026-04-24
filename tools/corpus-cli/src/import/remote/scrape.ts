@@ -6,6 +6,11 @@ import { appendVisitedSourcePage, readScrapeProgress } from '../../manifest.js';
 import { MAJOR_VERSION } from '../../version.js';
 import { AsyncQueue } from '../queue.js';
 import { hashSha256 } from '../store.js';
+import {
+  type ResolvedRemotePage,
+  resolveSeedFetchDelayMs,
+  resolveSeedSourcePages,
+} from './adapters.js';
 import type {
   ImportRemoteAssetOptions,
   ScrapeRemoteAssetsResult,
@@ -13,14 +18,7 @@ import type {
   StagedRemoteAsset,
 } from './contracts.js';
 import { tryPromise } from './effect.js';
-import {
-  type FetchLike,
-  fetchCommonsFileMeta,
-  fetchImage,
-  fetchText,
-  isCommonsSearchUrl,
-  resolveCommonsSearchPages,
-} from './fetch.js';
+import { type FetchLike, fetchCommonsFileMeta, fetchImage } from './fetch.js';
 import {
   detectBestEffortLicense,
   extractCommonsAttribution,
@@ -28,7 +26,6 @@ import {
 } from './html.js';
 import type { SourcePage } from './page.js';
 import { assertAllowedSeed, isAllowedImageHost, normalizeHost } from './policy.js';
-import { resolveSourcePages } from './resolve.js';
 import {
   collectExistingScrapeStateEffect,
   ensureStageDir,
@@ -167,10 +164,17 @@ const scrapeRemoteAssetsLoopEffect = (
       if (assets.length >= limit) break;
 
       const seed = assertAllowedSeed(seedUrl);
+      const remainingStageSlots = limit - assets.length;
+      const sourceFetchDelayMs = resolveSeedFetchDelayMs(
+        seed.toString(),
+        remainingStageSlots,
+        fetchDelayMs,
+      );
       log(`Fetching seed ${seed.toString()}`);
+      yield* Effect.sleep(sourceFetchDelayMs);
       let resolvedSourcePages = 0;
 
-      const onPageCallback = (page: SourcePage) =>
+      const onPageCallback = (page: ResolvedRemotePage) =>
         Effect.gen(function* () {
           resolvedSourcePages += 1;
           if (assets.length >= limit) {
@@ -181,7 +185,7 @@ const scrapeRemoteAssetsLoopEffect = (
             page,
             seedUrl,
             fetchImpl,
-            fetchDelayMs,
+            fetchDelayMs: sourceFetchDelayMs,
             log,
             limit,
             label: options.label,
@@ -203,32 +207,16 @@ const scrapeRemoteAssetsLoopEffect = (
         () => Effect.void,
       );
 
-      if (isCommonsSearchUrl(seed.toString())) {
-        // Use the Wikimedia Commons search API for paginated results
-        // instead of scraping the infiniscroll HTML page.
-        yield* resolveCommonsSearchPages(
-          seed.toString(),
-          fetchImpl,
-          fetchDelayMs,
-          log,
-          seenSourcePageUrls,
-          onPageCallback,
-        ).pipe(catchLimit);
-      } else {
-        const seedPage = yield* fetchText(seed.toString(), fetchImpl, false);
-        const state = {
-          seenPages: new Set<string>(),
-          yieldedLeaves: new Set<string>(),
-          visitedSourcePageUrls: seenSourcePageUrls,
-        };
-
-        yield* resolveSourcePages(
-          seedPage,
-          { fetchImpl, log, fetchDelayMs },
-          state,
-          onPageCallback,
-        ).pipe(catchLimit);
-      }
+      yield* resolveSeedSourcePages({
+        repoRoot: options.repoRoot,
+        seedUrl: seed.toString(),
+        fetchImpl,
+        fetchDelayMs: sourceFetchDelayMs,
+        remainingStageSlots,
+        log,
+        visitedSourcePageUrls: seenSourcePageUrls,
+        onPage: onPageCallback,
+      }).pipe(catchLimit);
 
       log(`Resolved ${resolvedSourcePages} source page(s) for ${seed.toString()}`);
     }
@@ -239,7 +227,7 @@ const scrapeRemoteAssetsLoopEffect = (
 };
 
 interface ProcessSourcePageOptions {
-  readonly page: SourcePage;
+  readonly page: ResolvedRemotePage;
   readonly seedUrl: string;
   readonly fetchImpl: FetchLike;
   readonly fetchDelayMs: number;
@@ -269,13 +257,16 @@ const processSourcePage = (opts: ProcessSourcePageOptions) => {
       stageDir,
       onStagedAsset,
     } = opts;
-    const imageCandidates = extractImageCandidates(page.url, page.html, {
-      isDetail: page.isDetail,
-    });
+    const imageCandidates =
+      page.imageCandidates ??
+      extractImageCandidates(page.url, page.html, {
+        isDetail: page.isDetail,
+      });
     const host = normalizeHost(new URL(page.url).hostname);
-    let licenseHint = detectBestEffortLicense(host, page.html);
+    let licenseHint = page.licenseHint ?? detectBestEffortLicense(host, page.html);
     let attributionText =
-      host === 'commons.wikimedia.org' ? extractCommonsAttribution(page.html) : null;
+      page.attributionText ??
+      (host === 'commons.wikimedia.org' ? extractCommonsAttribution(page.html) : null);
 
     // For Commons detail pages prefer the structured API over HTML parsing —
     // the HTML can have multiple licensetpl_short spans at different versions.

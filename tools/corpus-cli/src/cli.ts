@@ -75,7 +75,7 @@ export const buildOpenTargetInvocation = (
     if (viewer.mode === 'preview') {
       return {
         command: 'open',
-        args: ['-a', 'Preview', target],
+        args: ['-g', '-a', 'Preview', target],
         options,
       };
     }
@@ -89,14 +89,14 @@ export const buildOpenTargetInvocation = (
           }
         : {
             command: 'open',
-            args: ['-a', viewer.value, target],
+            args: ['-g', '-a', viewer.value, target],
             options,
           };
     }
 
     return {
       command: 'open',
-      args: [target],
+      args: ['-g', target],
       options,
     };
   }
@@ -146,7 +146,7 @@ export const buildOpenExternalInvocation = (
   if (platform === 'darwin') {
     return {
       command: 'open',
-      args: [normalizedTarget],
+      args: ['-g', normalizedTarget],
       options,
     };
   }
@@ -224,7 +224,7 @@ const promptViewerPreference = async (
       'quicklook',
       [
         { value: 'quicklook', label: 'Quick Look', hint: 'reuses one viewer nicely' },
-        { value: 'preview', label: 'Preview' },
+        { value: 'preview', label: 'Preview', hint: 'opens in background, keeps terminal focus' },
         { value: 'default', label: 'Default app' },
         { value: 'custom-app', label: 'Custom app…' },
       ],
