@@ -350,8 +350,10 @@ interface ProposalBatchSource {
 const MAX_CLUSTER_REPRESENTATIVES = 3;
 const MAX_CLUSTER_STRUCTURAL_FAILURES = 3;
 const MAX_EARLY_FRONTIER_PASSES = 4;
-const DEFAULT_MAX_PROPOSALS = 24;
 const MAX_SCAN_BUDGET = 10_000;
+// No evidence-backed default cluster cap yet. Studies can use this uncapped
+// ceiling to derive a production budget from first-success cluster ranks.
+const DEFAULT_MAX_PROPOSALS = MAX_SCAN_BUDGET;
 
 /**
  * Runs the full ranked proposal pipeline and returns either plain results or an
