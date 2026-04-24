@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "@opentui/core": "0.1.103",
-    "@techstark/opencv-js": "^4.12.0-release.1",
     "@undecaf/zbar-wasm": "^0.11.0",
     "@zxing/library": "^0.21.3",
     "jsqr": "^1.4.0",

@@ -16,7 +16,6 @@ export default defineConfig({
   outDir: 'dist',
   external: [
     'sharp',
-    '@techstark/opencv-js',
     '@undecaf/zbar-wasm',
     '@zxing/library',
     'jsqr',
