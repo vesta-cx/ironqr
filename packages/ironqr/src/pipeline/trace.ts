@@ -70,6 +70,25 @@ export interface BinaryViewBuiltEvent {
 }
 
 /**
+ * Per-view proposal-generation summary event.
+ */
+export interface ProposalViewGeneratedEvent {
+  readonly type: 'proposal-view-generated';
+  readonly binaryViewId: BinaryViewId;
+  readonly rowScanFinderCount: number;
+  readonly floodFinderCount: number;
+  readonly matcherFinderCount: number;
+  readonly dedupedFinderCount: number;
+  readonly expensiveDetectorsRan: boolean;
+  readonly tripleCount: number;
+  readonly proposalCount: number;
+  readonly durationMs: number;
+  readonly detectorDurationMs: number;
+  readonly tripleAssemblyDurationMs: number;
+  readonly proposalConstructionDurationMs: number;
+}
+
+/**
  * Proposal-generation event.
  */
 export interface ProposalGeneratedEvent {
@@ -237,6 +256,7 @@ export type IronqrTraceEvent =
   | ScanStartedEvent
   | ScalarViewBuiltEvent
   | BinaryViewBuiltEvent
+  | ProposalViewGeneratedEvent
   | ProposalGeneratedEvent
   | ProposalRankedEvent
   | ProposalClustersBuiltEvent

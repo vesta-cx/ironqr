@@ -83,12 +83,14 @@ This lets `tools/bench` and one-off study scripts request richer diagnostics wit
 ## Preferred default summaries
 When full tracing is not needed, prefer summaries that answer the highest-value questions cheaply, such as:
 - proposal count
+- per-proposal-view detector counts and timings
+- whether expensive proposal detectors ran for each view
 - cluster count
 - representative count
 - dominant attempt-failure classes
 - whether a cluster would have decoded, been killed, or exhausted under a given policy
 
-Cluster-level summaries are usually a better default than large raw per-attempt event arrays.
+Proposal-view and cluster-level summaries are usually a better default than large raw per-attempt event arrays.
 
 ## Convenience collector
 A small in-memory collector is desirable:

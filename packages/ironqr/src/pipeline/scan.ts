@@ -11,7 +11,9 @@ import { normalizeImageInput } from './frame.js';
 import { assessProposalStructure } from './plausibility.js';
 import {
   generateProposals,
+  type ProposalGenerationSummary,
   type ProposalScoreBreakdown,
+  type ProposalViewGenerationSummary,
   rankProposals,
   type ScanProposal,
 } from './proposals.js';
@@ -252,6 +254,8 @@ export interface ScanMetadata {
   readonly summary: ScanExecutionSummary;
   /** View summary, when requested. */
   readonly views?: ScanViewSummary;
+  /** Proposal-generation summary, when requested. */
+  readonly proposals?: ProposalGenerationSummary;
   /** Failure summary, when requested. */
   readonly failure?: ScanFailureSummary;
   /** Timing summary/details, when requested. */
@@ -282,6 +286,7 @@ interface ScanExecution {
   readonly traceCollector: TraceCollector | null;
   readonly traceCounter: TraceCounter | null;
   readonly proposalBinaryViewIds: readonly BinaryViewId[];
+  readonly proposalGeneration: ProposalGenerationSummary;
 }
 
 const MAX_CLUSTER_REPRESENTATIVES = 3;
@@ -352,9 +357,13 @@ const scanFrameExecutionOnce = (
 
     const proposalGenerationStartedAt = nowMs();
     const maxProposalsPerView = resolveMaxProposalsPerView(options);
+    const proposalViewSummaries: ProposalViewGenerationSummary[] = [];
     const generatedProposals = generateProposals(viewBank, {
       ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
       ...(traceSink === undefined ? {} : { traceSink }),
+      onViewGenerated: (summary) => {
+        proposalViewSummaries.push(summary);
+      },
     });
     const proposalGenerationMs = nowMs() - proposalGenerationStartedAt;
 
@@ -554,6 +563,11 @@ const scanFrameExecutionOnce = (
       proposalBinaryViewIds: uniquePreservingOrder(
         generatedProposals.map((proposal) => proposal.binaryViewId),
       ),
+      proposalGeneration: {
+        viewCount: proposalViewSummaries.length,
+        proposalCount: generatedProposals.length,
+        views: proposalViewSummaries,
+      },
     } satisfies ScanExecution;
   });
 };
@@ -569,6 +583,9 @@ const buildScanReport = (
     scan: {
       summary: execution.summary,
       ...(observability.scan?.views === 'summary' ? { views: buildViewSummary(execution) } : {}),
+      ...(observability.scan?.proposals === 'summary'
+        ? { proposals: execution.proposalGeneration }
+        : {}),
       ...(observability.scan?.failure === 'summary'
         ? { failure: buildFailureSummary(execution) }
         : {}),

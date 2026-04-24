@@ -78,6 +78,7 @@ const report = await scanFrame(videoFrame, {
       attempts: "summary",
     },
     scan: {
+      proposals: "summary",
       timings: "full",
       failure: "summary",
     },
@@ -89,6 +90,7 @@ for (const result of report.results) {
   console.log(result.metadata.path?.proposalBinaryViewId);
 }
 
+console.log(report.scan.proposals?.views[0]?.binaryViewId);
 console.log(report.scan.timings);
 ```
 
@@ -149,6 +151,7 @@ interface ScanOptions {
     scan?: {
       views?: 'none' | 'summary';
       failure?: 'none' | 'summary';
+      proposals?: 'none' | 'summary';
       timings?: 'none' | 'summary' | 'full';
     };
     trace?: {
@@ -161,7 +164,7 @@ interface ScanOptions {
 When `observability` is omitted, `scanFrame()` and `scanImage()` return plain `ScanResult[]`.
 When `observability` is present, they return a `ScanReport` envelope with:
 - `results`: decoded results plus requested result-level metadata
-- `scan`: requested scan-level metadata, including zero-result diagnostics
+- `scan`: requested scan-level metadata, including zero-result diagnostics and proposal-generation summaries
 
 ## Style tolerance
 

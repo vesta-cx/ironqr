@@ -472,12 +472,13 @@ Current public `ScanResult` includes:
 When `observability` is present, `scanFrame()` returns a `ScanReport` envelope:
 
 - `results`: decoded results plus requested result-level metadata
-- `scan`: requested scan-level metadata, including zero-result diagnostics
+- `scan`: requested scan-level metadata, including zero-result diagnostics and proposal-generation summaries
 
 Currently supported observability families include:
 - result `path`
 - result `attempts`
 - scan `views`
+- scan `proposals`
 - scan `failure`
 - scan `timings`
 - trace `events`
@@ -603,7 +604,7 @@ The current direction is better: explicit observability families such as:
 ```ts
 observability: {
   result: { path: 'basic', attempts: 'summary' },
-  scan: { timings: 'full', failure: 'summary' },
+  scan: { proposals: 'summary', timings: 'full', failure: 'summary' },
   trace: { events: 'summary' },
 }
 ```
@@ -631,6 +632,7 @@ If they call `scanFrame(blob, { observability: ... })`, they can additionally ge
 - winning path metadata
 - attempt summaries or full attempt lists
 - view materialization summaries
+- proposal-generation summaries by binary view
 - failure summaries for zero-result scans
 - timing summaries or full per-attempt timings
 - optional trace summaries or full trace events

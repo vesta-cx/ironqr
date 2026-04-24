@@ -41,7 +41,7 @@ describe('package scaffold exports', () => {
         maxProposals: 12,
         observability: {
           result: { path: 'basic', attempts: 'summary' },
-          scan: { timings: 'full', failure: 'summary' },
+          scan: { proposals: 'summary', timings: 'full', failure: 'summary' },
           trace: { events: 'summary' },
         },
       }),
@@ -50,7 +50,7 @@ describe('package scaffold exports', () => {
       maxProposals: 12,
       observability: {
         result: { path: 'basic', attempts: 'summary' },
-        scan: { timings: 'full', failure: 'summary' },
+        scan: { proposals: 'summary', timings: 'full', failure: 'summary' },
         trace: { events: 'summary' },
       },
     });

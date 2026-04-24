@@ -44,6 +44,9 @@ export type ScanViewMetadataLevel = S.Schema.Type<typeof ScanViewMetadataLevelSc
 export const ScanFailureMetadataLevelSchema = S.Literals(['none', 'summary']);
 export type ScanFailureMetadataLevel = S.Schema.Type<typeof ScanFailureMetadataLevelSchema>;
 
+export const ScanProposalMetadataLevelSchema = S.Literals(['none', 'summary']);
+export type ScanProposalMetadataLevel = S.Schema.Type<typeof ScanProposalMetadataLevelSchema>;
+
 export const ScanTimingMetadataLevelSchema = S.Literals(['none', 'summary', 'full']);
 export type ScanTimingMetadataLevel = S.Schema.Type<typeof ScanTimingMetadataLevelSchema>;
 
@@ -59,6 +62,7 @@ export type ScanObservabilityResult = S.Schema.Type<typeof ScanObservabilityResu
 export const ScanObservabilityScanSchema = S.Struct({
   views: S.optional(ScanViewMetadataLevelSchema),
   failure: S.optional(ScanFailureMetadataLevelSchema),
+  proposals: S.optional(ScanProposalMetadataLevelSchema),
   timings: S.optional(ScanTimingMetadataLevelSchema),
 });
 export type ScanObservabilityScan = S.Schema.Type<typeof ScanObservabilityScanSchema>;

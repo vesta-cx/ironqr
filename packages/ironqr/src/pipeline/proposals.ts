@@ -116,6 +116,66 @@ interface FinderTripleCandidate {
 }
 
 /**
+ * Counts and policy decisions from the finder-evidence detection sub-stage.
+ */
+export interface FinderEvidenceSummary {
+  /** Finder-like evidence emitted by the row-scan detector before dedupe. */
+  readonly rowScanCount: number;
+  /** Finder-like evidence emitted by flood-fill detection before dedupe. */
+  readonly floodCount: number;
+  /** Finder-like evidence emitted by template matching before dedupe. */
+  readonly matcherCount: number;
+  /** Finder-like evidence retained after cross-detector dedupe and caps. */
+  readonly dedupedCount: number;
+  /** Whether flood/matcher detectors were used for this view. */
+  readonly expensiveDetectorsRan: boolean;
+}
+
+/**
+ * Proposal-generation work summary for one binary view.
+ */
+export interface ProposalViewGenerationSummary {
+  /** Source binary view. */
+  readonly binaryViewId: BinaryViewId;
+  /** Finder-evidence detector summary. */
+  readonly finderEvidence: FinderEvidenceSummary;
+  /** Finder triples assembled before proposal construction. */
+  readonly tripleCount: number;
+  /** Proposals emitted for this view after per-view caps. */
+  readonly proposalCount: number;
+  /** End-to-end proposal-generation time for this view. */
+  readonly durationMs: number;
+  /** Finder-evidence detector time for this view. */
+  readonly detectorDurationMs: number;
+  /** Finder-triple assembly time for this view. */
+  readonly tripleAssemblyDurationMs: number;
+  /** Proposal object construction time for this view. */
+  readonly proposalConstructionDurationMs: number;
+}
+
+/**
+ * Proposal-generation work summary for one scan.
+ */
+export interface ProposalGenerationSummary {
+  /** Number of binary views searched for proposals. */
+  readonly viewCount: number;
+  /** Total generated proposals across searched views. */
+  readonly proposalCount: number;
+  /** Per-view proposal-generation summaries in search order. */
+  readonly views: readonly ProposalViewGenerationSummary[];
+}
+
+interface FinderEvidenceDetection {
+  readonly evidence: readonly FinderEvidence[];
+  readonly summary: FinderEvidenceSummary;
+}
+
+interface ProposalViewGeneration {
+  readonly proposals: readonly ScanProposal[];
+  readonly summary: ProposalViewGenerationSummary;
+}
+
+/**
  * Proposal-stage configuration.
  */
 export interface ProposalGenerationOptions {
@@ -125,6 +185,8 @@ export interface ProposalGenerationOptions {
   readonly viewIds?: readonly BinaryViewId[];
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
+  /** Optional callback receiving one summary per generated proposal view. */
+  readonly onViewGenerated?: (summary: ProposalViewGenerationSummary) => void;
 }
 
 /**
@@ -143,8 +205,24 @@ export const generateProposals = (
 
   for (const binaryViewId of options.viewIds ?? viewBank.listProposalViewIds()) {
     const binaryView = viewBank.getBinaryView(binaryViewId);
-    const viewProposals = generateProposalsForView(binaryView, maxPerView);
-    for (const proposal of viewProposals) {
+    const generatedView = generateProposalsForView(binaryView, maxPerView);
+    options.onViewGenerated?.(generatedView.summary);
+    options.traceSink?.emit({
+      type: 'proposal-view-generated',
+      binaryViewId: generatedView.summary.binaryViewId,
+      rowScanFinderCount: generatedView.summary.finderEvidence.rowScanCount,
+      floodFinderCount: generatedView.summary.finderEvidence.floodCount,
+      matcherFinderCount: generatedView.summary.finderEvidence.matcherCount,
+      dedupedFinderCount: generatedView.summary.finderEvidence.dedupedCount,
+      expensiveDetectorsRan: generatedView.summary.finderEvidence.expensiveDetectorsRan,
+      tripleCount: generatedView.summary.tripleCount,
+      proposalCount: generatedView.summary.proposalCount,
+      durationMs: generatedView.summary.durationMs,
+      detectorDurationMs: generatedView.summary.detectorDurationMs,
+      tripleAssemblyDurationMs: generatedView.summary.tripleAssemblyDurationMs,
+      proposalConstructionDurationMs: generatedView.summary.proposalConstructionDurationMs,
+    });
+    for (const proposal of generatedView.proposals) {
       options.traceSink?.emit({
         type: 'proposal-generated',
         proposalId: proposal.id,
@@ -202,15 +280,7 @@ export const rankProposals = (
  * @returns Deduplicated finder-like evidence in detector score order.
  */
 export const detectFinderEvidence = (binaryView: BinaryView): readonly FinderEvidence[] => {
-  const rowScan = detectRowScanFinders(binaryView.binary, binaryView.width, binaryView.height);
-  const expandedEvidence = shouldRunExpensiveDetectors(binaryView, rowScan)
-    ? [
-        ...rowScan,
-        ...detectFloodFinders(binaryView.binary, binaryView.width, binaryView.height),
-        ...detectMatcherFinders(binaryView.binary, binaryView.width, binaryView.height),
-      ]
-    : rowScan;
-  return dedupeFinderEvidence(expandedEvidence).slice(0, MAX_FINDER_EVIDENCE_PER_SOURCE);
+  return detectFinderEvidenceWithSummary(binaryView).evidence;
 };
 
 /**
@@ -245,12 +315,62 @@ export const detectBestFinderEvidence = (
 const generateProposalsForView = (
   binaryView: BinaryView,
   maxPerView: number,
-): readonly ScanProposal[] => {
-  const finderEvidence = detectFinderEvidence(binaryView);
-  if (finderEvidence.length < 3) return [];
+): ProposalViewGeneration => {
+  const startedAt = nowMs();
 
-  const triples = assembleFinderTriples(finderEvidence, MAX_TRIPLE_COMBINATIONS);
-  return proposalsFromFinderTriples(binaryView, triples, maxPerView);
+  const detectorStartedAt = nowMs();
+  const detection = detectFinderEvidenceWithSummary(binaryView);
+  const detectorDurationMs = nowMs() - detectorStartedAt;
+
+  const tripleAssemblyStartedAt = nowMs();
+  const triples =
+    detection.evidence.length < 3
+      ? []
+      : assembleFinderTriples(detection.evidence, MAX_TRIPLE_COMBINATIONS);
+  const tripleAssemblyDurationMs = nowMs() - tripleAssemblyStartedAt;
+
+  const proposalConstructionStartedAt = nowMs();
+  const proposals = proposalsFromFinderTriples(binaryView, triples, maxPerView);
+  const proposalConstructionDurationMs = nowMs() - proposalConstructionStartedAt;
+
+  return {
+    proposals,
+    summary: {
+      binaryViewId: binaryView.id,
+      finderEvidence: detection.summary,
+      tripleCount: triples.length,
+      proposalCount: proposals.length,
+      durationMs: nowMs() - startedAt,
+      detectorDurationMs,
+      tripleAssemblyDurationMs,
+      proposalConstructionDurationMs,
+    },
+  } satisfies ProposalViewGeneration;
+};
+
+const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidenceDetection => {
+  const rowScan = detectRowScanFinders(binaryView.binary, binaryView.width, binaryView.height);
+  const expensiveDetectorsRan = shouldRunExpensiveDetectors(binaryView, rowScan);
+  const flood = expensiveDetectorsRan
+    ? detectFloodFinders(binaryView.binary, binaryView.width, binaryView.height)
+    : [];
+  const matcher = expensiveDetectorsRan
+    ? detectMatcherFinders(binaryView.binary, binaryView.width, binaryView.height)
+    : [];
+  const evidence = dedupeFinderEvidence([...rowScan, ...flood, ...matcher]).slice(
+    0,
+    MAX_FINDER_EVIDENCE_PER_SOURCE,
+  );
+  return {
+    evidence,
+    summary: {
+      rowScanCount: rowScan.length,
+      floodCount: flood.length,
+      matcherCount: matcher.length,
+      dedupedCount: evidence.length,
+      expensiveDetectorsRan,
+    },
+  } satisfies FinderEvidenceDetection;
 };
 
 const assembleFinderTriples = (
@@ -825,6 +945,8 @@ const sampleTimingLine = (
   }
   return total === 0 ? 0 : matches / total;
 };
+
+const nowMs = (): number => performance.now();
 
 const sampleBinary = (binaryView: BinaryView, x: number, y: number): number => {
   const px = Math.max(0, Math.min(binaryView.width - 1, Math.round(x)));
