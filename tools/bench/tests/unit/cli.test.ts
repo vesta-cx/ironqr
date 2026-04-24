@@ -35,6 +35,11 @@ describe('bench cli args', () => {
     expect(options.seed).toBe('smoke');
   });
 
+  it('parses report directories', () => {
+    const { options } = parseArgs(['performance', '--report-dir', 'tools/bench/reports/custom']);
+    expect(options.reportDir).toBe('tools/bench/reports/custom');
+  });
+
   it('parses study id before study flags', () => {
     const { mode, options } = parseArgs(['study', 'view-order', '--max-assets', '3']);
     expect(mode).toBe('study');

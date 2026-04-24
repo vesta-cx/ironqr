@@ -36,6 +36,7 @@ interface CliOptions {
   readonly help: boolean;
   readonly failuresOnly: boolean;
   readonly reportFile?: string;
+  readonly reportDir?: string;
   readonly cacheFile?: string;
   readonly cacheEnabled: boolean;
   readonly refreshCache: boolean;
@@ -64,6 +65,7 @@ export const parseArgs = (
   let help = false;
   let failuresOnly = false;
   let reportFile: string | undefined;
+  let reportDir: string | undefined;
   let cacheFile: string | undefined;
   let cacheEnabled = true;
   let refreshCache = false;
@@ -199,6 +201,17 @@ export const parseArgs = (
       reportFile = arg.slice('--report-file='.length);
       continue;
     }
+    if (arg === '--report-dir') {
+      const next = rest[index + 1];
+      if (!next) throw new Error('--report-dir requires a value');
+      reportDir = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--report-dir=')) {
+      reportDir = arg.slice('--report-dir='.length);
+      continue;
+    }
     if (arg === '--cache-file') {
       const next = rest[index + 1];
       if (!next) throw new Error('--cache-file requires a value');
@@ -228,6 +241,7 @@ export const parseArgs = (
     ...(seed === undefined ? {} : { seed }),
     ...(studyId === undefined ? {} : { studyId }),
     ...(reportFile === undefined ? {} : { reportFile }),
+    ...(reportDir === undefined ? {} : { reportDir }),
     ...(cacheFile === undefined ? {} : { cacheFile }),
   } satisfies CliOptions;
   validateModeOptions(mode, options);
@@ -247,6 +261,7 @@ const validateModeOptions = (mode: string | undefined, options: CliOptions): voi
     const unsupported = [
       options.failuresOnly ? '--failures-only' : null,
       options.reportFile ? '--report-file' : null,
+      options.reportDir ? '--report-dir' : null,
       options.cacheFile ? '--cache-file' : null,
       options.workers !== undefined ? '--workers' : null,
       options.iterations !== undefined ? '--iterations' : null,
@@ -277,15 +292,30 @@ const printUsage = (): void => {
   console.log('  "bun run bench --no-progress"');
 };
 
+const resolveReportFile = (
+  repoRoot: string,
+  options: CliOptions,
+  defaultFileName: string,
+  defaultPath: string,
+): string => {
+  if (options.reportFile) return path.resolve(repoRoot, options.reportFile);
+  if (options.reportDir)
+    return path.join(path.resolve(repoRoot, options.reportDir), defaultFileName);
+  return defaultPath;
+};
+
 const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void> => {
-  const reportFile = options.reportFile
-    ? path.resolve(repoRoot, options.reportFile)
-    : getDefaultAccuracyReportPath(repoRoot);
+  const reportFile = resolveReportFile(
+    repoRoot,
+    options,
+    'accuracy.json',
+    getDefaultAccuracyReportPath(repoRoot),
+  );
   const cacheFile = options.cacheFile
     ? path.resolve(repoRoot, options.cacheFile)
     : getDefaultAccuracyCachePath(repoRoot);
   const engines = resolveAccuracyEngines();
-  const seed = options.seed ?? (options.maxAssets === undefined ? undefined : crypto.randomUUID());
+  const seed = options.seed ?? crypto.randomUUID();
   const result = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
     cache: {
       enabled: options.cacheEnabled,
@@ -308,13 +338,16 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
 };
 
 const runPerformance = async (repoRoot: string, options: CliOptions): Promise<void> => {
-  const reportFile = options.reportFile
-    ? path.resolve(repoRoot, options.reportFile)
-    : path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
+  const reportFile = resolveReportFile(
+    repoRoot,
+    options,
+    'performance.json',
+    path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json'),
+  );
   const cacheFile = options.cacheFile
     ? path.resolve(repoRoot, options.cacheFile)
     : getDefaultPerformanceCachePath(repoRoot);
-  const seed = options.seed ?? (options.maxAssets === undefined ? undefined : crypto.randomUUID());
+  const seed = options.seed ?? crypto.randomUUID();
   const result = await runPerformanceBenchmark(repoRoot, reportFile, {
     ...(options.iterations === undefined ? {} : { iterations: options.iterations }),
     ...(options.workers === undefined ? {} : { workers: options.workers }),
@@ -344,7 +377,11 @@ const runPerformance = async (repoRoot: string, options: CliOptions): Promise<vo
 const runStudy = async (repoRoot: string, options: CliOptions): Promise<void> => {
   if (!options.studyId)
     throw new Error('bench study requires a study id, e.g. bench study view-order');
-  const reportFile = options.reportFile ? path.resolve(repoRoot, options.reportFile) : undefined;
+  const reportFile = options.reportFile
+    ? path.resolve(repoRoot, options.reportFile)
+    : options.reportDir
+      ? path.join(path.resolve(repoRoot, options.reportDir), `study-${options.studyId}.json`)
+      : undefined;
   const cacheFile = options.cacheFile ? path.resolve(repoRoot, options.cacheFile) : undefined;
   const result = await runStudyBenchmark(repoRoot, options.studyId, {
     ...(reportFile === undefined ? {} : { reportFile }),
@@ -359,16 +396,14 @@ const runStudy = async (repoRoot: string, options: CliOptions): Promise<void> =>
 };
 
 const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> => {
-  const accuracyReportFile = getDefaultAccuracyReportPath(repoRoot);
-  const performanceReportFile = path.join(
-    repoRoot,
-    'tools',
-    'bench',
-    'reports',
-    'performance.json',
-  );
-  await runAccuracy(repoRoot, { ...options, reportFile: accuracyReportFile });
-  await runPerformance(repoRoot, { ...options, reportFile: performanceReportFile });
+  const suiteOptions = { ...options, seed: options.seed ?? crypto.randomUUID() };
+  const reportDir = options.reportDir
+    ? path.resolve(repoRoot, options.reportDir)
+    : path.join(repoRoot, 'tools', 'bench', 'reports');
+  const accuracyReportFile = path.join(reportDir, 'accuracy.json');
+  const performanceReportFile = path.join(reportDir, 'performance.json');
+  await runAccuracy(repoRoot, { ...suiteOptions, reportFile: accuracyReportFile });
+  await runPerformance(repoRoot, { ...suiteOptions, reportFile: performanceReportFile });
   const [accuracyReport, performanceReport] = await Promise.all([
     readReport(accuracyReportFile),
     readReport(performanceReportFile),
@@ -428,7 +463,7 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
       workers: options.workers ?? null,
       iterations: options.iterations ?? null,
       maxAssets: options.maxAssets ?? null,
-      seed: options.seed ?? null,
+      seed: suiteOptions.seed ?? null,
     },
     summary: {
       verdicts: {
@@ -448,13 +483,67 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
     },
     details: { accuracyReportFile, performanceReportFile },
   };
-  const summaryFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'summary.json');
-  await writeReportWithSnapshot(summaryFile, summary);
+  const summaryFile = path.join(reportDir, 'summary.json');
+  const finalSummary = {
+    ...summary,
+    verdicts: {
+      ...summary.verdicts,
+      regression: await buildSuiteRegressionVerdict(summaryFile, summary.summary),
+    },
+  };
+  await writeReportWithSnapshot(summaryFile, finalSummary);
   console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
 };
 
 const readReport = async (filePath: string): Promise<Record<string, unknown>> => {
   return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+};
+
+const buildSuiteRegressionVerdict = async (
+  summaryFile: string,
+  currentSummary: Record<string, unknown>,
+): Promise<BenchmarkVerdict> => {
+  try {
+    const previous = await readReport(summaryFile);
+    const previousHighlights = recordAt(recordAt(previous, 'summary'), 'highlights');
+    const currentHighlights = recordAt(currentSummary, 'highlights');
+    const previousPassRate = numberOrNull(previousHighlights.ironqrPassRate);
+    const currentPassRate = numberOrNull(currentHighlights.ironqrPassRate);
+    const previousP95 = numberOrNull(previousHighlights.ironqrP95DurationMs);
+    const currentP95 = numberOrNull(currentHighlights.ironqrP95DurationMs);
+    if (
+      previousPassRate === null ||
+      currentPassRate === null ||
+      previousP95 === null ||
+      currentP95 === null
+    ) {
+      return {
+        status: 'unavailable',
+        description: 'Previous suite summary is missing comparable highlights.',
+      };
+    }
+    if (currentPassRate < previousPassRate) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite pass rate regressed versus previous summary.',
+      };
+    }
+    if (currentP95 > previousP95) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite p95 duration regressed versus previous summary.',
+      };
+    }
+    return {
+      status: 'passed',
+      description: 'Suite summary did not regress versus previous report.',
+    };
+  } catch {
+    return {
+      status: 'unavailable',
+      description: 'No previous suite summary is available for regression comparison.',
+    };
+  }
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {

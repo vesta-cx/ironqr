@@ -95,6 +95,15 @@ export interface IronqrPerformanceProfile {
   readonly decodeAttempts: readonly TimingSummary[];
 }
 
+export interface PerformanceSlowAsset {
+  readonly engineId: string;
+  readonly assetId: string;
+  readonly iteration: number;
+  readonly engineScanDurationMs: number;
+  readonly totalJobDurationMs: number;
+  readonly outcome: EngineAssetResult['outcome'];
+}
+
 export interface PerformanceReportSummary {
   readonly ironqr: PerformanceEngineSummary;
   readonly baselines: readonly PerformanceEngineSummary[];
@@ -106,6 +115,7 @@ export interface PerformanceReportSummary {
     readonly slowestStages: readonly TimingSummary[];
     readonly slowestProposalViews: readonly TimingSummary[];
     readonly slowestDecodeAttempts: readonly TimingSummary[];
+    readonly slowestAssetsByEngine: Record<string, readonly PerformanceSlowAsset[]>;
   };
   readonly pass: BenchmarkVerdict;
   readonly regression: BenchmarkVerdict;
@@ -329,6 +339,7 @@ export const runPerformanceBenchmark = async (
         slowestStages: ironqrProfile?.stages.slice(0, 10) ?? [],
         slowestProposalViews: ironqrProfile?.proposalViews.slice(0, 10) ?? [],
         slowestDecodeAttempts: ironqrProfile?.decodeAttempts.slice(0, 10) ?? [],
+        slowestAssetsByEngine: slowestAssetsByEngine(iterationResults),
       },
       pass,
       regression,
@@ -431,7 +442,7 @@ const buildIronqrProfile = async (
 
   return {
     stages: summarizeTimingRecord(stageTimings).sort((left, right) => right.totalMs - left.totalMs),
-    proposalViews: [],
+    proposalViews: summarizeTimingRecord({ allProposalViews: stageTimings.proposalGeneration }),
     decodeViews: summarizeTimingRecord(decodeViewTimings).sort(
       (left, right) => right.totalMs - left.totalMs,
     ),
@@ -468,6 +479,32 @@ const summarizeTimingRecord = (record: Record<string, readonly number[]>): Timin
       maxMs: values.length === 0 ? 0 : round(Math.max(...values)),
     };
   });
+};
+
+const slowestAssetsByEngine = (
+  results: readonly PerformanceIterationResult[],
+): Record<string, readonly PerformanceSlowAsset[]> => {
+  const byEngine: Record<string, PerformanceSlowAsset[]> = {};
+  for (const result of results) {
+    const assets = byEngine[result.engineId] ?? [];
+    assets.push({
+      engineId: result.engineId,
+      assetId: result.assetId,
+      iteration: result.iteration,
+      engineScanDurationMs: result.engineScanDurationMs,
+      totalJobDurationMs: result.totalJobDurationMs,
+      outcome: result.outcome,
+    });
+    byEngine[result.engineId] = assets;
+  }
+  return Object.fromEntries(
+    Object.entries(byEngine).map(([engineId, assets]) => [
+      engineId,
+      assets
+        .sort((left, right) => right.engineScanDurationMs - left.engineScanDurationMs)
+        .slice(0, 20),
+    ]),
+  );
 };
 
 const summarizePerformanceEngine = (
