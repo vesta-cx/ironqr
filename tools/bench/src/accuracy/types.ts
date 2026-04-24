@@ -1,9 +1,11 @@
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import type { BenchImageData } from '../shared/image.js';
 
+export type CorpusAssetLabel = 'qr-positive' | 'non-qr-negative';
+
 export interface CorpusBenchAsset {
   readonly id: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly label: CorpusAssetLabel;
   readonly sha256: string;
   readonly imagePath: string;
   readonly relativePath: string;
@@ -64,14 +66,42 @@ export interface IronqrTraceDiagnostics {
 
 export type AccuracyScanDiagnostics = IronqrTraceDiagnostics;
 
-export interface AccuracyScanResult {
-  readonly attempted: boolean;
-  readonly succeeded: boolean;
-  readonly results: readonly AccuracyScanCode[];
-  readonly failureReason: EngineFailureReason | null;
-  readonly error: string | null;
+interface AccuracyScanBase {
+  readonly attempted: true;
   readonly diagnostics?: AccuracyScanDiagnostics | null;
 }
+
+export interface AccuracyDecodedScanResult extends AccuracyScanBase {
+  readonly status: 'decoded';
+  readonly succeeded: true;
+  readonly results: readonly AccuracyScanCode[];
+  readonly failureReason: null;
+  readonly error: null;
+}
+
+export interface AccuracyNoDecodeScanResult extends AccuracyScanBase {
+  readonly status: 'no-decode';
+  readonly succeeded: true;
+  readonly results: readonly [];
+  readonly failureReason: Exclude<
+    EngineFailureReason,
+    'engine_error' | 'text_mismatch' | 'false_positive'
+  >;
+  readonly error: null;
+}
+
+export interface AccuracyErrorScanResult extends AccuracyScanBase {
+  readonly status: 'error';
+  readonly succeeded: false;
+  readonly results: readonly [];
+  readonly failureReason: EngineFailureReason;
+  readonly error: string;
+}
+
+export type AccuracyScanResult =
+  | AccuracyDecodedScanResult
+  | AccuracyNoDecodeScanResult
+  | AccuracyErrorScanResult;
 
 export interface AccuracyEngineCapabilities {
   readonly multiCode: boolean;
@@ -80,10 +110,9 @@ export interface AccuracyEngineCapabilities {
   readonly runtime: 'js' | 'wasm';
 }
 
-export interface AccuracyEngineAvailability {
-  readonly available: boolean;
-  readonly reason: string | null;
-}
+export type AccuracyEngineAvailability =
+  | { readonly available: true; readonly reason: null }
+  | { readonly available: false; readonly reason: string };
 
 export type AccuracyEngineCacheMode = 'all' | 'pass-only';
 
@@ -137,7 +166,7 @@ export interface NegativeOutcome {
 
 export interface EngineAssetResult {
   readonly engineId: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly label: CorpusAssetLabel;
   readonly outcome: PositiveOutcomeKind | NegativeOutcomeKind;
   readonly decodedTexts: readonly string[];
   readonly matchedTexts: readonly string[];
@@ -150,7 +179,7 @@ export interface EngineAssetResult {
 
 export interface AccuracyAssetResult {
   readonly assetId: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly label: CorpusAssetLabel;
   readonly relativePath: string;
   readonly expectedTexts: readonly string[];
   readonly results: readonly EngineAssetResult[];
@@ -174,9 +203,8 @@ export interface AccuracyEngineSummary {
   readonly freshAssets: number;
 }
 
-export interface AccuracyEngineDescriptor
-  extends Pick<AccuracyEngine, 'id' | 'kind' | 'capabilities'>,
-    AccuracyEngineAvailability {}
+export type AccuracyEngineDescriptor = Pick<AccuracyEngine, 'id' | 'kind' | 'capabilities'> &
+  AccuracyEngineAvailability;
 
 export interface AccuracyBenchmarkCacheSummary {
   readonly enabled: boolean;

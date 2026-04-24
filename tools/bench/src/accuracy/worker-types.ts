@@ -1,5 +1,6 @@
 import type { AccuracyEngineRunOptions, AccuracyScanResult, CorpusBenchAsset } from './types.js';
 
+/** Asset payload copied into an accuracy worker process. */
 export interface AccuracyWorkerAsset {
   readonly id: string;
   readonly label: CorpusBenchAsset['label'];
@@ -9,6 +10,7 @@ export interface AccuracyWorkerAsset {
   readonly expectedTexts: readonly string[];
 }
 
+/** Request sent from the main benchmark process to an accuracy worker. */
 export interface AccuracyWorkerRunMessage {
   readonly type: 'run';
   readonly jobId: string;
@@ -18,6 +20,7 @@ export interface AccuracyWorkerRunMessage {
   readonly runOptions?: AccuracyEngineRunOptions;
 }
 
+/** Worker notification that a scan job has started. */
 export interface AccuracyWorkerJobStartedMessage {
   readonly type: 'job-started';
   readonly jobId: string;
@@ -27,6 +30,7 @@ export interface AccuracyWorkerJobStartedMessage {
   readonly label: AccuracyWorkerAsset['label'];
 }
 
+/** Worker notification that image decoding has started for a scan job. */
 export interface AccuracyWorkerImageLoadStartedMessage {
   readonly type: 'image-load-started';
   readonly jobId: string;
@@ -36,6 +40,7 @@ export interface AccuracyWorkerImageLoadStartedMessage {
   readonly label: AccuracyWorkerAsset['label'];
 }
 
+/** Worker notification that image decoding finished successfully. */
 export interface AccuracyWorkerImageLoadFinishedMessage {
   readonly type: 'image-load-finished';
   readonly jobId: string;
@@ -45,6 +50,16 @@ export interface AccuracyWorkerImageLoadFinishedMessage {
   readonly height: number;
 }
 
+/** Worker notification that image decoding failed before engine execution. */
+export interface AccuracyWorkerImageLoadFailedMessage {
+  readonly type: 'image-load-failed';
+  readonly jobId: string;
+  readonly engineId: string;
+  readonly assetId: string;
+  readonly error: string;
+}
+
+/** Final worker response for a scan job; `durationMs` is wall-clock scan duration in milliseconds. */
 export interface AccuracyWorkerResultMessage {
   readonly type: 'result';
   readonly jobId: string;
@@ -60,4 +75,5 @@ export type AccuracyWorkerResponse =
   | AccuracyWorkerJobStartedMessage
   | AccuracyWorkerImageLoadStartedMessage
   | AccuracyWorkerImageLoadFinishedMessage
+  | AccuracyWorkerImageLoadFailedMessage
   | AccuracyWorkerResultMessage;

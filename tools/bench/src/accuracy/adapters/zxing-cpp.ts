@@ -1,11 +1,11 @@
 import { createRequire } from 'node:module';
 import { prepareZXingModule, readBarcodes } from 'zxing-wasm/reader';
+import { memoizeAsyncResetOnReject } from '../../shared/async.js';
 import { cloneRgbaBuffer } from '../../shared/image.js';
+import { normalizeDecodedText } from '../../shared/text.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
 import {
   createAvailableAvailability,
-  createCachePolicy,
-  createCapabilities,
   createUnavailableAvailability,
   failureResult,
   serializeAsync,
@@ -16,23 +16,13 @@ const require = createRequire(import.meta.url);
 
 const resolveReaderWasm = (): string => require.resolve('zxing-wasm/reader/zxing_reader.wasm');
 
-let zxingPrepared: Promise<void> | null = null;
-
-const prepareReader = async (): Promise<void> => {
-  zxingPrepared ??= (async () => {
-    try {
-      const wasmBinary = await Bun.file(resolveReaderWasm()).arrayBuffer();
-      await prepareZXingModule({
-        overrides: { wasmBinary },
-        fireImmediately: true,
-      });
-    } catch (error) {
-      zxingPrepared = null;
-      throw error;
-    }
-  })();
-  await zxingPrepared;
-};
+const prepareReader = memoizeAsyncResetOnReject(async (): Promise<void> => {
+  const wasmBinary = await Bun.file(resolveReaderWasm()).arrayBuffer();
+  await prepareZXingModule({
+    overrides: { wasmBinary },
+    fireImmediately: true,
+  });
+});
 
 const scanWithZxingCpp = serializeAsync(
   async (asset: Parameters<AccuracyEngine['scan']>[0]): Promise<AccuracyScanResult> => {
@@ -54,10 +44,11 @@ const scanWithZxingCpp = serializeAsync(
           tryRotate: true,
         },
       );
-      return successResult(
-        results.map((result) => ({ text: result.text })),
-        results.length === 0 ? 'no_decode' : null,
-      );
+      const decoded = results.flatMap((result) => {
+        const text = normalizeDecodedText(result.text);
+        return text.length > 0 ? [{ text }] : [];
+      });
+      return successResult(decoded, decoded.length === 0 ? 'no_decode' : null);
     } catch (error) {
       return failureResult(error);
     }
@@ -76,13 +67,13 @@ const zxingCppAvailability = () => {
 export const zxingCppAccuracyEngine: AccuracyEngine = {
   id: 'zxing-cpp',
   kind: 'third-party',
-  capabilities: createCapabilities({
+  capabilities: {
     multiCode: true,
     inversion: 'native',
     rotation: 'native',
     runtime: 'wasm',
-  }),
-  cache: createCachePolicy({ enabled: true, version: 'adapter-v1' }),
+  },
+  cache: { enabled: true, version: 'adapter-v1' },
   availability: zxingCppAvailability,
   scan: scanWithZxingCpp,
 };

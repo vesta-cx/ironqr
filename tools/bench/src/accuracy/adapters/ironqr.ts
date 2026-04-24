@@ -11,6 +11,7 @@ import type {
   TraceCollector,
   TraceCounter,
 } from '../../../../../packages/ironqr/src/pipeline/trace.js';
+import { normalizeDecodedText } from '../../shared/text.js';
 import type {
   AccuracyEngine,
   AccuracyEngineRunOptions,
@@ -19,13 +20,7 @@ import type {
   EngineFailureReason,
   IronqrTraceMode,
 } from '../types.js';
-import {
-  createAvailableAvailability,
-  createCachePolicy,
-  createCapabilities,
-  failureResult,
-  successResult,
-} from './shared.js';
+import { createAvailableAvailability, failureResult, successResult } from './shared.js';
 
 type IronqrTraceSummary = Partial<Record<IronqrTraceEvent['type'], number>>;
 
@@ -59,25 +54,25 @@ export const summarizeIronqrTrace = (
   trace: IronqrTraceSource,
   traceMode: IronqrTraceMode,
 ): AccuracyScanDiagnostics => {
-  const counts = Array.isArray((trace as TraceCollector).events)
-    ? countTraceEvents((trace as TraceCollector).events)
-    : { ...(trace as TraceCounter).counts };
+  const source = traceSource(trace);
+  const counts =
+    source.kind === 'collector' ? countTraceEvents(source.events) : { ...source.counter.counts };
   const clustering =
-    'clustering' in trace
-      ? trace.clustering
-      : ((trace as TraceCollector).events.find(
+    source.kind === 'counter'
+      ? source.counter.clustering
+      : (source.events.find(
           (event): event is ProposalClustersBuiltEvent => event.type === 'proposal-clusters-built',
         ) ?? null);
   const scanFinished =
-    'scanFinished' in trace
-      ? trace.scanFinished
-      : ((trace as TraceCollector).events.find(
+    source.kind === 'counter'
+      ? source.counter.scanFinished
+      : (source.events.find(
           (event): event is ScanFinishedEvent => event.type === 'scan-finished',
         ) ?? null);
   const clusterFinishedEvents =
-    'clusterOutcomes' in trace
-      ? [...trace.clusterOutcomes]
-      : (trace as TraceCollector).events.filter(
+    source.kind === 'counter'
+      ? [...source.counter.clusterOutcomes]
+      : source.events.filter(
           (event): event is ClusterFinishedEvent => event.type === 'cluster-finished',
         );
 
@@ -95,21 +90,30 @@ export const summarizeIronqrTrace = (
     },
     attemptFailures: {
       timingCheck:
-        'attemptFailures' in trace
-          ? (trace.attemptFailures['timing-check'] ?? 0)
-          : countAttemptFailures(trace, 'timing-check'),
+        source.kind === 'counter'
+          ? (source.counter.attemptFailures['timing-check'] ?? 0)
+          : countAttemptFailures(source.events, 'timing-check'),
       decodeFailed:
-        'attemptFailures' in trace
-          ? (trace.attemptFailures.decode_failed ?? 0)
-          : countAttemptFailures(trace, 'decode_failed'),
+        source.kind === 'counter'
+          ? (source.counter.attemptFailures.decode_failed ?? 0)
+          : countAttemptFailures(source.events, 'decode_failed'),
       internalError:
-        'attemptFailures' in trace
-          ? (trace.attemptFailures.internal_error ?? 0)
-          : countAttemptFailures(trace, 'internal_error'),
+        source.kind === 'counter'
+          ? (source.counter.attemptFailures.internal_error ?? 0)
+          : countAttemptFailures(source.events, 'internal_error'),
     },
-    ...('events' in trace ? { eventCount: trace.events.length } : {}),
-    ...('events' in trace && traceMode === 'full' ? { events: trace.events } : {}),
+    ...(source.kind === 'collector' ? { eventCount: source.events.length } : {}),
+    ...(source.kind === 'collector' && traceMode === 'full' ? { events: source.events } : {}),
   };
+};
+
+const traceSource = (
+  trace: IronqrTraceSource,
+):
+  | { readonly kind: 'collector'; readonly events: readonly IronqrTraceEvent[] }
+  | { readonly kind: 'counter'; readonly counter: TraceCounter } => {
+  if ('events' in trace) return { kind: 'collector', events: trace.events };
+  return { kind: 'counter', counter: trace };
 };
 
 const countTraceEvents = (events: readonly IronqrTraceEvent[]): IronqrTraceSummary => {
@@ -121,15 +125,12 @@ const countTraceEvents = (events: readonly IronqrTraceEvent[]): IronqrTraceSumma
 };
 
 const countAttemptFailures = (
-  trace: IronqrTraceSource,
+  events: readonly IronqrTraceEvent[],
   failure: 'timing-check' | 'decode_failed' | 'internal_error',
 ): number => {
-  if ('events' in trace) {
-    return trace.events.filter(
-      (event) => event.type === 'decode-attempt-failed' && event.failure === failure,
-    ).length;
-  }
-  return 0;
+  return events.filter(
+    (event) => event.type === 'decode-attempt-failed' && event.failure === failure,
+  ).length;
 };
 
 const createIronqrTrace = (mode: IronqrTraceMode): IronqrTraceSource | null => {
@@ -152,7 +153,7 @@ const scanWithIronqr = async (
   try {
     const image = await asset.loadImage();
     const allowMultiple = asset.expectedTexts.length > 1;
-    const results = await scanFrame(image as never, {
+    const results = await scanFrame(image, {
       allowMultiple,
       ...(trace === null ? {} : { traceSink: trace }),
     });
@@ -167,10 +168,12 @@ const scanWithIronqr = async (
       );
     }
     return successResult(
-      results.map((result) => ({
-        text: result.payload.text,
-        ...(result.payload.kind ? { kind: result.payload.kind } : {}),
-      })),
+      results.flatMap((result) => {
+        const text = normalizeDecodedText(result.payload.text);
+        return text.length > 0
+          ? [{ text, ...(result.payload.kind ? { kind: result.payload.kind } : {}) }]
+          : [];
+      }),
       null,
       diagnostics,
     );
@@ -186,13 +189,13 @@ const scanWithIronqr = async (
 export const ironqrAccuracyEngine: AccuracyEngine = {
   id: 'ironqr',
   kind: 'first-party',
-  capabilities: createCapabilities({
+  capabilities: {
     multiCode: true,
     inversion: 'native',
     rotation: 'native',
     runtime: 'js',
-  }),
-  cache: createCachePolicy({ enabled: true, version: 'live-pass-v1', mode: 'pass-only' }),
+  },
+  cache: { enabled: true, version: 'live-pass-v1', mode: 'pass-only' },
   availability: createAvailableAvailability,
   scan: scanWithIronqr,
 };

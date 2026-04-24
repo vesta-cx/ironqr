@@ -23,8 +23,7 @@ export const describeAccuracyEngine = (engine: AccuracyEngine): AccuracyEngineDe
     id: engine.id,
     kind: engine.kind,
     capabilities: engine.capabilities,
-    available: availability.available,
-    reason: availability.reason,
+    ...availability,
   };
 };
 

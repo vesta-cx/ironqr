@@ -1,13 +1,10 @@
+import { uniqueTexts } from '../shared/text.js';
 import type {
   AccuracyScanResult,
   EngineAssetResult,
   NegativeOutcome,
   PositiveOutcome,
 } from './types.js';
-
-const uniqueTexts = (values: readonly string[]): readonly string[] => {
-  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
-};
 
 export const expectedTextsFor = (asset: {
   readonly expectedTexts: readonly string[];
@@ -38,8 +35,18 @@ export const scorePositiveScan = (
       error: scan.error,
     };
   }
+  if (expectedTexts.length === 0) {
+    return {
+      kind: 'fail-mismatch',
+      decodedTexts,
+      matchedTexts: [],
+      expectedTexts,
+      failureReason: 'text_mismatch',
+      error: 'Positive QR asset has no expected text',
+    };
+  }
   const matchedTexts = expectedTexts.filter((expected) => decodedTexts.includes(expected));
-  if (expectedTexts.length === 0 || matchedTexts.length === expectedTexts.length) {
+  if (matchedTexts.length === expectedTexts.length) {
     return {
       kind: 'pass',
       decodedTexts,
@@ -90,12 +97,14 @@ export const scoreNegativeScan = (scan: AccuracyScanResult): NegativeOutcome => 
   return {
     kind: 'pass',
     decodedTexts,
-    failureReason: scan.failureReason,
-    error: scan.error,
+    failureReason: null,
+    error: null,
   };
 };
 
-export const statusCodeForResult = (result: EngineAssetResult): string => {
+export type AccuracyStatusCode = 'pass' | 'partial' | 'mismatch' | 'no-decode' | 'fp' | 'error';
+
+export const statusCodeForResult = (result: EngineAssetResult): AccuracyStatusCode => {
   switch (result.outcome) {
     case 'pass':
       return 'pass';

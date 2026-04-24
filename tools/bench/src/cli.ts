@@ -9,9 +9,15 @@ import {
   printPerformancePlaceholder,
   resolveAccuracyEngines,
   runAccuracyBenchmark,
-  runPerformanceBenchmark,
   writeAccuracyReport,
 } from './index.js';
+
+const parsePositiveInteger = (value: string, flag: string): number => {
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new Error(`${flag} must be a positive integer, got: ${value}`);
+  }
+  return Number(value);
+};
 
 const isProgressMode = (value: string): value is CliOptions['progressMode'] => {
   return (
@@ -131,22 +137,12 @@ export const parseArgs = (
     if (arg === '--workers') {
       const next = rest[index + 1];
       if (!next) throw new Error('--workers requires a value');
-      const parsed = Number.parseInt(next, 10);
-      if (!Number.isInteger(parsed) || parsed < 1) {
-        throw new Error(`--workers must be a positive integer, got: ${next}`);
-      }
-      workers = parsed;
+      workers = parsePositiveInteger(next, '--workers');
       index += 1;
       continue;
     }
     if (arg.startsWith('--workers=')) {
-      const parsed = Number.parseInt(arg.slice('--workers='.length), 10);
-      if (!Number.isInteger(parsed) || parsed < 1) {
-        throw new Error(
-          `--workers must be a positive integer, got: ${arg.slice('--workers='.length)}`,
-        );
-      }
-      workers = parsed;
+      workers = parsePositiveInteger(arg.slice('--workers='.length), '--workers');
       continue;
     }
     if (arg === '--engine') {
@@ -267,9 +263,10 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
   await writeAccuracyReport(result);
 };
 
-const runPerformance = async (): Promise<void> => {
-  const result = await runPerformanceBenchmark();
-  printPerformancePlaceholder(process.argv[1] ?? 'bun run bench', result);
+const runPerformance = (): void => {
+  printPerformancePlaceholder(process.argv[1] ?? 'bun run bench', {
+    message: 'performance benchmark is not implemented yet; use `bench accuracy` for now',
+  });
 };
 
 const main = async (): Promise<void> => {
@@ -289,7 +286,7 @@ const main = async (): Promise<void> => {
       await runAccuracy(repoRoot, options);
       return;
     case 'performance':
-      await runPerformance();
+      runPerformance();
       return;
     case 'engines':
       printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());

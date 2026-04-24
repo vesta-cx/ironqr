@@ -65,7 +65,45 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const isValidCacheFile = (value: unknown): value is CachedScanFile => {
   if (!isRecord(value)) return false;
   const candidate = value as Partial<CachedScanFile>;
-  return candidate.version === CACHE_FILE_VERSION && isRecord(candidate.entries);
+  if (candidate.version !== CACHE_FILE_VERSION || !isRecord(candidate.entries)) return false;
+  for (const engineEntries of Object.values(candidate.entries)) {
+    if (!isRecord(engineEntries)) return false;
+    for (const entry of Object.values(engineEntries)) {
+      if (!isValidCacheEntry(entry)) return false;
+    }
+  }
+  return true;
+};
+
+const isValidCacheEntry = (value: unknown): value is CachedScanEntry => {
+  if (!isRecord(value)) return false;
+  const entry = value as Partial<CachedScanEntry>;
+  return (
+    typeof entry.assetId === 'string' &&
+    (entry.assetLabel === 'qr-positive' || entry.assetLabel === 'non-qr-negative') &&
+    typeof entry.assetSha256 === 'string' &&
+    typeof entry.relativePath === 'string' &&
+    typeof entry.engineId === 'string' &&
+    typeof entry.engineVersion === 'string' &&
+    typeof entry.durationMs === 'number' &&
+    Number.isFinite(entry.durationMs) &&
+    isValidScanResult(entry.scan) &&
+    typeof entry.runKey === 'string' &&
+    typeof entry.updatedAt === 'string'
+  );
+};
+
+const isValidScanResult = (value: unknown): value is AccuracyScanResult => {
+  if (!isRecord(value)) return false;
+  const scan = value as Partial<AccuracyScanResult>;
+  return (
+    (scan.status === 'decoded' || scan.status === 'no-decode' || scan.status === 'error') &&
+    scan.attempted === true &&
+    typeof scan.succeeded === 'boolean' &&
+    Array.isArray(scan.results) &&
+    (scan.failureReason === null || typeof scan.failureReason === 'string') &&
+    (scan.error === null || typeof scan.error === 'string')
+  );
 };
 
 export const getDefaultAccuracyCachePath = (repoRoot: string): string => {
@@ -121,23 +159,19 @@ export const openAccuracyCacheStore = async (
     }
   }
 
-  let dirty = false;
   let writeTail = Promise.resolve();
 
-  const flushToDisk = async (): Promise<void> => {
-    if (!dirty) return;
-    const snapshotToWrite = snapshot;
-    dirty = false;
-    try {
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(file, `${JSON.stringify(snapshotToWrite, null, 2)}\n`, 'utf8');
-    } catch (error) {
-      dirty = true;
-      throw error;
-    }
-    if (snapshot !== snapshotToWrite) {
-      dirty = true;
-    }
+  const writeSnapshot = async (): Promise<void> => {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  };
+
+  const enqueueWrite = async (mutate: () => void): Promise<void> => {
+    writeTail = writeTail.then(async () => {
+      mutate();
+      await writeSnapshot();
+    });
+    await writeTail;
   };
 
   const isEnabledFor = (engine: AccuracyEngine): boolean => {
@@ -177,53 +211,50 @@ export const openAccuracyCacheStore = async (
     },
     write: async (engine, asset, scan, durationMs, runKey) => {
       if (!isEnabledFor(engine)) return;
-      snapshot = {
-        ...snapshot,
-        updatedAt: new Date().toISOString(),
-        entries: {
-          ...snapshot.entries,
-          [engine.id]: {
-            ...(snapshot.entries[engine.id] ?? {}),
-            [asset.id]: {
-              assetId: asset.id,
-              assetLabel: asset.label,
-              assetSha256: asset.sha256,
-              relativePath: asset.relativePath,
-              engineId: engine.id,
-              engineVersion: engine.cache.version,
-              durationMs,
-              scan,
-              runKey,
-              updatedAt: new Date().toISOString(),
+      await enqueueWrite(() => {
+        snapshot = {
+          ...snapshot,
+          updatedAt: new Date().toISOString(),
+          entries: {
+            ...snapshot.entries,
+            [engine.id]: {
+              ...(snapshot.entries[engine.id] ?? {}),
+              [asset.id]: {
+                assetId: asset.id,
+                assetLabel: asset.label,
+                assetSha256: asset.sha256,
+                relativePath: asset.relativePath,
+                engineId: engine.id,
+                engineVersion: engine.cache.version,
+                durationMs,
+                scan,
+                runKey,
+                updatedAt: new Date().toISOString(),
+              },
             },
           },
-        },
-      };
-      dirty = true;
-      stats.writes += 1;
-      writeTail = writeTail.then(flushToDisk, flushToDisk);
-      await writeTail;
+        };
+        stats.writes += 1;
+      });
     },
     evict: async (engine, asset) => {
       if (!isEnabledFor(engine)) return;
-      const engineEntries = snapshot.entries[engine.id];
-      if (!engineEntries?.[asset.id]) return;
-      const { [asset.id]: _removed, ...remaining } = engineEntries;
-      snapshot = {
-        ...snapshot,
-        updatedAt: new Date().toISOString(),
-        entries: {
-          ...snapshot.entries,
-          [engine.id]: remaining,
-        },
-      };
-      dirty = true;
-      writeTail = writeTail.then(flushToDisk, flushToDisk);
-      await writeTail;
+      await enqueueWrite(() => {
+        const engineEntries = snapshot.entries[engine.id];
+        if (!engineEntries?.[asset.id]) return;
+        const { [asset.id]: _removed, ...remaining } = engineEntries;
+        snapshot = {
+          ...snapshot,
+          updatedAt: new Date().toISOString(),
+          entries: {
+            ...snapshot.entries,
+            [engine.id]: remaining,
+          },
+        };
+      });
     },
     save: async () => {
       await writeTail;
-      await flushToDisk();
     },
     summary: () => ({
       enabled: true,

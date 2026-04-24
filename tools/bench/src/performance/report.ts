@@ -1,9 +1,4 @@
-import os from 'node:os';
-
-const collapseHome = (value: string): string => {
-  const home = os.homedir();
-  return value.startsWith(home) ? `~${value.slice(home.length)}` : value;
-};
+import { collapseHome } from '../shared/paths.js';
 
 export const printPerformancePlaceholder = (
   binPath: string,

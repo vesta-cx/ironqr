@@ -1,22 +1,11 @@
+import { asMessage } from '../../shared/errors.js';
 import type {
   AccuracyEngineAvailability,
-  AccuracyEngineCachePolicy,
-  AccuracyEngineCapabilities,
   AccuracyScanCode,
   AccuracyScanDiagnostics,
   AccuracyScanResult,
   EngineFailureReason,
 } from '../types.js';
-
-const asMessage = (error: unknown): string => {
-  return error instanceof Error ? error.message : String(error);
-};
-
-export const createCapabilities = (value: AccuracyEngineCapabilities): AccuracyEngineCapabilities =>
-  value;
-
-export const createCachePolicy = (value: AccuracyEngineCachePolicy): AccuracyEngineCachePolicy =>
-  value;
 
 export const createAvailableAvailability = (): AccuracyEngineAvailability => ({
   available: true,
@@ -32,20 +21,36 @@ export const successResult = (
   results: readonly AccuracyScanCode[],
   failureReason: EngineFailureReason | null = null,
   diagnostics: AccuracyScanDiagnostics | null = null,
-): AccuracyScanResult => ({
-  attempted: true,
-  succeeded: true,
-  results,
-  failureReason,
-  error: null,
-  diagnostics,
-});
+): AccuracyScanResult => {
+  if (results.length === 0) {
+    return {
+      status: 'no-decode',
+      attempted: true,
+      succeeded: true,
+      results: [],
+      failureReason: normalizeNoDecodeReason(failureReason),
+      error: null,
+      diagnostics,
+    };
+  }
+
+  return {
+    status: 'decoded',
+    attempted: true,
+    succeeded: true,
+    results,
+    failureReason: null,
+    error: null,
+    diagnostics,
+  };
+};
 
 export const failureResult = (
   error: unknown,
   failureReason: EngineFailureReason = 'engine_error',
   diagnostics: AccuracyScanDiagnostics | null = null,
 ): AccuracyScanResult => ({
+  status: 'error',
   attempted: true,
   succeeded: false,
   results: [],
@@ -54,14 +59,17 @@ export const failureResult = (
   diagnostics,
 });
 
-export const uniqueTexts = (values: readonly string[]): readonly string[] => {
-  return [...new Set(values.filter((value) => value.length > 0))];
-};
-
-export const normalizeDecodedText = (value: string): string => {
-  let end = value.length;
-  while (end > 0 && value.charCodeAt(end - 1) === 0) end -= 1;
-  return value.slice(0, end).trim();
+const normalizeNoDecodeReason = (
+  failureReason: EngineFailureReason | null,
+): 'failed_to_find_finders' | 'failed_to_resolve_geometry' | 'failed_to_decode' | 'no_decode' => {
+  if (
+    failureReason === 'failed_to_find_finders' ||
+    failureReason === 'failed_to_resolve_geometry' ||
+    failureReason === 'failed_to_decode'
+  ) {
+    return failureReason;
+  }
+  return 'no_decode';
 };
 
 export const serializeAsync = <Args extends readonly unknown[], Result>(

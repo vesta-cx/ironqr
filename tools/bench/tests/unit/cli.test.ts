@@ -32,6 +32,11 @@ describe('bench cli args', () => {
     expect(options.help).toBe(true);
   });
 
+  it('rejects partially numeric worker counts', () => {
+    expect(() => parseArgs(['accuracy', '--workers=2abc'])).toThrow('positive integer');
+    expect(() => parseArgs(['accuracy', '--workers', '1.5'])).toThrow('positive integer');
+  });
+
   it('can select a progress renderer', () => {
     expect(parseArgs(['accuracy', '--progress=plain']).options.progressMode).toBe('plain');
     expect(parseArgs(['accuracy', '--progress', 'dashboard']).options.progressMode).toBe(

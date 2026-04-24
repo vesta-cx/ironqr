@@ -39,6 +39,7 @@ const cacheableEngine: AccuracyEngine = {
   },
   availability: () => ({ available: true, reason: null }),
   scan: async () => ({
+    status: 'decoded',
     attempted: true,
     succeeded: true,
     results: [{ text: 'HELLO' }],
@@ -55,6 +56,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -81,6 +83,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -102,6 +105,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -150,6 +154,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -173,6 +178,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -195,6 +201,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'WORLD' }],
@@ -240,6 +247,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],

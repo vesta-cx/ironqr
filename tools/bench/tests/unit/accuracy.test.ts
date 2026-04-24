@@ -8,65 +8,76 @@ import {
   scorePositiveScan,
   statusCodeForResult,
 } from '../../src/accuracy/scoring.js';
-import type { AccuracyEngine, EngineAssetResult } from '../../src/accuracy/types.js';
+import type {
+  AccuracyEngine,
+  AccuracyScanResult,
+  EngineAssetResult,
+  EngineFailureReason,
+} from '../../src/accuracy/types.js';
+
+const decodedScan = (text: string): AccuracyScanResult => ({
+  status: 'decoded',
+  attempted: true,
+  succeeded: true,
+  results: [{ text }],
+  failureReason: null,
+  error: null,
+});
+
+const noDecodeScan = (
+  failureReason: Extract<
+    EngineFailureReason,
+    'failed_to_find_finders' | 'failed_to_resolve_geometry' | 'failed_to_decode' | 'no_decode'
+  >,
+): AccuracyScanResult => ({
+  status: 'no-decode',
+  attempted: true,
+  succeeded: true,
+  results: [],
+  failureReason,
+  error: null,
+});
 
 describe('accuracy scoring', () => {
   it('scores a positive full match as pass', () => {
-    const outcome = scorePositiveScan(['HELLO'], {
-      attempted: true,
-      succeeded: true,
-      results: [{ text: 'HELLO' }],
-      failureReason: null,
-      error: null,
-    });
+    const outcome = scorePositiveScan(['HELLO'], decodedScan('HELLO'));
     expect(outcome.kind).toBe('pass');
     expect(outcome.matchedTexts).toEqual(['HELLO']);
   });
 
   it('scores a partial multi-code match as partial-pass', () => {
-    const outcome = scorePositiveScan(['A', 'B'], {
-      attempted: true,
-      succeeded: true,
-      results: [{ text: 'A' }],
-      failureReason: null,
-      error: null,
-    });
+    const outcome = scorePositiveScan(['A', 'B'], decodedScan('A'));
     expect(outcome.kind).toBe('partial-pass');
     expect(outcome.matchedTexts).toEqual(['A']);
   });
 
   it('scores a no-decode positive with the engine-provided reason', () => {
-    const outcome = scorePositiveScan(['HELLO'], {
-      attempted: true,
-      succeeded: true,
-      results: [],
-      failureReason: 'failed_to_find_finders',
-      error: null,
-    });
+    const outcome = scorePositiveScan(['HELLO'], noDecodeScan('failed_to_find_finders'));
     expect(outcome.kind).toBe('fail-no-decode');
     expect(outcome.failureReason).toBe('failed_to_find_finders');
   });
 
   it('scores a mismatched positive as fail-mismatch', () => {
-    const outcome = scorePositiveScan(['HELLO'], {
-      attempted: true,
-      succeeded: true,
-      results: [{ text: 'WORLD' }],
-      failureReason: null,
-      error: null,
-    });
+    const outcome = scorePositiveScan(['HELLO'], decodedScan('WORLD'));
     expect(outcome.kind).toBe('fail-mismatch');
     expect(outcome.failureReason).toBe('text_mismatch');
   });
 
+  it('does not pass a positive decode when expected text is missing', () => {
+    const outcome = scorePositiveScan([], decodedScan('HELLO'));
+    expect(outcome.kind).toBe('fail-mismatch');
+    expect(outcome.failureReason).toBe('text_mismatch');
+  });
+
+  it('clears failure metadata from negative pass outcomes', () => {
+    const outcome = scoreNegativeScan(noDecodeScan('no_decode'));
+    expect(outcome.kind).toBe('pass');
+    expect(outcome.failureReason).toBeNull();
+    expect(outcome.error).toBeNull();
+  });
+
   it('scores a negative decode as false-positive', () => {
-    const outcome = scoreNegativeScan({
-      attempted: true,
-      succeeded: true,
-      results: [{ text: 'HELLO' }],
-      failureReason: null,
-      error: null,
-    });
+    const outcome = scoreNegativeScan(decodedScan('HELLO'));
     expect(outcome.kind).toBe('false-positive');
     expect(outcome.failureReason).toBe('false_positive');
   });
@@ -104,13 +115,7 @@ describe('accuracy cacheability policy', () => {
       mode: 'pass-only',
     },
     availability: () => ({ available: true, reason: null }),
-    scan: async () => ({
-      attempted: true,
-      succeeded: true,
-      results: [],
-      failureReason: null,
-      error: null,
-    }),
+    scan: async () => noDecodeScan('no_decode'),
   };
 
   const result = (outcome: EngineAssetResult['outcome']): EngineAssetResult => ({

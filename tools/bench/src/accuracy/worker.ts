@@ -1,21 +1,21 @@
+import { asMessage } from '../shared/errors.js';
 import { readBenchImage } from '../shared/image.js';
 import { getAccuracyEngineById } from './engines.js';
 import type { AccuracyScanResult, CorpusBenchAsset } from './types.js';
 import type {
+  AccuracyWorkerImageLoadFailedMessage,
   AccuracyWorkerImageLoadFinishedMessage,
   AccuracyWorkerImageLoadStartedMessage,
   AccuracyWorkerJobStartedMessage,
   AccuracyWorkerRequest,
-  AccuracyWorkerResponse,
   AccuracyWorkerResultMessage,
+  AccuracyWorkerRunMessage,
 } from './worker-types.js';
 
 const roundDurationMs = (value: number): number => Math.round(value * 100) / 100;
 
-const asMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 const failureScan = (error: unknown): AccuracyScanResult => ({
+  status: 'error',
   attempted: true,
   succeeded: false,
   results: [],
@@ -23,11 +23,7 @@ const failureScan = (error: unknown): AccuracyScanResult => ({
   error: asMessage(error),
 });
 
-const postWorkerMessage = (message: AccuracyWorkerResponse): void => {
-  postMessage(message);
-};
-
-const toBenchAsset = (message: AccuracyWorkerRequest): CorpusBenchAsset => {
+const toBenchAsset = (message: AccuracyWorkerRunMessage): CorpusBenchAsset => {
   return {
     id: message.asset.id,
     label: message.asset.label,
@@ -44,25 +40,37 @@ const toBenchAsset = (message: AccuracyWorkerRequest): CorpusBenchAsset => {
         relativePath: message.asset.relativePath,
         label: message.asset.label,
       };
-      postWorkerMessage(started);
-      const image = await readBenchImage(message.asset.imagePath);
-      const finished: AccuracyWorkerImageLoadFinishedMessage = {
-        type: 'image-load-finished',
-        jobId: message.jobId,
-        engineId: message.engineId,
-        assetId: message.asset.id,
-        width: image.width,
-        height: image.height,
-      };
-      postWorkerMessage(finished);
-      return image;
+      postMessage(started);
+      try {
+        const image = await readBenchImage(message.asset.imagePath);
+        const finished: AccuracyWorkerImageLoadFinishedMessage = {
+          type: 'image-load-finished',
+          jobId: message.jobId,
+          engineId: message.engineId,
+          assetId: message.asset.id,
+          width: image.width,
+          height: image.height,
+        };
+        postMessage(finished);
+        return image;
+      } catch (error) {
+        const failed: AccuracyWorkerImageLoadFailedMessage = {
+          type: 'image-load-failed',
+          jobId: message.jobId,
+          engineId: message.engineId,
+          assetId: message.asset.id,
+          error: asMessage(error),
+        };
+        postMessage(failed);
+        throw error;
+      }
     },
   };
 };
 
 addEventListener('message', async (event: MessageEvent<AccuracyWorkerRequest>) => {
   const message = event.data;
-  if (!message || message.type !== 'run') {
+  if (!isRunMessage(message)) {
     return;
   }
 
@@ -74,7 +82,7 @@ addEventListener('message', async (event: MessageEvent<AccuracyWorkerRequest>) =
     relativePath: message.asset.relativePath,
     label: message.asset.label,
   };
-  postWorkerMessage(started);
+  postMessage(started);
 
   const startedAt = performance.now();
   const scan = await (async (): Promise<AccuracyScanResult> => {
@@ -94,5 +102,22 @@ addEventListener('message', async (event: MessageEvent<AccuracyWorkerRequest>) =
     scan,
     durationMs: roundDurationMs(performance.now() - startedAt),
   };
-  postWorkerMessage(result);
+  postMessage(result);
 });
+
+const isRunMessage = (value: AccuracyWorkerRequest): value is AccuracyWorkerRunMessage => {
+  if (!value || typeof value !== 'object' || value.type !== 'run') return false;
+  return (
+    typeof value.jobId === 'string' &&
+    typeof value.engineId === 'string' &&
+    typeof value.cacheable === 'boolean' &&
+    !!value.asset &&
+    typeof value.asset === 'object' &&
+    typeof value.asset.id === 'string' &&
+    (value.asset.label === 'qr-positive' || value.asset.label === 'non-qr-negative') &&
+    typeof value.asset.sha256 === 'string' &&
+    typeof value.asset.imagePath === 'string' &&
+    typeof value.asset.relativePath === 'string' &&
+    Array.isArray(value.asset.expectedTexts)
+  );
+};

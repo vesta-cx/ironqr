@@ -1,14 +1,13 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { memoizeAsyncResetOnReject } from '../../shared/async.js';
 import { buildLuminanceBuffer } from '../../shared/image.js';
+import { normalizeDecodedText } from '../../shared/text.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
 import {
   createAvailableAvailability,
-  createCachePolicy,
-  createCapabilities,
   createUnavailableAvailability,
   failureResult,
-  normalizeDecodedText,
   serializeAsync,
   successResult,
 } from './shared.js';
@@ -42,14 +41,15 @@ const resolveQuirc = (): { readonly Quirc: QuircConstructor; readonly wasmPath: 
   };
 };
 
-let quircModule: Promise<WebAssembly.Module> | null = null;
+const getQuircModule = memoizeAsyncResetOnReject(async (): Promise<WebAssembly.Module> => {
+  const { wasmPath } = resolveQuirc();
+  const binary = await Bun.file(wasmPath).arrayBuffer();
+  return WebAssembly.compile(binary);
+});
 
 const createQuircDecoder = async (): Promise<QuircDecoder> => {
-  const { Quirc, wasmPath } = resolveQuirc();
-  quircModule ??= Bun.file(wasmPath)
-    .arrayBuffer()
-    .then((binary) => WebAssembly.compile(binary));
-  const instance = await WebAssembly.instantiate(await quircModule);
+  const { Quirc } = resolveQuirc();
+  const instance = await WebAssembly.instantiate(await getQuircModule());
   return new Quirc(instance);
 };
 
@@ -72,7 +72,10 @@ const scanWithQuirc = serializeAsync(
 
 const quircAvailability = () => {
   try {
-    resolveQuirc();
+    const { wasmPath } = resolveQuirc();
+    if (!Bun.file(wasmPath).exists()) {
+      throw new Error(`Missing quirc WASM asset: ${wasmPath}`);
+    }
     return createAvailableAvailability();
   } catch (error) {
     return createUnavailableAvailability(error instanceof Error ? error.message : String(error));
@@ -82,13 +85,13 @@ const quircAvailability = () => {
 export const quircAccuracyEngine: AccuracyEngine = {
   id: 'quirc',
   kind: 'third-party',
-  capabilities: createCapabilities({
+  capabilities: {
     multiCode: true,
     inversion: 'none',
     rotation: 'native',
     runtime: 'wasm',
-  }),
-  cache: createCachePolicy({ enabled: true, version: 'adapter-v1' }),
+  },
+  cache: { enabled: true, version: 'adapter-v1' },
   availability: quircAvailability,
   scan: scanWithQuirc,
 };

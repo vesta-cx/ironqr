@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { collapseHome } from '../shared/paths.js';
 import { statusCodeForResult } from './scoring.js';
 import type {
   AccuracyAssetResult,
@@ -10,16 +10,11 @@ import type {
 const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
 const ms = (value: number): string => `${value.toFixed(2)}ms`;
 
-const collapseHome = (value: string): string => {
-  const home = os.homedir();
-  return value.startsWith(home) ? `~${value.slice(home.length)}` : value;
-};
-
 const truncate = (value: string, max = 60): string =>
   value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 
 const formatCell = (value: string | number | boolean): string => {
-  return typeof value === 'string' && /[,\s]/.test(value) ? JSON.stringify(value) : String(value);
+  return typeof value === 'string' ? JSON.stringify(value) : String(value);
 };
 
 const printScalar = (key: string, value: string | number | boolean): void => {

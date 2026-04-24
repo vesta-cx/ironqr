@@ -94,8 +94,10 @@ const defaultWorkerCount = (): number => {
 
 const resolveWorkerCount = (requested?: number): number => {
   if (requested === undefined) return defaultWorkerCount();
-  if (!Number.isInteger(requested) || requested < 1) {
-    throw new Error(`Accuracy worker count must be a positive integer, got ${requested}`);
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > DEFAULT_WORKER_LIMIT) {
+    throw new Error(
+      `Accuracy worker count must be an integer from 1 to ${DEFAULT_WORKER_LIMIT}, got ${requested}`,
+    );
   }
   return requested;
 };
@@ -104,6 +106,7 @@ const unexpectedFailureScan = (
   error: unknown,
   failureReason: EngineFailureReason = 'engine_error',
 ): AccuracyScanResult => ({
+  status: 'error',
   attempted: true,
   succeeded: false,
   results: [],
@@ -203,6 +206,50 @@ const cacheRunKey = (
   });
 };
 
+const toEngineAssetResult = (
+  engineId: string,
+  label: CorpusAsset['label'],
+  expectedTexts: readonly string[],
+  scan: AccuracyScanResult,
+  durationMs: number,
+  cached: boolean,
+): EngineAssetResult => {
+  if (label === 'qr-positive') {
+    const scored = scorePositiveScan(expectedTexts, scan);
+    return {
+      engineId,
+      label,
+      outcome: scored.kind,
+      decodedTexts: scored.decodedTexts,
+      matchedTexts: scored.matchedTexts,
+      failureReason: scored.failureReason,
+      error: scored.error,
+      durationMs,
+      cached,
+      diagnostics: scan.diagnostics ?? null,
+    };
+  }
+
+  const scored = scoreNegativeScan(scan);
+  return {
+    engineId,
+    label,
+    outcome: scored.kind,
+    decodedTexts: scored.decodedTexts,
+    matchedTexts: [],
+    failureReason: scored.failureReason,
+    error: scored.error,
+    durationMs,
+    cached,
+    diagnostics: scan.diagnostics ?? null,
+  };
+};
+
+const stripDiagnosticsForCache = (scan: AccuracyScanResult): AccuracyScanResult => ({
+  ...scan,
+  diagnostics: null,
+});
+
 const scoreAssetForEngine = async (
   asset: CorpusAsset,
   repoRoot: string,
@@ -233,44 +280,14 @@ const scoreAssetForEngine = async (
       cached: true,
       cacheable: true,
     });
-
-    if (asset.label === 'qr-positive') {
-      const scored = scorePositiveScan(expectedTexts, cached.scan);
-      const result: EngineAssetResult = {
-        engineId: engine.id,
-        label: asset.label,
-        outcome: scored.kind,
-        decodedTexts: scored.decodedTexts,
-        matchedTexts: scored.matchedTexts,
-        failureReason: scored.failureReason,
-        error: scored.error,
-        durationMs: cached.durationMs,
-        cached: true,
-        diagnostics: cached.scan.diagnostics ?? null,
-      };
-      progress.onScanFinished({
-        engineId: engine.id,
-        assetId: asset.id,
-        relativePath: asset.relativePath,
-        result,
-        wroteToCache: false,
-      });
-      return result;
-    }
-
-    const scored = scoreNegativeScan(cached.scan);
-    const result: EngineAssetResult = {
-      engineId: engine.id,
-      label: asset.label,
-      outcome: scored.kind,
-      decodedTexts: scored.decodedTexts,
-      matchedTexts: [],
-      failureReason: scored.failureReason,
-      error: scored.error,
-      durationMs: cached.durationMs,
-      cached: true,
-      diagnostics: cached.scan.diagnostics ?? null,
-    };
+    const result = toEngineAssetResult(
+      engine.id,
+      asset.label,
+      expectedTexts,
+      cached.scan,
+      cached.durationMs,
+      true,
+    );
     progress.onScanFinished({
       engineId: engine.id,
       assetId: asset.id,
@@ -300,52 +317,23 @@ const scoreAssetForEngine = async (
       durationMs: 0,
     }));
 
-  if (asset.label === 'qr-positive') {
-    const scored = scorePositiveScan(expectedTexts, execution.scan);
-    const result: EngineAssetResult = {
-      engineId: engine.id,
-      label: asset.label,
-      outcome: scored.kind,
-      decodedTexts: scored.decodedTexts,
-      matchedTexts: scored.matchedTexts,
-      failureReason: scored.failureReason,
-      error: scored.error,
-      durationMs: execution.durationMs,
-      cached: false,
-      diagnostics: execution.scan.diagnostics ?? null,
-    };
-    const wroteToCache = isCacheableEngineResult(engine, cache, result);
-    if (wroteToCache) {
-      await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs, runKey);
-    } else if (engine.cache.mode === 'pass-only') {
-      await cache.evict(engine, cacheLookupAsset);
-    }
-    progress.onScanFinished({
-      engineId: engine.id,
-      assetId: asset.id,
-      relativePath: asset.relativePath,
-      result,
-      wroteToCache,
-    });
-    return result;
-  }
-
-  const scored = scoreNegativeScan(execution.scan);
-  const result: EngineAssetResult = {
-    engineId: engine.id,
-    label: asset.label,
-    outcome: scored.kind,
-    decodedTexts: scored.decodedTexts,
-    matchedTexts: [],
-    failureReason: scored.failureReason,
-    error: scored.error,
-    durationMs: execution.durationMs,
-    cached: false,
-    diagnostics: execution.scan.diagnostics ?? null,
-  };
+  const result = toEngineAssetResult(
+    engine.id,
+    asset.label,
+    expectedTexts,
+    execution.scan,
+    execution.durationMs,
+    false,
+  );
   const wroteToCache = isCacheableEngineResult(engine, cache, result);
   if (wroteToCache) {
-    await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs, runKey);
+    await cache.write(
+      engine,
+      cacheLookupAsset,
+      stripDiagnosticsForCache(execution.scan),
+      execution.durationMs,
+      runKey,
+    );
   } else if (engine.cache.mode === 'pass-only') {
     await cache.evict(engine, cacheLookupAsset);
   }
@@ -381,14 +369,20 @@ export const runAccuracyBenchmark = async (
     verbose: options.progress?.verbose ?? options.observability?.verbose ?? false,
   });
   progress.onManifestStarted();
-  const cache = await openAccuracyCacheStore(cacheFile, {
-    enabled: options.cache?.enabled ?? true,
-    refresh: options.cache?.refresh ?? false,
-    disabledEngineIds: options.cache?.disabledEngineIds ?? [],
-  });
-  const workerPool = createAccuracyWorkerPool(workerCount, progress);
+  let cache: Awaited<ReturnType<typeof openAccuracyCacheStore>> | null = null;
+  let workerPool: ReturnType<typeof createAccuracyWorkerPool> | null = null;
+  let result: AccuracyBenchmarkResult | null = null;
+  let runError: unknown;
 
   try {
+    cache = await openAccuracyCacheStore(cacheFile, {
+      enabled: options.cache?.enabled ?? true,
+      refresh: options.cache?.refresh ?? false,
+      disabledEngineIds: options.cache?.disabledEngineIds ?? [],
+    });
+    workerPool = createAccuracyWorkerPool(workerCount, progress);
+    const activeCache = cache;
+    const activeWorkerPool = workerPool;
     const manifest = await readBenchCorpusManifest(repoRoot);
     const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
     const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-positive').length;
@@ -415,21 +409,33 @@ export const runAccuracyBenchmark = async (
       ironqrTraceMode: options.observability?.ironqrTraceMode ?? 'summary',
     };
 
-    const assetResults = (await mapConcurrent(assets, assetConcurrency, async (asset) => ({
-      assetId: asset.id,
-      label: asset.label,
-      relativePath: asset.relativePath,
-      expectedTexts: expectedTextsFor({
-        expectedTexts: asset.groundTruth?.codes.map((code) => code.text) ?? [],
-      }),
-      results: await Promise.all(
-        engines.map((engine) =>
-          scoreAssetForEngine(asset, repoRoot, engine, cache, workerPool, progress, runOptions),
+    const assetResults = await mapConcurrent<CorpusAsset, AccuracyAssetResult>(
+      assets,
+      assetConcurrency,
+      async (asset): Promise<AccuracyAssetResult> => ({
+        assetId: asset.id,
+        label: asset.label,
+        relativePath: asset.relativePath,
+        expectedTexts: expectedTextsFor({
+          expectedTexts: asset.groundTruth?.codes.map((code) => code.text) ?? [],
+        }),
+        results: await Promise.all(
+          engines.map((engine) =>
+            scoreAssetForEngine(
+              asset,
+              repoRoot,
+              engine,
+              activeCache,
+              activeWorkerPool,
+              progress,
+              runOptions,
+            ),
+          ),
         ),
-      ),
-    }))) as readonly AccuracyAssetResult[];
+      }),
+    );
 
-    return {
+    result = {
       reportFile,
       corpusAssetCount: assets.length,
       positiveCount,
@@ -437,11 +443,26 @@ export const runAccuracyBenchmark = async (
       engines: engines.map(describeAccuracyEngine),
       assets: assetResults,
       summaries: engines.map((engine) => summarizeEngine(engine.id, assetResults)),
-      cache: cache.summary(),
+      cache: activeCache.summary(),
     };
+  } catch (error) {
+    runError = error;
   } finally {
-    await workerPool.close();
-    await cache.save();
+    const cleanup = await Promise.allSettled([workerPool?.close(), cache?.save()]);
     progress.stop();
+    const failed = cleanup.find((entry) => entry.status === 'rejected');
+    if (failed?.status === 'rejected') {
+      if (runError !== undefined) {
+        console.error(`[bench] cleanup failed after benchmark error: ${String(failed.reason)}`);
+      } else {
+        runError = failed.reason;
+      }
+    }
   }
+
+  if (runError !== undefined) throw runError;
+  if (result === null) {
+    throw new Error('Accuracy benchmark failed before producing a result');
+  }
+  return result;
 };

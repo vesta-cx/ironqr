@@ -1,23 +1,15 @@
 import { createRequire } from 'node:module';
 import { scanRGBABuffer, setModuleArgs, ZBarSymbolType } from '@undecaf/zbar-wasm';
 import { cloneRgbaBuffer } from '../../shared/image.js';
+import { normalizeDecodedText } from '../../shared/text.js';
 import type { AccuracyEngine, AccuracyScanResult } from '../types.js';
 import {
   createAvailableAvailability,
-  createCachePolicy,
-  createCapabilities,
   createUnavailableAvailability,
   failureResult,
-  normalizeDecodedText,
   serializeAsync,
   successResult,
 } from './shared.js';
-
-interface ZBarSymbol {
-  readonly type: ZBarSymbolType;
-  readonly typeName: string;
-  decode: (encoding?: string) => string;
-}
 
 const require = createRequire(import.meta.url);
 
@@ -36,11 +28,11 @@ const scanWithZbar = serializeAsync(
     try {
       ensureZbarConfigured();
       const image = await asset.loadImage();
-      const symbols = (await scanRGBABuffer(
+      const symbols = await scanRGBABuffer(
         cloneRgbaBuffer(image.data).buffer,
         image.width,
         image.height,
-      )) as readonly ZBarSymbol[];
+      );
 
       const results = symbols
         .filter((symbol) => symbol.type === ZBarSymbolType.ZBAR_QRCODE)
@@ -69,13 +61,13 @@ const zbarAvailability = () => {
 export const zbarAccuracyEngine: AccuracyEngine = {
   id: 'zbar',
   kind: 'third-party',
-  capabilities: createCapabilities({
+  capabilities: {
     multiCode: true,
     inversion: 'native',
     rotation: 'native',
     runtime: 'wasm',
-  }),
-  cache: createCachePolicy({ enabled: true, version: 'adapter-v1' }),
+  },
+  cache: { enabled: true, version: 'adapter-v1' },
   availability: zbarAvailability,
   scan: scanWithZbar,
 };

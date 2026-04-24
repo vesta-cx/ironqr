@@ -24,7 +24,7 @@ interface QueuedJob {
 
 interface WorkerSlot {
   readonly id: number;
-  worker: Worker;
+  worker: Worker | null;
   current: QueuedJob | null;
 }
 
@@ -50,7 +50,7 @@ export const createAccuracyWorkerPool = (
   progress: AccuracyProgressReporter,
 ): AccuracyWorkerPool => {
   if (!Number.isSafeInteger(size) || size < 1) {
-    throw new Error(`Worker pool size must be a positive integer, got ${size}`);
+    throw new Error(`Worker pool size must be a positive safe integer, got ${size}`);
   }
 
   let closed = false;
@@ -64,8 +64,18 @@ export const createAccuracyWorkerPool = (
       if (slot.current || queue.length === 0) continue;
       const job = queue.shift();
       if (!job) continue;
+      const worker = slot.worker;
+      if (!worker) {
+        job.reject(new Error(`Accuracy worker slot ${slot.id} is not initialized`));
+        continue;
+      }
       slot.current = job;
-      slot.worker.postMessage(job.request);
+      try {
+        worker.postMessage(job.request);
+      } catch (error) {
+        slot.current = null;
+        job.reject(asError(error));
+      }
     }
   };
 
@@ -109,6 +119,8 @@ export const createAccuracyWorkerPool = (
             height: message.height,
           });
           return;
+        case 'image-load-failed':
+          return;
         case 'result':
           slot.current = null;
           current.resolve({
@@ -125,7 +137,7 @@ export const createAccuracyWorkerPool = (
       if (!slot || closed) return;
       const current = slot.current;
       slot.current = null;
-      void slot.worker.terminate();
+      void slot.worker?.terminate();
       slot.worker = spawnWorker(slotId);
       if (current) {
         current.reject(asError(event.error ?? event.message));
@@ -138,7 +150,7 @@ export const createAccuracyWorkerPool = (
       if (!slot || closed) return;
       const current = slot.current;
       slot.current = null;
-      void slot.worker.terminate();
+      void slot.worker?.terminate();
       slot.worker = spawnWorker(slotId);
       if (current) {
         current.reject(new Error('Accuracy worker failed to deserialize a message'));
@@ -149,11 +161,17 @@ export const createAccuracyWorkerPool = (
     return worker;
   };
 
-  for (let index = 0; index < size; index += 1) {
-    slots.push({ id: index, worker: undefined as never, current: null });
-  }
-  for (const slot of slots) {
-    slot.worker = spawnWorker(slot.id);
+  try {
+    for (let index = 0; index < size; index += 1) {
+      const slot: WorkerSlot = { id: index, worker: null, current: null };
+      slots.push(slot);
+      slot.worker = spawnWorker(slot.id);
+    }
+  } catch (error) {
+    for (const slot of slots) {
+      void slot.worker?.terminate();
+    }
+    throw error;
   }
 
   return {
@@ -189,7 +207,7 @@ export const createAccuracyWorkerPool = (
         slots.map(async (slot) => {
           slot.current?.reject(new Error('Accuracy worker pool closed during execution'));
           slot.current = null;
-          await slot.worker.terminate();
+          await slot.worker?.terminate();
         }),
       );
     },
