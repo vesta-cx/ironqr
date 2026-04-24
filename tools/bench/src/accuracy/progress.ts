@@ -1,4 +1,5 @@
 import process from 'node:process';
+import type { BenchDashboardModel } from './dashboard/model.js';
 import {
   createBenchDashboardModel,
   onDashboardAssetPrepared,
@@ -21,29 +22,6 @@ import {
 } from './dashboard/tables.js';
 import { renderTimingChart } from './dashboard/timing-chart.js';
 import type { EngineAssetResult } from './types.js';
-
-type BenchmarkStage = 'manifest' | 'assets' | 'benchmark' | 'report' | 'done';
-
-interface ProgressEngineState {
-  readonly id: string;
-  completed: number;
-  cached: number;
-  fresh: number;
-  activeAssetId: string | null;
-  activeRelativePath: string | null;
-  imageLoadingAssetId: string | null;
-  lastOutcome: string | null;
-  lastDurationMs: number | null;
-}
-
-interface ProgressRecentRow {
-  readonly engineId: string;
-  readonly assetId: string;
-  readonly relativePath: string;
-  readonly outcome: string;
-  readonly durationMs: number;
-  readonly cached: boolean;
-}
 
 export interface AccuracyProgressReporter {
   onManifestStarted: () => void;
@@ -88,13 +66,31 @@ export interface AccuracyProgressReporter {
   stop: () => void;
 }
 
-const truncate = (value: string, max: number): string =>
-  value.length <= max ? value : `${value.slice(0, max - 1)}…`;
-
 const formatDuration = (value: number | null): string =>
   value === null ? '-' : `${value.toFixed(2)}ms`;
 
 const now = (): string => new Date().toISOString().slice(11, 19);
+
+const renderRunFooter = (dashboard: BenchDashboardModel): string => {
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let cacheWrites = 0;
+  for (const engine of dashboard.engines.values()) {
+    cacheHits += engine.cacheHits;
+    cacheMisses += engine.cacheMisses;
+    cacheWrites += engine.cacheWrites;
+  }
+
+  return [
+    `bench accuracy`,
+    `stage=${dashboard.stage}`,
+    dashboard.message,
+    `jobs=${dashboard.completedJobs}/${dashboard.totalJobs}`,
+    `assets=${dashboard.preparedAssets}/${dashboard.assetCount}`,
+    `workers=${dashboard.workerCount || '-'}`,
+    `cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cacheHits}/${cacheMisses}/${cacheWrites}`,
+  ].join(' | ');
+};
 
 const formatIronqrDiagnostics = (result: EngineAssetResult): string | null => {
   const diagnostics = result.diagnostics;
@@ -130,21 +126,8 @@ export const createAccuracyProgressReporter = (options: {
   const verbose = options.verbose ?? false;
   const useTui = enabled && stderr.isTTY;
 
-  let stage: BenchmarkStage = 'manifest';
-  let message = 'starting';
-  let assetCount = 0;
-  let preparedAssets = 0;
-  let cacheEnabled = false;
-  let cacheHits = 0;
-  let cacheMisses = 0;
-  let cacheWrites = 0;
-  let completedJobs = 0;
-  let totalJobs = 0;
-  let workerCount = 0;
   let renderQueued = false;
   let stopped = false;
-  const recent: ProgressRecentRow[] = [];
-  const engines = new Map<string, ProgressEngineState>();
   const dashboard = createBenchDashboardModel();
 
   const logPlain = (line: string): void => {
@@ -176,76 +159,18 @@ export const createAccuracyProgressReporter = (options: {
     const slowest = renderSlowestFreshScans(dashboard, { width: Math.floor(width / 2) });
     lines.push(...renderSideBySide(activeWorkers, slowest, { width }));
     lines.push('');
-    lines.push(...renderRecentScans(dashboard, { width, maxRows: 12 }));
-    lines.push('');
-    lines.push('bench accuracy');
-    lines.push(`stage: ${stage} — ${message}`);
-    if (totalJobs > 0) {
-      lines.push(
-        `progress: ${completedJobs}/${totalJobs} engine jobs, ${preparedAssets}/${assetCount} assets ready`,
-      );
-    } else if (assetCount > 0) {
-      lines.push(`progress: ${preparedAssets}/${assetCount} assets ready`);
-    }
+    const usedRows = lines.length + 2;
+    const terminalRows = stderr.rows ?? 40;
     lines.push(
-      `cache: ${cacheEnabled ? 'enabled' : 'disabled'} | hits ${cacheHits} | misses ${cacheMisses} | writes ${cacheWrites}`,
+      ...renderRecentScans(dashboard, {
+        width,
+        maxRows: Math.max(4, terminalRows - usedRows - 2),
+      }),
     );
-    if (workerCount > 0) {
-      lines.push(`workers: ${workerCount}`);
-    }
-
-    const engineStates = [...engines.values()];
-    if (engineStates.length > 0) {
-      lines.push('');
-      lines.push('engines:');
-      for (const engine of engineStates) {
-        const activity = engine.imageLoadingAssetId
-          ? `loading ${truncate(engine.imageLoadingAssetId, 18)}`
-          : engine.activeAssetId
-            ? `scanning ${truncate(engine.activeAssetId, 18)}`
-            : `last ${engine.lastOutcome ?? '-'} ${formatDuration(engine.lastDurationMs)}`;
-        lines.push(
-          `  ${engine.id.padEnd(10)} ${String(engine.completed).padStart(3)}/${String(assetCount).padEnd(3)} done | cached ${String(engine.cached).padStart(3)} | ${activity}`,
-        );
-      }
-    }
-
-    if (recent.length > 0) {
-      lines.push('');
-      lines.push('recent:');
-      for (const row of recent.slice(-8)) {
-        lines.push(
-          `  ${row.engineId.padEnd(10)} ${truncate(row.assetId, 18).padEnd(18)} ${row.cached ? 'cache ' : 'fresh '} ${row.outcome.padEnd(12)} ${formatDuration(row.durationMs)} ${truncate(row.relativePath, 40)}`,
-        );
-      }
-    }
+    lines.push('');
+    lines.push(renderRunFooter(dashboard));
 
     stderr.write(`\u001B[H\u001B[J${lines.join('\n')}\n`);
-  };
-
-  const ensureEngine = (engineId: string): ProgressEngineState => {
-    const existing = engines.get(engineId);
-    if (existing) return existing;
-    const created: ProgressEngineState = {
-      id: engineId,
-      completed: 0,
-      cached: 0,
-      fresh: 0,
-      activeAssetId: null,
-      activeRelativePath: null,
-      imageLoadingAssetId: null,
-      lastOutcome: null,
-      lastDurationMs: null,
-    };
-    engines.set(engineId, created);
-    return created;
-  };
-
-  const pushRecent = (row: ProgressRecentRow): void => {
-    recent.push(row);
-    if (recent.length > 8) {
-      recent.splice(0, recent.length - 8);
-    }
   };
 
   if (useTui) {
@@ -256,18 +181,11 @@ export const createAccuracyProgressReporter = (options: {
   return {
     onManifestStarted: () => {
       onDashboardManifestStarted(dashboard);
-      stage = 'manifest';
-      message = 'reading approved corpus manifest';
       logPlain('stage manifest: reading approved corpus manifest');
       queueRender();
     },
     onManifestLoaded: (nextAssetCount, engineIds, nextCacheEnabled, totals) => {
       onDashboardManifestLoaded(dashboard, nextAssetCount, engineIds, nextCacheEnabled, totals);
-      assetCount = nextAssetCount;
-      cacheEnabled = nextCacheEnabled;
-      totalJobs = nextAssetCount * engineIds.length;
-      for (const engineId of engineIds) ensureEngine(engineId);
-      message = `loaded ${nextAssetCount} approved assets and ${engineIds.length} engines`;
       logPlain(
         `stage manifest: loaded ${nextAssetCount} approved assets and ${engineIds.length} engines`,
       );
@@ -275,16 +193,11 @@ export const createAccuracyProgressReporter = (options: {
     },
     onAssetsStarted: (nextAssetCount) => {
       onDashboardAssetsStarted(dashboard, nextAssetCount);
-      stage = 'assets';
-      assetCount = nextAssetCount;
-      message = `preparing ${nextAssetCount} lazy asset descriptors`;
       logPlain(`stage assets: preparing ${nextAssetCount} lazy asset descriptors`);
       queueRender();
     },
     onAssetPrepared: (assetId, prepared, total) => {
       onDashboardAssetPrepared(dashboard, assetId, prepared, total);
-      preparedAssets = prepared;
-      message = `prepared ${prepared}/${total} asset descriptors`;
       if (!useTui && (prepared === total || prepared % 10 === 0)) {
         logPlain(`stage assets: prepared ${prepared}/${total} (${assetId})`);
       }
@@ -292,41 +205,24 @@ export const createAccuracyProgressReporter = (options: {
     },
     onBenchmarkStarted: (nextAssetCount, engineIds, nextWorkerCount) => {
       onDashboardBenchmarkStarted(dashboard, nextAssetCount, engineIds, nextWorkerCount);
-      stage = 'benchmark';
-      assetCount = nextAssetCount;
-      workerCount = nextWorkerCount;
-      totalJobs = nextAssetCount * engineIds.length;
-      message = `running ${totalJobs} engine jobs across ${nextWorkerCount} workers`;
       logPlain(
-        `stage benchmark: running ${totalJobs} engine jobs across ${nextWorkerCount} workers`,
+        `stage benchmark: running ${nextAssetCount * engineIds.length} engine jobs across ${nextWorkerCount} workers`,
       );
       queueRender();
     },
     onScanStarted: ({ engineId, assetId, relativePath, cached, cacheable }) => {
       onDashboardScanStarted(dashboard, { engineId, assetId, relativePath, cached, cacheable });
-      const engine = ensureEngine(engineId);
-      if (cached) {
-        cacheHits += 1;
-        if (!useTui) {
-          logPlain(`cache hit: ${engineId} ${assetId} ${relativePath}`);
-        }
-        queueRender();
-        return;
-      }
-      if (cacheable) {
-        cacheMisses += 1;
-      }
-      engine.activeAssetId = assetId;
-      engine.activeRelativePath = relativePath;
       if (!useTui) {
-        logPlain(`scan start: ${engineId} ${assetId} ${relativePath}${cacheable ? '' : ' live'}`);
+        if (cached) {
+          logPlain(`cache hit: ${engineId} ${assetId} ${relativePath}`);
+        } else {
+          logPlain(`scan start: ${engineId} ${assetId} ${relativePath}${cacheable ? '' : ' live'}`);
+        }
       }
       queueRender();
     },
     onImageLoadStarted: ({ engineId, assetId, relativePath }) => {
       onDashboardImageLoadStarted(dashboard, { engineId, assetId, relativePath });
-      const engine = ensureEngine(engineId);
-      engine.imageLoadingAssetId = assetId;
       if (!useTui) {
         logPlain(`image load: ${engineId} ${assetId} ${relativePath}`);
       }
@@ -334,10 +230,6 @@ export const createAccuracyProgressReporter = (options: {
     },
     onImageLoadFinished: ({ engineId, assetId, width, height }) => {
       onDashboardImageLoadFinished(dashboard, { engineId, assetId });
-      const engine = ensureEngine(engineId);
-      if (engine.imageLoadingAssetId === assetId) {
-        engine.imageLoadingAssetId = null;
-      }
       if (!useTui) {
         logPlain(`image ready: ${engineId} ${assetId} ${width}x${height}`);
       }
@@ -345,30 +237,6 @@ export const createAccuracyProgressReporter = (options: {
     },
     onScanFinished: ({ engineId, assetId, relativePath, result, wroteToCache }) => {
       onDashboardScanFinished(dashboard, { engineId, assetId, relativePath, result, wroteToCache });
-      const engine = ensureEngine(engineId);
-      completedJobs += 1;
-      engine.completed += 1;
-      engine.lastOutcome = result.outcome;
-      engine.lastDurationMs = result.durationMs;
-      engine.activeAssetId = null;
-      engine.activeRelativePath = null;
-      engine.imageLoadingAssetId = null;
-      if (result.cached) {
-        engine.cached += 1;
-      } else {
-        engine.fresh += 1;
-      }
-      if (wroteToCache) {
-        cacheWrites += 1;
-      }
-      pushRecent({
-        engineId,
-        assetId,
-        relativePath,
-        outcome: result.outcome,
-        durationMs: result.durationMs,
-        cached: result.cached,
-      });
       if (!useTui) {
         logPlain(
           `scan finish: ${engineId} ${assetId} ${result.outcome} ${formatDuration(result.durationMs)} ${result.cached ? 'cached' : 'fresh'}`,
@@ -386,8 +254,6 @@ export const createAccuracyProgressReporter = (options: {
       if (stopped) return;
       stopped = true;
       onDashboardDone(dashboard);
-      stage = 'done';
-      message = 'complete';
       if (useTui) {
         render();
         stderr.write('\u001B[?25h\u001B[?1049l');

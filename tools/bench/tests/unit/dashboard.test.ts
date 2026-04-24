@@ -15,6 +15,7 @@ import {
   renderSlowestFreshScans,
 } from '../../src/accuracy/dashboard/tables.js';
 import { renderTimingChart } from '../../src/accuracy/dashboard/timing-chart.js';
+import { createAccuracyProgressReporter } from '../../src/accuracy/progress.js';
 import type { EngineAssetResult } from '../../src/accuracy/types.js';
 
 const result = (
@@ -28,6 +29,46 @@ const result = (
   error: null,
   cached: false,
   ...overrides,
+});
+
+describe('bench dashboard progress renderer', () => {
+  it('renders dashboard widgets instead of the legacy engines/recent UI', async () => {
+    let output = '';
+    const stderr = {
+      isTTY: true,
+      columns: 120,
+      rows: 40,
+      write: (chunk: string) => {
+        output += chunk;
+        return true;
+      },
+    } as unknown as NodeJS.WriteStream;
+    const reporter = createAccuracyProgressReporter({ enabled: true, stderr });
+    reporter.onManifestStarted();
+    reporter.onManifestLoaded(2, ['ironqr'], true, { positiveCount: 1, negativeCount: 1 });
+    reporter.onBenchmarkStarted(2, ['ironqr'], 1);
+    reporter.onScanFinished({
+      engineId: 'ironqr',
+      assetId: 'asset-1',
+      relativePath: 'assets/asset-1.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'qr-positive',
+        outcome: 'pass',
+        durationMs: 1000,
+      }),
+      wroteToCache: false,
+    });
+    await Promise.resolve();
+
+    expect(output).toContain('avg fresh ms / asset');
+    expect(output).toContain('scorecard');
+    expect(output).toContain('active workers');
+    expect(output).toContain('recent scans');
+    expect(output).not.toContain('\nengines:\n');
+    expect(output).not.toContain('\nrecent:\n');
+    reporter.stop();
+  });
 });
 
 describe('bench dashboard model', () => {
