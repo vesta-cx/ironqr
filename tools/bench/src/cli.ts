@@ -12,8 +12,8 @@ import {
   runAccuracyBenchmark,
   runPerformanceBenchmark,
   writeAccuracyReport,
-  writeJsonReport,
   writePerformanceReport,
+  writeReportWithSnapshot,
   type BenchmarkVerdict,
 } from './index.js';
 
@@ -347,7 +347,7 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
     details: { accuracyReportFile, performanceReportFile },
   };
   const summaryFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'summary.json');
-  await writeJsonReport(summaryFile, summary);
+  await writeReportWithSnapshot(summaryFile, summary);
   console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
 };
 

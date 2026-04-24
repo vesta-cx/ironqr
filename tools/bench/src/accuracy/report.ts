@@ -6,7 +6,7 @@ import {
   readRepoMetadata,
   REPORT_SCHEMA_VERSION,
   unavailableVerdict,
-  writeJsonReport,
+  writeReportWithSnapshot,
 } from '../core/reports.js';
 import { collapseHome } from '../shared/paths.js';
 import { statusCodeForResult } from './scoring.js';
@@ -235,7 +235,7 @@ export const printAccuracySummary = (
 };
 
 export const writeAccuracyReport = async (result: AccuracyBenchmarkResult): Promise<void> => {
-  await writeJsonReport(result.reportFile, await buildAccuracyReport(result));
+  await writeReportWithSnapshot(result.reportFile, await buildAccuracyReport(result));
 };
 
 export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {

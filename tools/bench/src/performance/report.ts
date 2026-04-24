@@ -1,5 +1,5 @@
 import { collapseHome } from '../shared/paths.js';
-import { writeJsonReport } from '../core/reports.js';
+import { writeReportWithSnapshot } from '../core/reports.js';
 import type { PerformanceBenchmarkResult, PerformanceEngineSummary } from './runner.js';
 
 const ms = (value: number): string => `${value.toFixed(2)}ms`;
@@ -45,7 +45,7 @@ export const printPerformancePlaceholder = (
 export const writePerformanceReport = async (
   result: PerformanceBenchmarkResult,
 ): Promise<void> => {
-  await writeJsonReport(result.reportFile, result.report);
+  await writeReportWithSnapshot(result.reportFile, result.report);
 };
 
 const performanceSummaryRow = (

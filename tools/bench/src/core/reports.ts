@@ -120,3 +120,22 @@ export const writeJsonReport = async (filePath: string, report: unknown): Promis
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 };
+
+export const writeReportWithSnapshot = async (
+  latestPath: string,
+  report: { readonly generatedAt?: string; readonly repo?: { readonly commit: string | null } },
+): Promise<void> => {
+  await writeJsonReport(latestPath, report);
+  const reportsRoot = path.dirname(latestPath);
+  const timestamp = sanitizePathPart(report.generatedAt ?? new Date().toISOString());
+  const shortSha = report.repo?.commit ? report.repo.commit.slice(0, 7) : 'no-git';
+  const snapshotPath = path.join(
+    reportsRoot,
+    'runs',
+    `${timestamp}-${shortSha}`,
+    path.basename(latestPath),
+  );
+  await writeJsonReport(snapshotPath, report);
+};
+
+const sanitizePathPart = (value: string): string => value.replace(/[^a-zA-Z0-9._-]+/g, '-');

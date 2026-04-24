@@ -8,7 +8,7 @@ export {
 } from './accuracy/runner.js';
 export type * from './accuracy/types.js';
 export type { BenchmarkVerdict } from './core/reports.js';
-export { writeJsonReport } from './core/reports.js';
+export { writeJsonReport, writeReportWithSnapshot } from './core/reports.js';
 export { printPerformanceSummary, writePerformanceReport } from './performance/report.js';
 export { getDefaultPerformanceReportPath, runPerformanceBenchmark } from './performance/runner.js';
 export type { PerformanceBenchmarkResult, PerformanceReport } from './performance/runner.js';
