@@ -338,18 +338,10 @@ const tryGeometryAcrossViews = (
           binaryView.binary,
           sampler,
         );
-        const timingScore = scoreTimingPattern(grid);
-        if (timingScore < minimumTimingScore(attempt.refinement, attempt.sampler)) {
-          recordAttemptFailure(attempt, 'timing-check', startedAt, traceSink, onAttemptMeasured);
-          continue;
-        }
-
-        const decoded = yield* decodeGridVariants(grid).pipe(
-          Effect.catchIf(
-            (error: unknown): error is ScannerError =>
-              error instanceof ScannerError && error.code === 'decode_failed',
-            () => Effect.succeed(null),
-          ),
+        const decoded = yield* decodeGridVariants(
+          grid,
+          minimumTimingScore(attempt.refinement, attempt.sampler),
+        ).pipe(
           Effect.catchIf(
             (error: unknown): error is ScannerError =>
               error instanceof ScannerError && error.code === 'internal_error',
@@ -365,13 +357,17 @@ const tryGeometryAcrossViews = (
             },
           ),
         );
-        if (decoded === null) {
+        if (decoded.kind === 'timing-check') {
+          recordAttemptFailure(attempt, 'timing-check', startedAt, traceSink, onAttemptMeasured);
+          continue;
+        }
+        if (decoded.kind === 'decode-failed') {
           recordAttemptFailure(attempt, 'decode_failed', startedAt, traceSink, onAttemptMeasured);
           continue;
         }
 
         const result = {
-          ...decoded,
+          ...decoded.result,
           bounds: geometry.bounds,
           corners: geometry.corners,
         } satisfies ScanResult;
@@ -466,26 +462,34 @@ const pointProjectsInsideImage = (x: number, y: number, width: number, height: n
 
 const nowMs = (): number => performance.now();
 
-const decodeGridVariants = (grid: boolean[][]): Effect.Effect<ScanResult, ScannerError> => {
+type DecodeGridVariantOutcome =
+  | { readonly kind: 'success'; readonly result: ScanResult }
+  | { readonly kind: 'timing-check' }
+  | { readonly kind: 'decode-failed' };
+
+const decodeGridVariants = (
+  grid: boolean[][],
+  minimumTimingScoreForVariant: number,
+): Effect.Effect<DecodeGridVariantOutcome, ScannerError> => {
   return Effect.gen(function* () {
-    let lastDecodeError: ScannerError | null = null;
+    let passedTimingCheck = false;
 
     for (const createVariant of buildMirroredDecodeVariants(grid)) {
-      const decoded = yield* decodeGridLogical({ grid: createVariant() }).pipe(
+      const variant = createVariant();
+      if (scoreTimingPattern(variant) < minimumTimingScoreForVariant) continue;
+      passedTimingCheck = true;
+
+      const decoded = yield* decodeGridLogical({ grid: variant }).pipe(
         Effect.catchIf(
           (error: unknown): error is ScannerError =>
             error instanceof ScannerError && error.code === 'decode_failed',
-          (error: ScannerError) => {
-            lastDecodeError = error;
-            return Effect.succeed(null);
-          },
+          () => Effect.succeed(null),
         ),
       );
-      if (decoded !== null) return decoded;
+      if (decoded !== null) return { kind: 'success', result: decoded };
     }
 
-    if (lastDecodeError) return yield* Effect.fail(lastDecodeError);
-    return yield* Effect.fail(new ScannerError('decode_failed', 'All decode variants failed.'));
+    return { kind: passedTimingCheck ? 'decode-failed' : 'timing-check' };
   });
 };
 
@@ -520,8 +524,8 @@ const buildMirroredDecodeVariants = (grid: boolean[][]): ReadonlyArray<() => boo
   };
 
   return [
-    () => grid,
-    () => getTranspose(),
+    () => cloneGrid(grid),
+    () => cloneGrid(getTranspose()),
     () => reverseRows(grid),
     () => reverseColumns(grid),
     () => reverseRows(getTranspose()),
@@ -564,6 +568,10 @@ const scoreTimingPattern = (grid: readonly (readonly boolean[])[]): number => {
   const rowScore = rowMatches / Math.max(1, rowTotal);
   const colScore = colMatches / Math.max(1, colTotal);
   return Math.min(rowScore, colScore);
+};
+
+const cloneGrid = (grid: readonly (readonly boolean[])[]): boolean[][] => {
+  return grid.map((row) => [...row]);
 };
 
 const transposeGrid = (grid: readonly (readonly boolean[])[]): boolean[][] => {

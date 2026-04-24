@@ -6,7 +6,7 @@ import type {
 } from './types.js';
 
 const uniqueTexts = (values: readonly string[]): readonly string[] => {
-  return [...new Set(values.filter((value) => value.length > 0))];
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 };
 
 export const expectedTextsFor = (asset: {

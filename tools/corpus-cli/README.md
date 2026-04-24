@@ -108,8 +108,8 @@ That keeps perfbench regression set small, stable, and reviewable.
 
 Synthetic QR assets live under `corpus/generated/` and are intentionally kept separate from the canonical reviewed corpus under `corpus/data/`.
 
-- `bun run corpus:generate-bases --count-per-type 100`
-  - renders 100 stylized base QR images per payload type using `~/Development/mia-cx/qr`
+- `QR_PROJECT_ROOT=/path/to/qr bun run corpus:generate-bases --count-per-type 100 --qr-project-root "$QR_PROJECT_ROOT"`
+  - renders 100 stylized base QR images per payload type using a configurable QR generator checkout
   - stores exact structured payload fields and appearance settings in `corpus/generated/manifest.json`
 - `bun run corpus:generate-distortions --coverage-min 1 --coverage-max 3`
   - builds a large distortion recipe catalog

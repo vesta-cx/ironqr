@@ -16,6 +16,7 @@ export const readBenchImage = async (imagePath: string): Promise<BenchImageData>
   if (!pending) {
     pending = (async () => {
       const { data, info } = await sharp(imagePath)
+        .flatten({ background: '#ffffff' })
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });

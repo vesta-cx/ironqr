@@ -150,6 +150,10 @@ describe('proposal structural plausibility', () => {
     const proposals = generateProposals(bank);
     expect(binary.length).toBe(imageData.width * imageData.height);
     expect(proposals.length).toBeGreaterThan(0);
+    const first = proposals[0];
+    expect(first?.kind).toBe('finder-triple');
+    if (first?.kind !== 'finder-triple') return;
+    expect(first.finders).toHaveLength(3);
   });
 
   it('emits cluster-level trace events that explain the clustered scan path', async () => {

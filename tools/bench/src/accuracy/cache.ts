@@ -115,9 +115,13 @@ export const openAccuracyCacheStore = async (
 
   const flushToDisk = async (): Promise<void> => {
     if (!dirty) return;
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+    const snapshotToWrite = snapshot;
     dirty = false;
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify(snapshotToWrite, null, 2)}\n`, 'utf8');
+    if (snapshot !== snapshotToWrite) {
+      dirty = true;
+    }
   };
 
   const isEnabledFor = (engine: AccuracyEngine): boolean => {

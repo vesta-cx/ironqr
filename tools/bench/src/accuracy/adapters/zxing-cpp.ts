@@ -20,11 +20,16 @@ let zxingPrepared: Promise<void> | null = null;
 
 const prepareReader = async (): Promise<void> => {
   zxingPrepared ??= (async () => {
-    const wasmBinary = await Bun.file(resolveReaderWasm()).arrayBuffer();
-    await prepareZXingModule({
-      overrides: { wasmBinary },
-      fireImmediately: true,
-    });
+    try {
+      const wasmBinary = await Bun.file(resolveReaderWasm()).arrayBuffer();
+      await prepareZXingModule({
+        overrides: { wasmBinary },
+        fireImmediately: true,
+      });
+    } catch (error) {
+      zxingPrepared = null;
+      throw error;
+    }
   })();
   await zxingPrepared;
 };

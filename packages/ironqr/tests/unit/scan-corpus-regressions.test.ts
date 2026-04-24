@@ -34,7 +34,7 @@ const getManifestAsset = (id: string): ManifestAsset => {
 const loadRankedProposals = async (id: string) => {
   const asset = getManifestAsset(id);
   const image = await readBenchImage(path.join(repoRoot, 'corpus/data', asset.relativePath));
-  const frame = await Effect.runPromise(normalizeImageInput(image as never));
+  const frame = await Effect.runPromise(normalizeImageInput(image));
   const viewBank = createViewBank(frame);
   return rankProposals(viewBank, generateProposals(viewBank));
 };
@@ -66,7 +66,7 @@ describe('corpus-derived decode regressions', () => {
   it('decodes the SaniSale photo that previously failed in the accuracy report', async () => {
     const asset = getManifestAsset('asset-e94cb1a1e0173763');
     const image = await readBenchImage(path.join(repoRoot, 'corpus/data', asset.relativePath));
-    const results = await scanFrame(image as never, {
+    const results = await scanFrame(image, {
       allowMultiple: (asset.groundTruth?.qrCount ?? 0) > 1,
     });
 

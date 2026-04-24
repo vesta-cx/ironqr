@@ -338,13 +338,13 @@ export const createAccuracyProgressReporter = (options: {
     },
     stop: () => {
       if (stopped) return;
-      stopped = true;
       stage = 'done';
       message = 'complete';
       if (useTui) {
         render();
         stderr.write('\u001B[?25h\u001B[?1049l');
       }
+      stopped = true;
     },
   };
 };

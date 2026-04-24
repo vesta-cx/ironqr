@@ -20,6 +20,12 @@ const buildCommonsQrSearchUrl = (searchTerm: string): string => {
   return url.toString();
 };
 
+const requirePixabayApiKey = (): void => {
+  if ((process.env.PIXABAY_API_KEY ?? '').trim().length === 0) {
+    throw new Error('PIXABAY_API_KEY is required when --source pixabay-api is selected');
+  }
+};
+
 const buildPixabayApiSearchUrl = (searchTerm: string): string => {
   const url = new URL('https://pixabay.com/api/');
   url.searchParams.set('q', searchTerm);
@@ -340,6 +346,7 @@ export const resolveSeedUrls = async (
     return [buildCommonsQrSearchUrl(normalizeSearchTerm(getOption(args, 'query')))];
   }
   if (explicitSource === 'pixabay-api-qr-search') {
+    requirePixabayApiKey();
     return [buildPixabayApiSearchUrl(normalizeSearchTerm(getOption(args, 'query')))];
   }
 
@@ -374,6 +381,7 @@ export const resolveSeedUrls = async (
     return [buildCommonsQrSearchUrl(searchTerm)];
   }
   if (source === 'pixabay-api-qr-search') {
+    requirePixabayApiKey();
     const searchTerm = normalizeSearchTerm(
       getOption(args, 'query') ??
         (await promptPresetSearchTerm(context, 'Pixabay API', DEFAULT_SEARCH_TERM)),

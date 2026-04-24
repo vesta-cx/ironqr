@@ -375,6 +375,10 @@ export const buildGridResolutionFromHomography = (
   geometryMode: GeometryMode,
   geometryScore: number,
 ): GeometryCandidate | null => {
+  if (!isValidQrVersion(version) || !Number.isInteger(size) || size !== version * 4 + 17) {
+    return null;
+  }
+
   const corners = {
     topLeft: applyHomography(homography, -0.5, -0.5),
     topRight: applyHomography(homography, size - 0.5, -0.5),

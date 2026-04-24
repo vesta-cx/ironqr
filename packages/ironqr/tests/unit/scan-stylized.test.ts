@@ -6,7 +6,7 @@
  *   - color modules (dark hue on white background) → verify luma path
  *   - low contrast (dark gray on light gray) → Otsu boundary case
  *
- * Tests marked `.todo` represent failure modes we've observed in corpus
+ * Tests marked `.skip` represent executable failure-mode fixtures observed in corpus
  * diagnostics but whose fixes span later phases (geometry / multi-sample).
  */
 import { describe, expect, it } from 'bun:test';
@@ -24,6 +24,7 @@ import {
   gridToImageDataInverted,
   gridToImageDataLowContrast,
   gridToImageDataPerspective,
+  imageDataPerspective,
 } from '../helpers.js';
 
 describe('stylized QR scan — polarity and contrast variants', () => {
@@ -89,7 +90,13 @@ describe('stylized QR scan — polarity and contrast variants', () => {
     expect(results[0]?.payload.text).toBe('HI');
   });
 
-  it.todo('dotted modules: circle-rendered QR decode needs the next rescue slice (module-shape aware sampling)', () => {});
+  it.skip('dotted modules: circle-rendered QR decode needs the next rescue slice (module-shape aware sampling)', async () => {
+    const grid = buildHiGrid();
+    const imageData = gridToImageDataDots(grid);
+    const results = await scanFrame(imageData);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.payload.text).toBe('HI');
+  });
 });
 
 describe('stylized QR scan — geometry variants', () => {
@@ -119,11 +126,30 @@ describe('stylized QR scan — geometry variants', () => {
     expect(results[0]?.payload.text).toBe('HI');
   });
 
-  it.todo('strong keystone (15%) on v1 needs a stronger geometry rescue than the current proposal-local refiner', () => {});
+  it.skip('strong keystone (15%) on v1 needs a stronger geometry rescue than the current proposal-local refiner', async () => {
+    const grid = buildHiGrid();
+    const imageData = gridToImageDataPerspective(grid, 0.15);
+    const results = await scanFrame(imageData);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.payload.text).toBe('HI');
+  });
 
-  it.todo('dotted modules under moderate keystone need the same module-shape rescue path', () => {});
+  it.skip('dotted modules under moderate keystone need the same module-shape rescue path', async () => {
+    const grid = buildHiGrid();
+    const dotted = gridToImageDataDots(grid);
+    const imageData = imageDataPerspective(dotted, 0.1);
+    const results = await scanFrame(imageData);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.payload.text).toBe('HI');
+  });
 
-  it.todo('strong keystone (18%+) on v1 — needs better far-corner localization than the current fallback search', () => {});
+  it.skip('strong keystone (18%+) on v1 — needs better far-corner localization than the current fallback search', async () => {
+    const grid = buildHiGrid();
+    const imageData = gridToImageDataPerspective(grid, 0.18);
+    const results = await scanFrame(imageData);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.payload.text).toBe('HI');
+  });
 });
 
 describe('fitness-driven homography refinement', () => {
@@ -148,5 +174,6 @@ describe('fitness-driven homography refinement', () => {
     const refined = refineGeometryByFitness(resolved, binary, imageData.width, imageData.height);
     expect(refined.version).toBe(1);
     expect(refined.size).toBe(21);
+    expect(refined).toEqual(resolved);
   });
 });

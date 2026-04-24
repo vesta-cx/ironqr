@@ -181,7 +181,8 @@ const decodePreparedGrid = (
   return Effect.try({
     try: () => {
       const layout = getCachedDecodeLayout(prepared.size, prepared.version);
-      const unmasked = unmask(prepared.matrix, prepared.maskPattern, layout.reserved);
+      const matrix = prepared.matrix.map((row) => [...row]);
+      const unmasked = unmask(matrix, prepared.maskPattern, layout.reserved);
       const dataBits = extractDataBits(unmasked, layout.dataPositions);
       const blockInfo = getCachedBlockInfo(prepared.version, prepared.errorCorrectionLevel);
       const expectedBits = blockInfo.totalCodewords * 8 + layout.remainderBits;

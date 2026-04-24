@@ -47,8 +47,8 @@ export const createAccuracyWorkerPool = (
   size: number,
   progress: AccuracyProgressReporter,
 ): AccuracyWorkerPool => {
-  if (size < 1) {
-    throw new Error(`Worker pool size must be at least 1, got ${size}`);
+  if (!Number.isSafeInteger(size) || size < 1) {
+    throw new Error(`Worker pool size must be a positive integer, got ${size}`);
   }
 
   let closed = false;

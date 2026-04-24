@@ -173,7 +173,7 @@ export const parseArgs = (
 const printUsage = (): void => {
   console.log('bin: bun run bench');
   console.log('description: Benchmark QR decoders against the approved corpus manifest');
-  console.log('help[8]{command}:');
+  console.log('commands:');
   console.log('  "bun run bench accuracy"');
   console.log('  "bun run bench accuracy --list-engines"');
   console.log('  "bun run bench accuracy --engine ironqr --engine zxing-cpp"');

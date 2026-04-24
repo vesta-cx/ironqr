@@ -95,7 +95,10 @@ const DecodeGridSchema = S.Array(S.Array(S.Boolean)).check(
     (grid) => {
       const size = grid.length;
       return (
-        size > 0 && size <= 177 && grid.every((row) => row.length === size) && (size - 17) % 4 === 0
+        size >= 21 &&
+        size <= 177 &&
+        grid.every((row) => row.length === size) &&
+        (size - 21) % 4 === 0
       );
     },
     { expected: 'a non-empty square QR grid whose size maps to QR version 1..40' },

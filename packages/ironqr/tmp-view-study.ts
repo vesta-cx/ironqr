@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
@@ -256,7 +256,9 @@ const loadCache = async (file: string, refreshCache: boolean): Promise<ViewStudy
 
 const saveCache = async (file: string, cache: ViewStudyCacheFile): Promise<void> => {
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(cache, null, 2)}\n`, 'utf8');
+  const tempFile = `${file}.tmp`;
+  await writeFile(tempFile, `${JSON.stringify(cache, null, 2)}\n`, 'utf8');
+  await rename(tempFile, file);
 };
 
 const createAggregateState = (
@@ -485,9 +487,19 @@ const assetCacheMatches = (
     return false;
   }
   if (isCompleteAssetResult(cached)) {
-    return cached.viewResults.length === viewIds.length;
+    return viewIdsMatch(cached.viewResults, viewIds);
   }
-  return cached.viewProgress.length === viewIds.length;
+  return viewIdsMatch(cached.viewProgress, viewIds);
+};
+
+const viewIdsMatch = (
+  cachedViews: readonly { readonly viewId: BinaryViewId }[],
+  viewIds: readonly BinaryViewId[],
+): boolean => {
+  return (
+    cachedViews.length === viewIds.length &&
+    cachedViews.every((view, index) => view.viewId === viewIds[index])
+  );
 };
 
 const buildPartialResult = (
