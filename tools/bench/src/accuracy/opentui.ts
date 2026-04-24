@@ -12,6 +12,7 @@ type OpenTuiCore = typeof import('@opentui/core');
 type OpenTuiRenderer = Awaited<ReturnType<OpenTuiCore['createCliRenderer']>>;
 type OpenTuiBox = InstanceType<OpenTuiCore['BoxRenderable']>;
 type OpenTuiText = InstanceType<OpenTuiCore['TextRenderable']>;
+type OpenTuiKeyEvent = import('@opentui/core').KeyEvent;
 
 type OpenTuiPanel = {
   readonly box: OpenTuiBox;
@@ -47,10 +48,15 @@ export class BenchOpenTuiDashboard {
     readonly footer: OpenTuiText;
   } | null = null;
   private startPromise: Promise<void> | null = null;
+  private keyHandler: ((key: OpenTuiKeyEvent) => void) | null = null;
+  private sigintHandler: (() => void) | null = null;
   private renderQueued = false;
   private stopped = false;
 
-  constructor(private readonly dashboard: BenchDashboardModel) {}
+  constructor(
+    private readonly dashboard: BenchDashboardModel,
+    private readonly onQuit: () => never = () => process.exit(130),
+  ) {}
 
   start(): void {
     if (this.startPromise) return;
@@ -69,12 +75,9 @@ export class BenchOpenTuiDashboard {
   }
 
   stop(): void {
-    this.stopped = true;
     this.render();
-    this.panels = null;
-    const renderer = this.renderer;
-    this.renderer = null;
-    renderer?.destroy();
+    this.cleanup();
+    this.stopped = true;
   }
 
   private async startAsync(): Promise<void> {
@@ -86,7 +89,9 @@ export class BenchOpenTuiDashboard {
         return;
       }
 
+      this.renderer = renderer;
       renderer.setBackgroundColor(THEME.background);
+      this.installQuitHandlers(renderer);
 
       const root = new BoxRenderable(renderer, {
         id: 'bench-dashboard-root',
@@ -196,15 +201,53 @@ export class BenchOpenTuiDashboard {
       renderer.root.add(root);
       renderer.start();
 
-      this.renderer = renderer;
       this.panels = { header, chart, scorecard, active, slowest, recent, footer };
       this.render();
     } catch (error) {
+      this.cleanup();
       this.stopped = true;
       process.stderr.write(
         `[bench] OpenTUI progress failed to start: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
+  }
+
+  private installQuitHandlers(renderer: OpenTuiRenderer): void {
+    this.keyHandler = (key: OpenTuiKeyEvent): void => {
+      if (key.name === 'q' && !key.ctrl && !key.meta) {
+        this.quit();
+        return;
+      }
+      if ((key.name === 'c' && key.ctrl) || key.sequence === '\u0003') {
+        this.quit();
+      }
+    };
+    renderer.keyInput.on('keypress', this.keyHandler);
+
+    this.sigintHandler = () => {
+      this.quit();
+    };
+    process.once('SIGINT', this.sigintHandler);
+  }
+
+  private quit(): never {
+    this.cleanup();
+    return this.onQuit();
+  }
+
+  private cleanup(): void {
+    const renderer = this.renderer;
+    if (renderer && this.keyHandler) {
+      renderer.keyInput.off('keypress', this.keyHandler);
+    }
+    if (this.sigintHandler) {
+      process.off('SIGINT', this.sigintHandler);
+    }
+    this.keyHandler = null;
+    this.sigintHandler = null;
+    this.panels = null;
+    this.renderer = null;
+    renderer?.destroy();
   }
 
   private render(): void {

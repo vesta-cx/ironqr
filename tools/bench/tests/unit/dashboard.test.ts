@@ -43,7 +43,7 @@ describe('bench dashboard progress renderer', () => {
         return true;
       },
     } as unknown as NodeJS.WriteStream;
-    const reporter = createAccuracyProgressReporter({ enabled: true, stderr });
+    const reporter = createAccuracyProgressReporter({ enabled: true, mode: 'dashboard', stderr });
     reporter.onManifestStarted();
     reporter.onManifestLoaded(2, ['ironqr'], true, { positiveCount: 1, negativeCount: 1 });
     reporter.onBenchmarkStarted(2, ['ironqr'], 1);

@@ -23,7 +23,7 @@ export const truncate = (value: string, width: number): string => {
 
 export const formatCompactDuration = (durationMs: number | null): string => {
   if (durationMs === null || !Number.isFinite(durationMs)) return '-';
-  if (durationMs < 1000) return `${Math.max(1, Math.round(durationMs))}m`;
+  if (durationMs < 1000) return `${Math.max(1, Math.round(durationMs))}ms`;
   const seconds = durationMs / 1000;
   if (seconds < 10) return `${seconds.toFixed(1)}s`;
   return `${Math.round(seconds)}s`;

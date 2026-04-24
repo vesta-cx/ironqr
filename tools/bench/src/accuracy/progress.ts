@@ -100,8 +100,8 @@ export const createAccuracyProgressReporter = (options: {
   const mode = options.enabled ? (options.mode ?? 'auto') : 'off';
   const enabled = mode !== 'off';
   const verbose = options.verbose ?? false;
-  const useOpenTui = enabled && stderr.isTTY && mode === 'tui';
-  const wantsDashboard = mode === 'dashboard' || (mode === 'auto' && stderr.isTTY);
+  const useOpenTui = enabled && stderr.isTTY && (mode === 'auto' || mode === 'tui');
+  const wantsDashboard = mode === 'dashboard';
   const useTui = enabled && !useOpenTui && stderr.isTTY && wantsDashboard;
   const usePlainLogs = enabled && !useOpenTui && !useTui;
 
