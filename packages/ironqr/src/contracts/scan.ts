@@ -175,30 +175,37 @@ export type DecodeGridResult = S.Schema.Type<typeof DecodeGridResultSchema>;
  * (tests, workers, Bun/Node tooling) where callers already pass `{ width,
  * height, data }` buffers without constructing a real `ImageData` instance.
  */
+export type ImageColorSpace = 'srgb' | 'display-p3';
+
 export interface ImageDataLike {
   readonly width: number;
   readonly height: number;
   readonly data: Uint8ClampedArray;
-  readonly colorSpace?: PredefinedColorSpace;
+  readonly colorSpace?: ImageColorSpace;
 }
 
-export type BrowserImageSource =
-  | Blob
-  | File
-  | ImageBitmap
-  | ImageData
-  | ImageDataLike
-  | HTMLCanvasElement
-  | HTMLImageElement
-  | OffscreenCanvas
-  | VideoFrame;
+/** Structural subset of Blob/File inputs accepted by `createImageBitmap`. */
+export interface BlobLikeImageSource {
+  readonly size: number;
+  readonly type: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** Structural subset of ImageBitmap-like inputs accepted by the browser adapter path. */
+export interface ImageBitmapLikeSource {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
+}
+
+export type BrowserImageSource = ImageDataLike | BlobLikeImageSource | ImageBitmapLikeSource;
 
 export type ScanImageInput = BrowserImageSource;
 export type ScanFrameInput = BrowserImageSource;
-export type ScanStreamInput = MediaStream | HTMLVideoElement;
+export type ScanStreamInput = unknown;
 
 export interface ScanStreamOptions extends ScanOptions {
   readonly onResult?: (result: ScanResult) => void;
   readonly onError?: (error: unknown) => void;
-  readonly signal?: AbortSignal;
+  readonly signal?: unknown;
 }

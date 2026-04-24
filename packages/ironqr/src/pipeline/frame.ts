@@ -1,9 +1,32 @@
 import { Effect } from 'effect';
-import type { BrowserImageSource, ImageDataLike } from '../contracts/scan.js';
+import type {
+  BrowserImageSource,
+  ImageBitmapLikeSource,
+  ImageDataLike,
+} from '../contracts/scan.js';
 import { ScannerError } from '../qr/errors.js';
 
 const RGBA_CHANNELS = 4;
 const WHITE = 255;
+
+type Canvas2dLike = {
+  drawImage(image: ImageBitmapLikeSource, dx: number, dy: number): void;
+  getImageData(x: number, y: number, width: number, height: number): ImageDataLike;
+};
+
+type OffscreenCanvasConstructorLike = new (
+  width: number,
+  height: number,
+) => {
+  getContext(contextId: '2d'): Canvas2dLike | null;
+};
+
+type BrowserBitmapRuntime = {
+  createImageBitmap?: (
+    input: Exclude<BrowserImageSource, ImageDataLike>,
+  ) => Promise<ImageBitmapLikeSource>;
+  OffscreenCanvas?: OffscreenCanvasConstructorLike;
+};
 
 /** Maximum supported image side length accepted at the public scan boundary. */
 export const MAX_IMAGE_DIMENSION = 8192;
@@ -200,13 +223,27 @@ const isImageDataLike = (value: unknown): value is ImageDataLike => {
   );
 };
 
+const isImageBitmapLike = (value: BrowserImageSource): value is ImageBitmapLikeSource => {
+  return 'close' in value && typeof value.close === 'function';
+};
+
 const toImageData = async (input: BrowserImageSource): Promise<ImageDataLike> => {
   if (isImageDataLike(input)) return input;
 
-  const bitmap = await createImageBitmap(input);
+  const runtime = globalThis as BrowserBitmapRuntime;
+  const OffscreenCanvasCtor = runtime.OffscreenCanvas;
+  if (!OffscreenCanvasCtor) {
+    throw new ScannerError(
+      'invalid_input',
+      'Browser image sources require OffscreenCanvas support.',
+    );
+  }
+
+  const ownsBitmap = !isImageBitmapLike(input);
+  const bitmap = ownsBitmap ? await createBitmap(input, runtime) : input;
   try {
     validateImageDimensions(bitmap.width, bitmap.height);
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const canvas = new OffscreenCanvasCtor(bitmap.width, bitmap.height);
     const context = canvas.getContext('2d');
     if (context === null) {
       throw new ScannerError('invalid_input', 'Failed to create a 2D canvas context.');
@@ -215,8 +252,21 @@ const toImageData = async (input: BrowserImageSource): Promise<ImageDataLike> =>
     context.drawImage(bitmap, 0, 0);
     return context.getImageData(0, 0, bitmap.width, bitmap.height);
   } finally {
-    bitmap.close();
+    if (ownsBitmap) bitmap.close();
   }
+};
+
+const createBitmap = async (
+  input: Exclude<BrowserImageSource, ImageDataLike | ImageBitmapLikeSource>,
+  runtime: BrowserBitmapRuntime,
+): Promise<ImageBitmapLikeSource> => {
+  if (!runtime.createImageBitmap) {
+    throw new ScannerError(
+      'invalid_input',
+      'Browser image sources require createImageBitmap support.',
+    );
+  }
+  return runtime.createImageBitmap(input);
 };
 
 const srgbToLinear = (value: number): number => {
