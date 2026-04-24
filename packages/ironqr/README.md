@@ -66,6 +66,32 @@ import { scanFrame } from "ironqr";
 const results = await scanFrame(videoFrame);
 ```
 
+### Scan with observability metadata
+
+```ts
+import { scanFrame } from "ironqr";
+
+const report = await scanFrame(videoFrame, {
+  observability: {
+    result: {
+      path: "basic",
+      attempts: "summary",
+    },
+    scan: {
+      timings: "full",
+      failure: "summary",
+    },
+  },
+});
+
+for (const result of report.results) {
+  console.log(result.payload.text);
+  console.log(result.metadata.path?.proposalBinaryViewId);
+}
+
+console.log(report.scan.timings);
+```
+
 ### Decode a known grid
 
 For advanced use — decode a logical boolean grid directly, bypassing image detection:
@@ -82,12 +108,12 @@ const result = await decodeGrid({
 
 ### Functions
 
-| Function     | Input                             | Output                      | Description                            |
-| ------------ | --------------------------------- | --------------------------- | -------------------------------------- |
-| `scanImage`  | `BrowserImageSource`              | `Promise<ScanResult[]>`     | Scan a still image for all QR codes    |
-| `scanFrame`  | `BrowserImageSource`              | `Promise<ScanResult[]>`     | Scan a single video frame              |
-| `scanStream` | `MediaStream \| HTMLVideoElement` | `Promise<ScanResult[]>`     | Managed stream scanning with callbacks |
-| `decodeGrid` | `DecodeGridInput`                 | `Promise<DecodeGridResult>` | Decode a pre-extracted logical grid    |
+| Function     | Input                             | Output                                              | Description                            |
+| ------------ | --------------------------------- | --------------------------------------------------- | -------------------------------------- |
+| `scanImage`  | `BrowserImageSource`              | `Promise<ScanResult[] \| ScanReport>`              | Scan a still image for QR codes        |
+| `scanFrame`  | `BrowserImageSource`              | `Promise<ScanResult[] \| ScanReport>`              | Scan one frame; report when observability is requested |
+| `scanStream` | `MediaStream \| HTMLVideoElement` | `Promise<ScanResult[]>`                             | Managed stream scanning with callbacks |
+| `decodeGrid` | `DecodeGridInput`                 | `Promise<DecodeGridResult>`                         | Decode a pre-extracted logical grid    |
 
 `BrowserImageSource` accepts `Blob`, `File`, `ImageBitmap`, `ImageData`, `HTMLCanvasElement`, `HTMLImageElement`, `OffscreenCanvas`, or `VideoFrame`.
 
@@ -111,11 +137,31 @@ Each result includes:
 
 ```ts
 interface ScanOptions {
-  allowMultiple?: boolean; // return all codes, not just the first
-  debug?: boolean; // expose intermediate artifacts
-  maxCandidates?: number; // limit candidate evaluation
+  allowMultiple?: boolean;
+  maxCandidates?: number; // deprecated compatibility alias
+  maxProposals?: number;
+  maxProposalsPerView?: number;
+  observability?: {
+    result?: {
+      path?: 'none' | 'basic' | 'full';
+      attempts?: 'none' | 'summary' | 'full';
+    };
+    scan?: {
+      views?: 'none' | 'summary';
+      failure?: 'none' | 'summary';
+      timings?: 'none' | 'summary' | 'full';
+    };
+    trace?: {
+      events?: 'off' | 'summary' | 'full';
+    };
+  };
 }
 ```
+
+When `observability` is omitted, `scanFrame()` and `scanImage()` return plain `ScanResult[]`.
+When `observability` is present, they return a `ScanReport` envelope with:
+- `results`: decoded results plus requested result-level metadata
+- `scan`: requested scan-level metadata, including zero-result diagnostics
 
 ## Style tolerance
 
