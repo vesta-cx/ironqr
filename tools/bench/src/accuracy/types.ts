@@ -1,3 +1,4 @@
+import type { ScanMetricsSink } from '../../../../packages/ironqr/src/contracts/scan.js';
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import type { BenchCorpusAsset, CorpusAssetLabel } from '../core/corpus.js';
 import type { BenchReportStatus, PartialRunSummary } from '../core/reports.js';
@@ -117,6 +118,7 @@ export interface AccuracyEngineCachePolicy {
 export interface AccuracyEngineRunOptions {
   readonly verbose?: boolean;
   readonly ironqrTraceMode?: IronqrTraceMode;
+  readonly metricsSink?: ScanMetricsSink;
 }
 
 export interface AccuracyEngine {

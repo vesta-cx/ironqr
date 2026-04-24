@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import process from 'node:process';
 import type { CorpusAssetLabel } from '../core/corpus.js';
 import { type BenchCorpusAsset, loadBenchCorpusAssets } from '../core/corpus.js';
 import {
@@ -12,6 +13,7 @@ import {
   readRepoMetadata,
   writeReportWithSnapshot,
 } from '../core/reports.js';
+import { createBenchProgressReporter } from '../ui/progress.js';
 import { createStudyPluginRegistry } from './registry.js';
 import type { StudyPlugin, StudyPluginResult } from './types.js';
 import { viewOrderStudyPlugin } from './view-order.js';
@@ -39,6 +41,8 @@ interface StudyOptions {
   readonly cacheFile?: string;
   readonly reportFile?: string;
   readonly progressEnabled?: boolean;
+  readonly signal?: AbortSignal;
+  readonly requestStop?: () => void;
 }
 
 export interface StudyBenchmarkResult {
@@ -69,56 +73,71 @@ export const runStudyBenchmark = async (
 
   const selection = resolveStudySelection(studyId, options);
   const assets = await loadStudyAssets(repoRoot, selection);
-  const logs: string[] = [];
-  const result = await plugin.run({
-    repoRoot,
-    assets,
-    output: { reportFile, cacheFile },
-    flags: {
-      ...(selection.maxAssets === null ? {} : { 'max-assets': selection.maxAssets }),
-      seed: selection.seed,
-    },
-    log: (message) => {
-      logs.push(message);
-      if (options.progressEnabled === false) return;
-      process.stdout.write(`[bench study:${studyId}] ${message}\n`);
-    },
+  const progress = createBenchProgressReporter({
+    commandName: 'study',
+    enabled: options.progressEnabled ?? true,
+    ...(options.requestStop === undefined ? {} : { requestStop: options.requestStop }),
   });
-
-  const pass = passedVerdict(`Study ${studyId} completed.`);
-  const regression: BenchmarkVerdict = {
-    status: 'unavailable',
-    description: 'This study has no plugin-defined cross-run regression check.',
-  };
-  const report: StudyReport = {
-    kind: 'study-report',
-    schemaVersion: REPORT_SCHEMA_VERSION,
-    generatedAt: new Date().toISOString(),
-    status: 'passed',
-    verdicts: { pass, regression },
-    benchmark: {
-      name: `Study: ${plugin.id}`,
-      description:
-        'Records evidence for a focused scanner-policy study. This report answers the study-specific policy question described by the plugin. Start with the study-defined `summary`, then inspect `details` for the evidence rows, sampled assets, and parameter variations that produced the recommendation.',
-    },
-    command: { name: 'study', argv: process.argv.slice(2) },
-    repo: await readRepoMetadata(repoRoot),
-    corpus: await buildReportCorpus({
+  progress.onMessage(`study ${studyId} loaded ${assets.length} assets`);
+  const logs: string[] = [];
+  try {
+    const result = await plugin.run({
       repoRoot,
       assets,
-    }),
-    selection: { seed: selection.seed, filters: selection.filters },
-    engines: [],
-    options: { cacheFile, progressEnabled: options.progressEnabled ?? true },
-    summary: result.summary,
-    details: {
-      plugin: pluginDescriptor(plugin),
-      result: { ...result, report: { logs, evidence: result.report } },
-    },
-  };
+      output: { reportFile, cacheFile },
+      flags: {
+        ...(selection.maxAssets === null ? {} : { 'max-assets': selection.maxAssets }),
+        seed: selection.seed,
+      },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      log: (message) => {
+        logs.push(message);
+        if (options.progressEnabled === false) return;
+        if (process.stderr.isTTY) {
+          progress.onMessage(message);
+          return;
+        }
+        process.stdout.write(`[bench study:${studyId}] ${message}\n`);
+      },
+    });
 
-  await writeReportWithSnapshot(reportFile, report);
-  return { reportFile, report };
+    const pass = passedVerdict(`Study ${studyId} completed.`);
+    const regression: BenchmarkVerdict = {
+      status: 'unavailable',
+      description: 'This study has no plugin-defined cross-run regression check.',
+    };
+    const report: StudyReport = {
+      kind: 'study-report',
+      schemaVersion: REPORT_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      status: 'passed',
+      verdicts: { pass, regression },
+      benchmark: {
+        name: `Study: ${plugin.id}`,
+        description:
+          'Records evidence for a focused scanner-policy study. This report answers the study-specific policy question described by the plugin. Start with the study-defined `summary`, then inspect `details` for the evidence rows, sampled assets, and parameter variations that produced the recommendation.',
+      },
+      command: { name: 'study', argv: process.argv.slice(2) },
+      repo: await readRepoMetadata(repoRoot),
+      corpus: await buildReportCorpus({
+        repoRoot,
+        assets,
+      }),
+      selection: { seed: selection.seed, filters: selection.filters },
+      engines: [],
+      options: { cacheFile, progressEnabled: options.progressEnabled ?? true },
+      summary: result.summary,
+      details: {
+        plugin: pluginDescriptor(plugin),
+        result: { ...result, report: { logs, evidence: result.report } },
+      },
+    };
+
+    await writeReportWithSnapshot(reportFile, report);
+    return { reportFile, report };
+  } finally {
+    progress.stop();
+  }
 };
 
 const pluginDescriptor = (plugin: StudyPlugin) => ({

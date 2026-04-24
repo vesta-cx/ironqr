@@ -26,6 +26,10 @@ export const printPerformanceSummary = (result: PerformanceBenchmarkResult): voi
   printScalar('status', result.report.status);
   printScalar('pass', result.report.summary.pass.status);
   printScalar('regression', result.report.summary.regression.status);
+  if (result.report.summary.partial) {
+    printScalar('partialReason', result.report.summary.partial.reason);
+    printScalar('pendingJobs', result.report.summary.partial.pendingJobCount);
+  }
   printTable(
     'engines',
     ['engine', 'samples', 'p50', 'p95', 'p99', 'avg', 'throughput'],

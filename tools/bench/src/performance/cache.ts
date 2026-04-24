@@ -52,7 +52,7 @@ export const performanceOptionsKey = (input: {
   readonly iterations: number;
   readonly seed: string | null;
   readonly filters: Record<string, unknown>;
-}): string => JSON.stringify({ timingMetricVersion: 1, ...input });
+}): string => JSON.stringify({ timingMetricVersion: 2, metricsMode: 'spans', ...input });
 
 export const openPerformanceCacheStore = async (
   file: string,

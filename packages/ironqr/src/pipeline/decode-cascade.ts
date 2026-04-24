@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import type { ScanResult } from '../contracts/scan.js';
+import type { ScanMetricsSink, ScanResult, ScanTimingSpanName } from '../contracts/scan.js';
 import { decodeGridLogical } from '../qr/decode-grid.js';
 import { ScannerError } from '../qr/errors.js';
 import {
@@ -71,6 +71,8 @@ export interface DecodeCascadeSuccess {
 export interface DecodeCascadeOptions {
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
+  /** Optional metrics sink. */
+  readonly metricsSink?: ScanMetricsSink;
   /** One-based global proposal rank within the current scan. */
   readonly proposalRank?: number;
   /** Score of the strongest globally ranked proposal in the current scan. */
@@ -123,8 +125,14 @@ export const runDecodeCascade = (
 ): Effect.Effect<DecodeCascadeSuccess | null, ScannerError> => {
   return Effect.gen(function* () {
     const traceOptions = options.traceSink ? { traceSink: options.traceSink } : {};
+    const geometryStartedAt = nowMs();
     const geometryCandidates =
       options.initialGeometryCandidates ?? createGeometryCandidates(proposal, traceOptions);
+    recordTimingSpan(options.metricsSink, 'geometry', geometryStartedAt, {
+      proposalId: proposal.id,
+      candidateCount: geometryCandidates.length,
+      cached: options.initialGeometryCandidates !== undefined,
+    });
     if (options.initialGeometryCandidates !== undefined) {
       emitGeometryCandidates(options.initialGeometryCandidates, options.traceSink);
     }
@@ -458,6 +466,15 @@ const pointProjectsInsideImage = (x: number, y: number, width: number, height: n
     y >= 0 &&
     y <= height - 1
   );
+};
+
+const recordTimingSpan = (
+  metricsSink: ScanMetricsSink | undefined,
+  name: ScanTimingSpanName,
+  startedAtMs: number,
+  metadata: Record<string, unknown>,
+): void => {
+  metricsSink?.record({ name, startedAtMs, durationMs: nowMs() - startedAtMs, metadata });
 };
 
 const nowMs = (): number => performance.now();

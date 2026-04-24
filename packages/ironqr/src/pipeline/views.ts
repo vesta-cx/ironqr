@@ -1,3 +1,4 @@
+import type { ScanMetricsSink, ScanTimingSpanName } from '../contracts/scan.js';
 import {
   getOklabPlanes,
   type NormalizedImage,
@@ -106,6 +107,8 @@ export interface ViewBank {
 export interface ViewBankOptions {
   /** Optional trace sink used to report view materialization. */
   readonly traceSink?: TraceSink;
+  /** Optional metrics sink used to report first materialization timing. */
+  readonly metricsSink?: ScanMetricsSink;
 }
 
 /**
@@ -126,10 +129,10 @@ export const createViewBank = (image: NormalizedImage, options: ViewBankOptions 
 
   return {
     getScalarView(id) {
-      return getOrBuildScalarView(image, id, options.traceSink);
+      return getOrBuildScalarView(image, id, options.traceSink, options.metricsSink);
     },
     getBinaryView(id) {
-      return getOrBuildBinaryView(image, id, options.traceSink);
+      return getOrBuildBinaryView(image, id, options.traceSink, options.metricsSink);
     },
     listScalarViewIds() {
       return [...scalarIds];
@@ -361,12 +364,20 @@ const getOrBuildScalarView = (
   image: NormalizedImage,
   id: ScalarViewId,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
 ): ScalarView => {
   const cached = image.derivedViews.scalarViews.get(id);
   if (isScalarView(cached, id)) return cached;
 
+  const startedAtMs = nowMs();
   const view = buildScalarView(image, id);
   image.derivedViews.scalarViews.set(id, view);
+  recordTimingSpan(metricsSink, 'scalar-view', startedAtMs, {
+    scalarViewId: view.id,
+    width: view.width,
+    height: view.height,
+    family: view.family,
+  });
   traceSink?.emit({
     type: 'scalar-view-built',
     scalarViewId: view.id,
@@ -381,12 +392,14 @@ const getOrBuildBinaryView = (
   image: NormalizedImage,
   id: BinaryViewId,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
 ): BinaryView => {
   const cached = image.derivedViews.binaryViews.get(id);
   if (isBinaryView(cached, id)) return cached;
 
+  const startedAtMs = nowMs();
   const [scalarViewId, threshold, polarity] = parseBinaryViewId(id);
-  const scalarView = getOrBuildScalarView(image, scalarViewId, traceSink);
+  const scalarView = getOrBuildScalarView(image, scalarViewId, traceSink, metricsSink);
   const thresholded =
     threshold === 'otsu'
       ? otsuBinarize(scalarView.values, scalarView.width, scalarView.height)
@@ -406,6 +419,14 @@ const getOrBuildBinaryView = (
   } satisfies BinaryView;
 
   image.derivedViews.binaryViews.set(id, view);
+  recordTimingSpan(metricsSink, 'binary-view', startedAtMs, {
+    binaryViewId: view.id,
+    scalarViewId: view.scalarViewId,
+    threshold: view.threshold,
+    polarity: view.polarity,
+    width: view.width,
+    height: view.height,
+  });
   traceSink?.emit({
     type: 'binary-view-built',
     binaryViewId: view.id,
@@ -473,6 +494,17 @@ const encodeOklabValue = (id: ScalarViewId, planes: OklabPlanes, index: number):
   if (id === 'oklab+b') return clampByte(128 + (planes.b[index] ?? 0) * SIGNED_OKLAB_SCALE);
   return clampByte(128 - (planes.b[index] ?? 0) * SIGNED_OKLAB_SCALE);
 };
+
+const recordTimingSpan = (
+  metricsSink: ScanMetricsSink | undefined,
+  name: ScanTimingSpanName,
+  startedAtMs: number,
+  metadata: Record<string, unknown>,
+): void => {
+  metricsSink?.record({ name, startedAtMs, durationMs: nowMs() - startedAtMs, metadata });
+};
+
+const nowMs = (): number => performance.now();
 
 const parseBinaryViewId = (id: BinaryViewId): [ScalarViewId, ThresholdMethod, BinaryPolarity] => {
   const parts = id.split(':');

@@ -377,6 +377,7 @@ const runPerformance = async (
       ...(options.refreshCacheEngineId ? { refreshEngineId: options.refreshCacheEngineId } : {}),
     },
     progress: { enabled: options.progressEnabled },
+    ...(control === undefined ? {} : { signal: control.signal, requestStop: control.requestStop }),
     selection: {
       seed: seed ?? null,
       assetIds: options.assetIds,
@@ -391,6 +392,7 @@ const runPerformance = async (
   });
   printPerformanceSummary(result);
   await writePerformanceReport(result);
+  if (result.report.status === 'errored') process.exitCode = 1;
 };
 
 const runStudy = async (
@@ -414,6 +416,7 @@ const runStudy = async (
     labels: options.labels,
     ...(options.maxAssets === undefined ? {} : { maxAssets: options.maxAssets }),
     ...(options.seed === undefined ? {} : { seed: options.seed }),
+    ...(control === undefined ? {} : { signal: control.signal, requestStop: control.requestStop }),
   });
   console.log(`studyReport: ${JSON.stringify(result.reportFile)}`);
 };

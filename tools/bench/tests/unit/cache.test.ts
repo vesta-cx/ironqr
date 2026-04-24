@@ -4,6 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { openAccuracyCacheStore } from '../../src/accuracy/cache.js';
 import type { AccuracyEngine, CorpusBenchAsset } from '../../src/accuracy/types.js';
+import {
+  openPerformanceCacheStore,
+  type PerformanceCacheKey,
+  performanceOptionsKey,
+} from '../../src/performance/cache.js';
+import type { PerformanceIterationResult } from '../../src/performance/runner.js';
 
 const tempDirs: string[] = [];
 
@@ -287,5 +293,90 @@ describe('accuracy cache', () => {
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
     expect(secondStore.read(cacheableEngine, asset, 'default')).toBeNull();
+  });
+});
+
+describe('performance cache', () => {
+  it('returns hits as cached results so performance can skip scan work', async () => {
+    const file = await makeTempFile();
+    const optionsKey = performanceOptionsKey({
+      iterations: 1,
+      seed: 'cache-smoke',
+      filters: { maxAssets: 1 },
+    });
+    const key: PerformanceCacheKey = {
+      engineId: 'ironqr',
+      engineVersion: 'live-pass-v1',
+      assetId: asset.id,
+      assetSha256: asset.sha256,
+      iteration: 1,
+      optionsKey,
+    };
+    const result: PerformanceIterationResult = {
+      iteration: 1,
+      assetId: asset.id,
+      label: asset.label,
+      engineId: 'ironqr',
+      outcome: 'pass',
+      bucket: 'pos-pass',
+      imageLoadDurationMs: 2,
+      warmupDurationMs: null,
+      engineScanDurationMs: 10,
+      totalJobDurationMs: 12,
+      cached: false,
+      ironqrSpans: [{ name: 'normalize', durationMs: 1 }],
+    };
+
+    const firstStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    await firstStore.write(key, result);
+    await firstStore.save();
+
+    const secondStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    const hit = secondStore.read(key);
+
+    expect(hit).toMatchObject({ cached: true, engineScanDurationMs: 10 });
+    expect(hit?.ironqrSpans?.[0]?.name).toBe('normalize');
+    expect(secondStore.summary()).toMatchObject({ hits: 1, misses: 0, writes: 0 });
+  });
+
+  it('can refresh one performance cache engine without evicting other engines', async () => {
+    const file = await makeTempFile();
+    const optionsKey = performanceOptionsKey({ iterations: 1, seed: null, filters: {} });
+    const makeKey = (engineId: string): PerformanceCacheKey => ({
+      engineId,
+      engineVersion: 'adapter-v1',
+      assetId: asset.id,
+      assetSha256: asset.sha256,
+      iteration: 1,
+      optionsKey,
+    });
+    const makeResult = (engineId: string): PerformanceIterationResult => ({
+      iteration: 1,
+      assetId: asset.id,
+      label: asset.label,
+      engineId,
+      outcome: 'pass',
+      bucket: 'pos-pass',
+      imageLoadDurationMs: 1,
+      warmupDurationMs: null,
+      engineScanDurationMs: 5,
+      totalJobDurationMs: 6,
+      cached: false,
+    });
+
+    const firstStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    await firstStore.write(makeKey('ironqr'), makeResult('ironqr'));
+    await firstStore.write(makeKey('jsqr'), makeResult('jsqr'));
+    await firstStore.save();
+
+    const refreshedStore = await openPerformanceCacheStore(file, {
+      enabled: true,
+      refresh: false,
+      refreshEngineId: 'ironqr',
+    });
+
+    expect(refreshedStore.read(makeKey('ironqr'))).toBeNull();
+    expect(refreshedStore.read(makeKey('jsqr'))?.cached).toBe(true);
+    expect(refreshedStore.summary()).toMatchObject({ hits: 1, misses: 1, writes: 0 });
   });
 });

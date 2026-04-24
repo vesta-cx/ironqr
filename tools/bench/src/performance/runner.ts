@@ -1,26 +1,25 @@
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { scanFrame } from '../../../../packages/ironqr/src/index.js';
-import type {
-  ScanTimingDetails,
-  ScanTimingSummary,
-} from '../../../../packages/ironqr/src/pipeline/scan.js';
-import { describeAccuracyEngine } from '../accuracy/engines.js';
-import { resolveAccuracyEngines, runAccuracyBenchmark } from '../accuracy/runner.js';
-import type { AccuracyAssetResult, EngineAssetResult } from '../accuracy/types.js';
+import type { ScanTimingSpan } from '../../../../packages/ironqr/src/contracts/scan.js';
+import { describeAccuracyEngine, resolveAccuracyEngines } from '../accuracy/engines.js';
+import { expectedTextsFor, scoreNegativeScan, scorePositiveScan } from '../accuracy/scoring.js';
+import type { AccuracyEngine, AccuracyScanResult, EngineAssetResult } from '../accuracy/types.js';
+import { type BenchCorpusAsset, loadBenchCorpusAssets } from '../core/corpus.js';
 import { type BenchOutcomeBucket, bucketForOutcome, emptyBucketCounts } from '../core/outcome.js';
 import {
   type BenchmarkVerdict,
   type BenchReportEnvelope,
   buildReportCorpus,
   failedVerdict,
+  type PartialRunSummary,
   passedVerdict,
   REPORT_SCHEMA_VERSION,
   readRepoMetadata,
   unavailableVerdict,
 } from '../core/reports.js';
-import { readBenchImage } from '../shared/image.js';
+import { mapConcurrentPartial } from '../core/runner.js';
+import { createBenchProgressReporter } from '../ui/progress.js';
 import {
   getDefaultPerformanceCachePath,
   openPerformanceCacheStore,
@@ -43,6 +42,8 @@ export interface PerformanceBenchmarkOptions {
   readonly progress?: {
     readonly enabled?: boolean;
   };
+  readonly signal?: AbortSignal;
+  readonly requestStop?: () => void;
   readonly selection?: {
     readonly seed?: string | null;
     readonly assetIds?: readonly string[];
@@ -67,7 +68,7 @@ export interface PerformanceEngineSummary {
 export interface PerformanceIterationResult {
   readonly iteration: number;
   readonly assetId: string;
-  readonly label: AccuracyAssetResult['label'];
+  readonly label: BenchCorpusAsset['label'];
   readonly engineId: string;
   readonly outcome: EngineAssetResult['outcome'];
   readonly bucket: BenchOutcomeBucket;
@@ -76,6 +77,7 @@ export interface PerformanceIterationResult {
   readonly engineScanDurationMs: number;
   readonly totalJobDurationMs: number;
   readonly cached: boolean;
+  readonly ironqrSpans?: readonly ScanTimingSpan[];
 }
 
 export interface TimingSummary {
@@ -126,11 +128,12 @@ export interface PerformanceReportSummary {
     readonly misses: number;
     readonly writes: number;
   };
+  readonly partial: PartialRunSummary | null;
 }
 
 export interface PerformanceWarmupResult {
   readonly assetId: string;
-  readonly label: AccuracyAssetResult['label'];
+  readonly label: BenchCorpusAsset['label'];
   readonly engineId: string;
   readonly outcome: EngineAssetResult['outcome'];
   readonly warmupDurationMs: number;
@@ -143,6 +146,7 @@ export interface PerformanceReportDetails {
   readonly warmups: readonly PerformanceWarmupResult[];
   readonly assets: readonly PerformanceIterationResult[];
   readonly ironqrProfile: IronqrPerformanceProfile | null;
+  readonly partial: PartialRunSummary | null;
 }
 
 export type PerformanceReport = BenchReportEnvelope<
@@ -161,6 +165,18 @@ export const getDefaultPerformanceReportPath = (repoRoot: string): string => {
 };
 
 export { getDefaultPerformanceCachePath };
+
+const MAX_PERFORMANCE_WORKERS = 8;
+
+const resolvePerformanceWorkerCount = (requested?: number): number => {
+  if (requested === undefined) return 4;
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > MAX_PERFORMANCE_WORKERS) {
+    throw new Error(
+      `Performance worker count must be an integer from 1 to ${MAX_PERFORMANCE_WORKERS}, got ${requested}`,
+    );
+  }
+  return requested;
+};
 
 const resolvePerformanceSelection = (
   selection: PerformanceBenchmarkOptions['selection'] = {},
@@ -203,14 +219,37 @@ export const runPerformanceBenchmark = async (
   }
 
   const selection = resolvePerformanceSelection(options.selection);
+  const corpus = await loadBenchCorpusAssets(repoRoot, {
+    assetIds: selection.assetIds,
+    labels: selection.labels,
+    maxAssets: selection.maxAssets,
+    seed: selection.seed,
+  });
+  const assets = corpus.assets;
   const engines = resolveAccuracyEngines();
-  const warmupResults = await runPerformanceWarmup(
-    repoRoot,
-    reportFile,
-    engines,
-    selection,
-    options,
+  const workerCount = resolvePerformanceWorkerCount(options.workers);
+  const progress = createBenchProgressReporter({
+    commandName: 'performance',
+    enabled: options.progress?.enabled ?? true,
+    ...(options.requestStop === undefined ? {} : { requestStop: options.requestStop }),
+  });
+  progress.onManifestStarted();
+  progress.onManifestLoaded(
+    assets.length,
+    engines.map((engine) => engine.id),
+    options.cache?.enabled ?? true,
+    { positiveCount: corpus.positiveCount, negativeCount: corpus.negativeCount },
   );
+  progress.onAssetsStarted(assets.length);
+  for (const [index, asset] of assets.entries()) {
+    progress.onAssetPrepared(asset.id, index + 1, assets.length);
+  }
+  progress.onBenchmarkStarted(
+    assets.length * iterations,
+    engines.map((engine) => engine.id),
+    workerCount,
+  );
+
   const cache = await openPerformanceCacheStore(
     options.cache?.file ?? getDefaultPerformanceCachePath(repoRoot),
     {
@@ -224,80 +263,105 @@ export const runPerformanceBenchmark = async (
     seed: selection.seed,
     filters: selection.filters,
   });
-  const iterationResults: PerformanceIterationResult[] = [];
-  let lastAssets: readonly AccuracyAssetResult[] = [];
-  let cacheSummary = cache.summary();
 
-  for (let iteration = 1; iteration <= iterations; iteration += 1) {
-    const accuracy = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
-      cache: {
-        enabled: false,
-        refresh: true,
-        disabledEngineIds: [],
-        refreshEngineIds: [],
-      },
-      progress: { enabled: false },
-      execution: options.workers === undefined ? {} : { workers: options.workers },
-      selection: {
-        assetIds: selection.assetIds,
-        labels: selection.labels,
-        ...(selection.maxAssets === null ? {} : { maxAssets: selection.maxAssets }),
-        ...(selection.seed === null ? {} : { seed: selection.seed }),
-      },
-    });
-    lastAssets = accuracy.assets;
-    for (const asset of accuracy.assets) {
-      for (const result of asset.results) {
+  let warmupResults: readonly PerformanceWarmupResult[] = [];
+  let iterationResults: readonly PerformanceIterationResult[] = [];
+  let partial: PartialRunSummary | undefined;
+  let status: PerformanceReport['status'] = 'passed';
+
+  try {
+    warmupResults = await runPerformanceWarmup(engines, assets, progress);
+    const jobs = buildPerformanceJobs(iterations, assets, engines);
+    const partialRun = await mapConcurrentPartial(
+      jobs,
+      workerCount,
+      async (job): Promise<PerformanceIterationResult> => {
         const key = {
-          engineId: result.engineId,
-          engineVersion: engineVersion(engines, result.engineId),
-          assetId: asset.assetId,
-          assetSha256: asset.sha256,
-          iteration,
+          engineId: job.engine.id,
+          engineVersion: job.engine.cache.version,
+          assetId: job.asset.id,
+          assetSha256: job.asset.sha256,
+          iteration: job.iteration,
           optionsKey,
         };
         const cached = cache.read(key);
         if (cached) {
-          iterationResults.push(cached);
-          continue;
+          progress.onScanStarted({
+            engineId: job.engine.id,
+            assetId: job.asset.id,
+            relativePath: job.asset.relativePath,
+            label: job.asset.label,
+            cached: true,
+            cacheable: true,
+          });
+          progress.onScanFinished({
+            engineId: job.engine.id,
+            assetId: job.asset.id,
+            relativePath: job.asset.relativePath,
+            result: iterationResultToEngineResult(cached),
+            wroteToCache: false,
+          });
+          return cached;
         }
+
+        const measured = await scanPerformanceJob(job.asset, job.engine, progress);
         const iterationResult = {
-          iteration,
-          assetId: asset.assetId,
-          label: asset.label,
-          engineId: result.engineId,
-          outcome: result.outcome,
-          bucket: bucketForOutcome(asset.label, result.outcome),
-          imageLoadDurationMs: result.imageLoadDurationMs,
+          iteration: job.iteration,
+          assetId: job.asset.id,
+          label: job.asset.label,
+          engineId: job.engine.id,
+          outcome: measured.result.outcome,
+          bucket: bucketForOutcome(job.asset.label, measured.result.outcome),
+          imageLoadDurationMs: measured.result.imageLoadDurationMs,
           warmupDurationMs: null,
-          engineScanDurationMs: result.durationMs,
-          totalJobDurationMs: result.totalJobDurationMs,
+          engineScanDurationMs: measured.result.durationMs,
+          totalJobDurationMs: measured.result.totalJobDurationMs,
           cached: false,
+          ...(measured.ironqrSpans.length === 0 ? {} : { ironqrSpans: measured.ironqrSpans }),
         } satisfies PerformanceIterationResult;
-        iterationResults.push(iterationResult);
         await cache.write(key, iterationResult);
-      }
+        return iterationResult;
+      },
+      options.signal === undefined ? {} : { signal: options.signal },
+    );
+    iterationResults = partialRun.completed;
+    if (partialRun.interrupted || partialRun.error !== null) {
+      status = partialRun.interrupted ? 'interrupted' : 'errored';
+      partial = {
+        reason: partialRun.interrupted
+          ? interruptedReason(options.signal)
+          : String(partialRun.error),
+        completedAssetCount: new Set(iterationResults.map((result) => result.assetId)).size,
+        pendingAssetCount: Math.ceil(partialRun.pendingCount / engines.length),
+        completedJobCount: partialRun.completedCount,
+        pendingJobCount: partialRun.pendingCount,
+      };
     }
+  } finally {
+    await cache.save();
+    progress.stop();
   }
 
-  await cache.save();
-  cacheSummary = cache.summary();
-
+  const cacheSummary = cache.summary();
   const summaries = engines.map((engine) =>
     summarizePerformanceEngine(engine.id, iterationResults),
   );
   const ironqr = summaries.find((summary) => summary.engineId === 'ironqr');
   if (!ironqr) throw new Error('Missing ironqr performance summary');
   const baselines = summaries.filter((summary) => summary.engineId !== 'ironqr');
-  const ironqrProfile = await buildIronqrProfile(repoRoot, lastAssets);
-  const pass = buildPerformancePassVerdict(ironqr, baselines);
-  const regression = await buildPerformanceRegressionVerdict(reportFile, ironqr);
+  const ironqrProfile = buildIronqrProfile(iterationResults);
+  const pass = partial
+    ? unavailableVerdict(`Performance benchmark ended early: ${partial.reason}`)
+    : buildPerformancePassVerdict(ironqr, baselines);
+  const regression = partial
+    ? unavailableVerdict('Partial performance reports are not comparable for regression checks.')
+    : await buildPerformanceRegressionVerdict(reportFile, ironqr);
 
   const report: PerformanceReport = {
     kind: 'performance-report',
     schemaVersion: REPORT_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    status: pass.status === 'failed' ? 'failed' : 'passed',
+    status: partial ? status : pass.status === 'failed' ? 'failed' : 'passed',
     verdicts: { pass, regression },
     benchmark: {
       name: 'Performance Benchmark',
@@ -306,18 +370,19 @@ export const runPerformanceBenchmark = async (
     },
     command: { name: 'performance', argv: process.argv.slice(2) },
     repo: await readRepoMetadata(repoRoot),
-    corpus: await buildReportCorpus({ repoRoot, assets: lastAssets }),
-    selection: {
-      seed: selection.seed,
-      filters: selection.filters,
-    },
+    corpus: await buildReportCorpus({ repoRoot, assets }),
+    selection: { seed: selection.seed, filters: selection.filters },
     engines: engines.map((engine) => ({
       id: engine.id,
       adapterVersion: engine.cache.version,
       packageName: engine.id,
       runtimeVersion: describeAccuracyEngine(engine).capabilities.runtime,
     })),
-    options: { iterations, workers: options.workers ?? null, warmup: { assetCount: 1 } },
+    options: {
+      iterations,
+      workers: workerCount,
+      warmup: { assetCount: Math.min(1, assets.length) },
+    },
     summary: {
       ironqr,
       baselines,
@@ -344,105 +409,238 @@ export const runPerformanceBenchmark = async (
       pass,
       regression,
       cache: cacheSummary,
+      partial: partial ?? null,
     },
     details: {
       engines: summaries,
       warmups: warmupResults,
       assets: iterationResults,
       ironqrProfile,
+      partial: partial ?? null,
     },
   };
 
   return { reportFile, report };
 };
 
+interface PerformanceJob {
+  readonly iteration: number;
+  readonly asset: BenchCorpusAsset;
+  readonly engine: AccuracyEngine;
+}
+
 const runPerformanceWarmup = async (
-  repoRoot: string,
-  reportFile: string,
-  engines: ReturnType<typeof resolveAccuracyEngines>,
-  selection: ReturnType<typeof resolvePerformanceSelection>,
-  options: PerformanceBenchmarkOptions,
+  engines: readonly AccuracyEngine[],
+  assets: readonly BenchCorpusAsset[],
+  progress: ReturnType<typeof createBenchProgressReporter>,
 ): Promise<readonly PerformanceWarmupResult[]> => {
-  const warmupSeed = `${selection.seed ?? crypto.randomUUID()}:warmup`;
-  const warmup = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
-    cache: { enabled: false, refresh: true },
-    progress: { enabled: false },
-    execution: options.workers === undefined ? {} : { workers: options.workers },
-    selection: {
-      assetIds: selection.assetIds,
-      labels: selection.labels,
-      maxAssets: 1,
-      seed: warmupSeed,
-    },
-  });
-  return warmup.assets.flatMap((asset) =>
-    asset.results.map((result) => ({
-      assetId: asset.assetId,
-      label: asset.label,
-      engineId: result.engineId,
-      outcome: result.outcome,
-      warmupDurationMs: result.durationMs,
-      imageLoadDurationMs: result.imageLoadDurationMs,
-      totalJobDurationMs: result.totalJobDurationMs,
-    })),
+  if (assets.length === 0) return [];
+  const warmupAssets = loadWarmupAssets(assets);
+  return Promise.all(
+    engines.map(async (engine) => {
+      const asset = warmupAssets[0];
+      if (!asset) throw new Error('Performance warmup requires at least one asset');
+      const measured = await scanPerformanceJob(asset, engine, progress);
+      return {
+        assetId: asset.id,
+        label: asset.label,
+        engineId: engine.id,
+        outcome: measured.result.outcome,
+        warmupDurationMs: measured.result.durationMs,
+        imageLoadDurationMs: measured.result.imageLoadDurationMs,
+        totalJobDurationMs: measured.result.totalJobDurationMs,
+      } satisfies PerformanceWarmupResult;
+    }),
   );
 };
 
-const engineVersion = (
-  engines: ReturnType<typeof resolveAccuracyEngines>,
-  engineId: string,
-): string => {
-  return engines.find((engine) => engine.id === engineId)?.cache.version ?? 'unknown';
+const loadWarmupAssets = (assets: readonly BenchCorpusAsset[]): readonly BenchCorpusAsset[] =>
+  assets.slice(0, 1);
+
+const buildPerformanceJobs = (
+  iterations: number,
+  assets: readonly BenchCorpusAsset[],
+  engines: readonly AccuracyEngine[],
+): readonly PerformanceJob[] => {
+  const jobs: PerformanceJob[] = [];
+  for (let iteration = 1; iteration <= iterations; iteration += 1) {
+    for (const asset of assets) {
+      for (const engine of engines) jobs.push({ iteration, asset, engine });
+    }
+  }
+  return jobs;
 };
 
-const buildIronqrProfile = async (
-  repoRoot: string,
-  assets: readonly AccuracyAssetResult[],
-): Promise<IronqrPerformanceProfile | null> => {
-  if (assets.length === 0) return null;
-  const stageTimings = {
-    total: [] as number[],
-    normalize: [] as number[],
-    proposalGeneration: [] as number[],
-    ranking: [] as number[],
-    clustering: [] as number[],
-    clusterProcessing: [] as number[],
-    decodeAttempts: [] as number[],
-  } satisfies Record<string, number[]>;
+const scanPerformanceJob = async (
+  asset: BenchCorpusAsset,
+  engine: AccuracyEngine,
+  progress: ReturnType<typeof createBenchProgressReporter>,
+): Promise<{
+  readonly result: EngineAssetResult;
+  readonly ironqrSpans: readonly ScanTimingSpan[];
+}> => {
+  progress.onScanStarted({
+    engineId: engine.id,
+    assetId: asset.id,
+    relativePath: asset.relativePath,
+    label: asset.label,
+    cached: false,
+    cacheable: false,
+  });
+  const spans: ScanTimingSpan[] = [];
+  let imageLoadDurationMs: number | null = null;
+  const startedAt = performance.now();
+  const measuredAsset: BenchCorpusAsset = {
+    ...asset,
+    loadImage: async () => {
+      progress.onImageLoadStarted({
+        engineId: engine.id,
+        assetId: asset.id,
+        relativePath: asset.relativePath,
+        label: asset.label,
+      });
+      const imageStartedAt = performance.now();
+      const image = await asset.loadImage();
+      imageLoadDurationMs = round(performance.now() - imageStartedAt);
+      progress.onImageLoadFinished({
+        engineId: engine.id,
+        assetId: asset.id,
+        width: image.width,
+        height: image.height,
+      });
+      return image;
+    },
+  };
+  const scan = await engine.scan(measuredAsset, {
+    ironqrTraceMode: 'off',
+    ...(engine.id === 'ironqr'
+      ? {
+          metricsSink: {
+            record: (span: ScanTimingSpan) => spans.push(span),
+          },
+        }
+      : {}),
+  });
+  const totalJobDurationMs = round(performance.now() - startedAt);
+  const expectedTexts = expectedTextsFor({ expectedTexts: asset.expectedTexts });
+  const result = toEngineAssetResult(
+    engine.id,
+    asset.label,
+    expectedTexts,
+    scan,
+    round(totalJobDurationMs - (imageLoadDurationMs ?? 0)),
+    false,
+    imageLoadDurationMs,
+    totalJobDurationMs,
+  );
+  progress.onScanFinished({
+    engineId: engine.id,
+    assetId: asset.id,
+    relativePath: asset.relativePath,
+    result,
+    wroteToCache: false,
+  });
+  return { result, ironqrSpans: spans };
+};
+
+const toEngineAssetResult = (
+  engineId: string,
+  label: BenchCorpusAsset['label'],
+  expectedTexts: readonly string[],
+  scan: AccuracyScanResult,
+  durationMs: number,
+  cached: boolean,
+  imageLoadDurationMs: number | null,
+  totalJobDurationMs: number,
+): EngineAssetResult => {
+  if (label === 'qr-pos') {
+    const scored = scorePositiveScan(expectedTexts, scan);
+    return {
+      engineId,
+      label,
+      outcome: scored.kind,
+      decodedTexts: scored.decodedTexts,
+      matchedTexts: scored.matchedTexts,
+      failureReason: scored.failureReason,
+      error: scored.error,
+      durationMs,
+      imageLoadDurationMs,
+      totalJobDurationMs,
+      cached,
+      diagnostics: scan.diagnostics ?? null,
+    };
+  }
+
+  const scored = scoreNegativeScan(scan);
+  return {
+    engineId,
+    label,
+    outcome: scored.kind,
+    decodedTexts: scored.decodedTexts,
+    matchedTexts: [],
+    failureReason: scored.failureReason,
+    error: scored.error,
+    durationMs,
+    imageLoadDurationMs,
+    totalJobDurationMs,
+    cached,
+    diagnostics: scan.diagnostics ?? null,
+  };
+};
+
+const iterationResultToEngineResult = (result: PerformanceIterationResult): EngineAssetResult => ({
+  engineId: result.engineId,
+  label: result.label,
+  outcome: result.outcome,
+  decodedTexts: [],
+  matchedTexts: [],
+  failureReason: null,
+  error: null,
+  durationMs: result.engineScanDurationMs,
+  imageLoadDurationMs: result.imageLoadDurationMs,
+  totalJobDurationMs: result.totalJobDurationMs,
+  cached: result.cached,
+});
+
+const buildIronqrProfile = (
+  results: readonly PerformanceIterationResult[],
+): IronqrPerformanceProfile | null => {
+  const spans = results.flatMap((result) => result.ironqrSpans ?? []);
+  if (spans.length === 0) return null;
+  const stageTimings: Record<string, number[]> = {};
+  const proposalViewTimings: Record<string, number[]> = {};
   const attemptTimings: Record<string, number[]> = {};
   const decodeViewTimings: Record<string, number[]> = {};
   const samplerTimings: Record<string, number[]> = {};
   const refinementTimings: Record<string, number[]> = {};
 
-  for (const asset of assets) {
-    const image = await readBenchImage(path.join(repoRoot, 'corpus', 'data', asset.relativePath));
-    const report = await scanFrame(image, {
-      allowMultiple: asset.expectedTexts.length > 1,
-      observability: { scan: { timings: 'full' } },
-    });
-    const timings = report.scan.timings;
-    if (!timings) continue;
-    stageTimings.total.push(timings.totalMs);
-    stageTimings.normalize.push(timings.normalizeFrameMs);
-    stageTimings.proposalGeneration.push(timings.proposalGenerationMs);
-    stageTimings.ranking.push(timings.rankingMs);
-    stageTimings.clustering.push(timings.clusteringMs);
-    stageTimings.clusterProcessing.push(timings.clusterProcessingMs);
-    stageTimings.decodeAttempts.push(timings.decodeAttemptMs);
-    if (hasAttemptTimings(timings)) {
-      for (const attempt of timings.attempts) {
-        const key = `${attempt.decodeBinaryViewId}/${attempt.sampler}/${attempt.refinement}`;
-        pushTiming(attemptTimings, key, attempt.durationMs);
-        pushTiming(decodeViewTimings, attempt.decodeBinaryViewId, attempt.durationMs);
-        pushTiming(samplerTimings, attempt.sampler, attempt.durationMs);
-        pushTiming(refinementTimings, attempt.refinement, attempt.durationMs);
-      }
+  for (const span of spans) {
+    if (span.name === 'proposal-view') {
+      pushTiming(
+        proposalViewTimings,
+        String(span.metadata?.binaryViewId ?? 'unknown'),
+        span.durationMs,
+      );
+      continue;
     }
+    if (span.name === 'decode-attempt') {
+      const decodeView = String(span.metadata?.decodeBinaryViewId ?? 'unknown');
+      const sampler = String(span.metadata?.sampler ?? 'unknown');
+      const refinement = String(span.metadata?.refinement ?? 'unknown');
+      pushTiming(attemptTimings, `${decodeView}/${sampler}/${refinement}`, span.durationMs);
+      pushTiming(decodeViewTimings, decodeView, span.durationMs);
+      pushTiming(samplerTimings, sampler, span.durationMs);
+      pushTiming(refinementTimings, refinement, span.durationMs);
+      continue;
+    }
+    pushTiming(stageTimings, span.name, span.durationMs);
   }
 
   return {
     stages: summarizeTimingRecord(stageTimings).sort((left, right) => right.totalMs - left.totalMs),
-    proposalViews: summarizeTimingRecord({ allProposalViews: stageTimings.proposalGeneration }),
+    proposalViews: summarizeTimingRecord(proposalViewTimings).sort(
+      (left, right) => right.totalMs - left.totalMs,
+    ),
     decodeViews: summarizeTimingRecord(decodeViewTimings).sort(
       (left, right) => right.totalMs - left.totalMs,
     ),
@@ -458,8 +656,13 @@ const buildIronqrProfile = async (
   };
 };
 
-const hasAttemptTimings = (timings: ScanTimingSummary): timings is ScanTimingDetails => {
-  return 'attempts' in timings;
+const interruptedReason = (signal?: AbortSignal): string => {
+  const reason = signal?.reason;
+  return reason instanceof Error
+    ? reason.message
+    : typeof reason === 'string'
+      ? reason
+      : 'Interrupted.';
 };
 
 const pushTiming = (record: Record<string, number[]>, key: string, durationMs: number): void => {

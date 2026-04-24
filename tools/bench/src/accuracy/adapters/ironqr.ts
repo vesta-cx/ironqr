@@ -156,6 +156,7 @@ const scanWithIronqr = async (
     const results = await scanFrame(image, {
       allowMultiple,
       ...(trace === null ? {} : { traceSink: trace }),
+      ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
     });
     const diagnostics = trace === null ? null : summarizeIronqrTrace(trace, traceMode);
     if (results.length === 0) {

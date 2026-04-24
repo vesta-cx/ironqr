@@ -1,5 +1,11 @@
 import { Effect } from 'effect';
-import type { ScanObservabilityOptions, ScanOptions, ScanResult } from '../contracts/scan.js';
+import type {
+  ScanMetricsSink,
+  ScanObservabilityOptions,
+  ScanOptions,
+  ScanResult,
+  ScanTimingSpanName,
+} from '../contracts/scan.js';
 import { ScannerError } from '../qr/errors.js';
 import { clusterRankedProposals } from './clusters.js';
 import {
@@ -39,6 +45,8 @@ import { type BinaryViewId, createViewBank, type ScalarViewId, type ViewBank } f
 export interface ScanRuntimeOptions extends ScanOptions {
   /** Optional typed trace sink for diagnostics, tests, and benchmark harnesses. */
   readonly traceSink?: TraceSink;
+  /** Optional low-overhead timing span sink for performance harnesses. */
+  readonly metricsSink?: ScanMetricsSink;
   /** Optional cooperative scheduler used between proposal-view batches. */
   readonly scheduler?: ScanScheduler;
 }
@@ -395,9 +403,16 @@ const scanFrameExecutionOnce = (
     const normalizeStartedAt = nowMs();
     const image = yield* normalizeImageInput(input);
     const normalizeFrameMs = nowMs() - normalizeStartedAt;
+    recordTimingSpan(options.metricsSink, 'normalize', normalizeStartedAt, {
+      width: image.width,
+      height: image.height,
+    });
     traceSink?.emit({ type: 'scan-started', width: image.width, height: image.height });
 
-    const viewBank = createViewBank(image, traceSink ? { traceSink } : {});
+    const viewBank = createViewBank(image, {
+      ...(traceSink === undefined ? {} : { traceSink }),
+      ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
+    });
 
     const maxProposalsPerView = resolveMaxProposalsPerView(options);
     const maxProposals = normalizeProposalBudget(resolveMaxProposals(options));
@@ -421,6 +436,7 @@ const scanFrameExecutionOnce = (
       generatedProposals,
       maxProposals,
       traceSink,
+      options.metricsSink,
     );
     let stopScanning = false;
     let earlyFrontierPasses = 0;
@@ -429,6 +445,7 @@ const scanFrameExecutionOnce = (
       viewIds: viewBank.listProposalViewIds(),
       ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
       ...(traceSink === undefined ? {} : { traceSink }),
+      ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       scheduler: options.scheduler ?? defaultScanScheduler,
     });
 
@@ -449,7 +466,13 @@ const scanFrameExecutionOnce = (
       }
       earlyFrontierPasses += 1;
 
-      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      latestSnapshot = buildFrontierSnapshot(
+        viewBank,
+        generatedProposals,
+        maxProposals,
+        traceSink,
+        options.metricsSink,
+      );
       rankingMs += latestSnapshot.rankingMs;
       clusteringMs += latestSnapshot.clusteringMs;
 
@@ -458,6 +481,7 @@ const scanFrameExecutionOnce = (
         allowMultiple: false,
         maxNewRepresentatives: 1,
         ...(traceSink === undefined ? {} : { traceSink }),
+        ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
       clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
       stopScanning = processed.stopScanning;
@@ -468,7 +492,13 @@ const scanFrameExecutionOnce = (
     }
 
     if (!stopScanning) {
-      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      latestSnapshot = buildFrontierSnapshot(
+        viewBank,
+        generatedProposals,
+        maxProposals,
+        traceSink,
+        options.metricsSink,
+      );
       rankingMs += latestSnapshot.rankingMs;
       clusteringMs += latestSnapshot.clusteringMs;
 
@@ -477,6 +507,7 @@ const scanFrameExecutionOnce = (
         allowMultiple: options.allowMultiple === true,
         maxNewRepresentatives: Number.POSITIVE_INFINITY,
         ...(traceSink === undefined ? {} : { traceSink }),
+        ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
       clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
       stopScanning = processed.stopScanning;
@@ -536,6 +567,7 @@ const createSequentialProposalBatchSource = (options: {
   readonly viewIds: readonly BinaryViewId[];
   readonly maxProposalsPerView?: number;
   readonly traceSink?: TraceSink;
+  readonly metricsSink?: ScanMetricsSink;
   readonly scheduler: ScanScheduler;
 }): ProposalBatchSource => {
   let index = 0;
@@ -551,11 +583,16 @@ const createSequentialProposalBatchSource = (options: {
         yield* options.scheduler.yieldBeforeProposalView?.(binaryViewId) ?? Effect.void;
         if (cancelled) return null;
 
+        const startedAtMs = nowMs();
         const batch = generateProposalBatchForView(options.viewBank, binaryViewId, {
           ...(options.maxProposalsPerView === undefined
             ? {}
             : { maxProposalsPerView: options.maxProposalsPerView }),
           ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
+        });
+        recordTimingSpan(options.metricsSink, 'proposal-view', startedAtMs, {
+          binaryViewId,
+          proposalCount: batch.proposals.length,
         });
 
         yield* options.scheduler.yieldAfterProposalBatch?.(batch) ?? Effect.void;
@@ -575,6 +612,7 @@ const buildFrontierSnapshot = (
   generatedProposals: readonly ScanProposal[],
   maxProposals: number,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
 ): FrontierSnapshot => {
   const rankingStartedAt = nowMs();
   const rankedProposalCandidates = rankProposalCandidates(
@@ -583,6 +621,9 @@ const buildFrontierSnapshot = (
     traceSink === undefined ? {} : { traceSink },
   );
   const rankingMs = nowMs() - rankingStartedAt;
+  recordTimingSpan(metricsSink, 'ranking', rankingStartedAt, {
+    proposalCount: generatedProposals.length,
+  });
 
   const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
   const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
@@ -600,6 +641,10 @@ const buildFrontierSnapshot = (
     maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
   });
   const clusteringMs = nowMs() - clusteringStartedAt;
+  recordTimingSpan(metricsSink, 'clustering', clusteringStartedAt, {
+    boundedProposalCount: boundedProposals.length,
+    clusterCount: clusters.length,
+  });
 
   const representativeCount = clusters.reduce(
     (sum, cluster) => sum + cluster.representatives.length,
@@ -637,6 +682,7 @@ const processFrontierClusters = (
     readonly allowMultiple: boolean;
     readonly maxNewRepresentatives: number;
     readonly traceSink?: TraceSink;
+    readonly metricsSink?: ScanMetricsSink;
   },
 ): Effect.Effect<ClusterProcessingResult, ScannerError> => {
   return Effect.gen(function* () {
@@ -690,7 +736,15 @@ const processFrontierClusters = (
           binaryViewId: proposal.binaryViewId,
         });
 
+        const structureStartedAt = nowMs();
         const structure = assessProposalStructure(proposal, viewBank);
+        recordTimingSpan(options.metricsSink, 'structure', structureStartedAt, {
+          clusterId: cluster.id,
+          proposalId: proposal.id,
+          proposalRank,
+          passed: structure.passed,
+          score: structure.score,
+        });
         options.traceSink?.emit({
           type: 'proposal-structure-assessed',
           clusterId: cluster.id,
@@ -719,12 +773,22 @@ const processFrontierClusters = (
         const initialGeometryCandidates = snapshot.rankedProposalById.get(
           proposal.id,
         )?.initialGeometryCandidates;
+        const decodeCascadeStartedAt = nowMs();
         const success = yield* runDecodeCascade(proposal, viewBank, {
           ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
+          ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
           ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
           proposalRank,
           topProposalScore: snapshot.topProposalScore,
           onAttemptMeasured: (attempt) => {
+            recordTimingSpan(options.metricsSink, 'decode-attempt', nowMs() - attempt.durationMs, {
+              proposalId: attempt.proposalId,
+              geometryCandidateId: attempt.geometryCandidateId,
+              decodeBinaryViewId: attempt.decodeBinaryViewId,
+              sampler: attempt.sampler,
+              refinement: attempt.refinement,
+              outcome: attempt.outcome,
+            });
             state.attemptRecords.push({
               sequence: state.attemptRecords.length + 1,
               proposalId: attempt.proposalId,
@@ -736,6 +800,11 @@ const processFrontierClusters = (
               durationMs: attempt.durationMs,
             });
           },
+        });
+        recordTimingSpan(options.metricsSink, 'decode-cascade', decodeCascadeStartedAt, {
+          proposalId: proposal.id,
+          proposalRank,
+          outcome: success === null ? 'no-decode' : 'success',
         });
         if (success === null) continue;
         const ranked = toRankedResult(success.result, proposal, success.attempt);
@@ -1106,6 +1175,15 @@ const createInternalTraceArtifacts = (
     counter,
     sink,
   };
+};
+
+const recordTimingSpan = (
+  metricsSink: ScanMetricsSink | undefined,
+  name: ScanTimingSpanName,
+  startedAtMs: number,
+  metadata: Record<string, unknown>,
+): void => {
+  metricsSink?.record({ name, startedAtMs, durationMs: nowMs() - startedAtMs, metadata });
 };
 
 const nowMs = (): number => performance.now();
