@@ -86,7 +86,7 @@ export const ensureCorpusLayout = async (repoRoot: string): Promise<void> => {
 export const readCorpusManifest = (repoRoot: string): Promise<CorpusManifest> =>
   readVersionedJsonFile(
     getCorpusManifestPath(repoRoot),
-    S.decodeUnknownSync(CorpusManifestSchema),
+    S.decodeUnknownSync(CorpusManifestSchema) as (input: unknown) => CorpusManifest,
     { version: MAJOR_VERSION, assets: [] },
   );
 
@@ -121,7 +121,7 @@ export const getCorpusRejectionsPath = (repoRoot: string): string => {
 export const readCorpusRejections = (repoRoot: string): Promise<CorpusRejectionsLog> =>
   readVersionedJsonFile(
     getCorpusRejectionsPath(repoRoot),
-    S.decodeUnknownSync(CorpusRejectionsLogSchema),
+    S.decodeUnknownSync(CorpusRejectionsLogSchema) as (input: unknown) => CorpusRejectionsLog,
     { version: MAJOR_VERSION, rejections: [] },
   );
 
@@ -150,7 +150,7 @@ export const getCorpusScrapeProgressPath = (repoRoot: string): string =>
 export const readScrapeProgress = (repoRoot: string): Promise<ScrapeProgress> =>
   readVersionedJsonFile(
     getCorpusScrapeProgressPath(repoRoot),
-    S.decodeUnknownSync(ScrapeProgressSchema),
+    S.decodeUnknownSync(ScrapeProgressSchema) as (input: unknown) => ScrapeProgress,
     { version: MAJOR_VERSION, visitedSourcePageUrls: [] },
   );
 

@@ -10,6 +10,7 @@ import type {
   StagedRemoteAsset,
 } from './contracts.js';
 import { tryPromise } from './effect.js';
+import { getTrustedPlatformLicense } from './license-trust.js';
 import {
   getAssetImagePath,
   readStagedRemoteAssetsEffect,
@@ -21,7 +22,7 @@ const buildRemoteSource = (
   asset: StagedRemoteAsset,
   options: ImportStagedRemoteAssetsOptions,
 ): RemoteSource => {
-  const license = asset.confirmedLicense ?? options.license;
+  const license = asset.confirmedLicense ?? options.license ?? getTrustedPlatformLicense(asset);
   return {
     kind: 'remote',
     sourcePageUrl: asset.sourcePageUrl,
@@ -42,14 +43,15 @@ const buildLicenseReview = (
   asset: StagedRemoteAsset,
   reviewer?: string,
 ): LicenseReview | undefined => {
-  if (!asset.bestEffortLicense && !asset.licenseEvidenceText && !asset.confirmedLicense) {
+  const confirmedLicense = asset.confirmedLicense ?? getTrustedPlatformLicense(asset);
+  if (!asset.bestEffortLicense && !asset.licenseEvidenceText && !confirmedLicense) {
     return undefined;
   }
 
   return {
     ...(asset.bestEffortLicense ? { bestEffortLicense: asset.bestEffortLicense } : {}),
     ...(asset.licenseEvidenceText ? { licenseEvidenceText: asset.licenseEvidenceText } : {}),
-    ...(asset.confirmedLicense ? { confirmedLicense: asset.confirmedLicense } : {}),
+    ...(confirmedLicense ? { confirmedLicense } : {}),
     ...(reviewer ? { licenseVerifiedBy: reviewer } : {}),
     ...(asset.review.reviewedAt ? { licenseVerifiedAt: asset.review.reviewedAt } : {}),
   };

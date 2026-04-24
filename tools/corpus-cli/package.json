@@ -29,7 +29,9 @@
     "corpus:review": "bun src/cli.ts review",
     "corpus:import": "bun src/cli.ts import",
     "corpus:build-bench": "bun src/cli.ts build-bench",
-    "corpus:scan": "bun src/cli.ts scan-corpus"
+    "corpus:scan": "bun src/cli.ts scan-corpus",
+    "corpus:generate-bases": "bun src/generated/generate-bases.ts",
+    "corpus:generate-distortions": "bun src/generated/generate-distortions.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",

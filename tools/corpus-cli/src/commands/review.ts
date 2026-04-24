@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getOption, type ParsedArgs } from '../args.js';
 import { buildFilteredCliCommand } from '../command-text.js';
 import type { AppContext } from '../context.js';
+import { getTrustedPlatformLicense } from '../import/remote/license-trust.js';
 import {
   resolveStagedAssetPath,
   type StagedRemoteAsset,
@@ -49,6 +50,12 @@ export const runReviewCommand = async (
     reviewer,
     assets: explicitAssets ?? streamStagedRemoteAssets(stageDir),
     promptConfirmedLicense: async (asset, suggestedLicense) => {
+      const trustedLicense = getTrustedPlatformLicense(asset);
+      if (trustedLicense) {
+        context.ui.info(`Trusted platform license for ${asset.id}: ${trustedLicense}`);
+        return trustedLicense;
+      }
+
       if (suggestedLicense) {
         const keep = await context.ui.confirm({
           message: `Keep detected license for ${asset.id}: ${suggestedLicense}?`,
@@ -66,11 +73,17 @@ export const runReviewCommand = async (
       const trimmed = value.trim();
       return trimmed.length > 0 ? trimmed : undefined;
     },
-    promptAllowInCorpus: async (asset) =>
-      context.ui.confirm({
+    promptAllowInCorpus: async (asset) => {
+      if (getTrustedPlatformLicense(asset)) {
+        context.ui.info(`Trusted platform source for ${asset.id}: skipping allow prompt`);
+        return true;
+      }
+
+      return context.ui.confirm({
         message: `Allow ${asset.id} in corpus?`,
         initialValue: true,
-      }),
+      });
+    },
     promptRejectReason: async (_) => {
       const choice = await context.ui.select<string>({
         message: 'Rejection reason',
@@ -123,7 +136,9 @@ export const runReviewCommand = async (
   context.ui.info(
     `Review complete: ${summary.approved} approved, ${summary.rejected} rejected, ${summary.skipped} skipped`,
   );
-  context.ui.info(`Next: ${buildFilteredCliCommand('import', [stageDir])}`);
+  if (summary.approved > 0) {
+    context.ui.info(`Next: ${buildFilteredCliCommand('import', [stageDir])}`);
+  }
 
   return {
     stageDir: path.resolve(stageDir),

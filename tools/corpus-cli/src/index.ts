@@ -6,6 +6,7 @@ export {
   writeRealWorldBenchmarkCorpus,
   writeSelectedRealWorldBenchmarkFixture,
 } from './export/benchmark.js';
+export { readGeneratedCorpusManifest, writeGeneratedCorpusManifest } from './generated/manifest.js';
 export { importLocalAssets } from './import/local.js';
 export {
   importStagedRemoteAssets,

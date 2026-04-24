@@ -101,6 +101,63 @@ export const LicenseReviewSchema = S.Struct({
 /** License review metadata for a corpus asset, including confirmed license and verifier. */
 export type LicenseReview = S.Schema.Type<typeof LicenseReviewSchema>;
 
+const SyntheticScalarSchema = S.Union([S.String, S.Number, S.Boolean]);
+
+/** Schema for the appearance settings used to render a generated QR asset. */
+export const SyntheticAppearanceSchema = S.Struct({
+  errorCorrection: S.String,
+  pixelSize: S.Number,
+  moduleStyle: S.String,
+  capStyle: S.String,
+  connectionMode: S.String,
+  dotSize: S.Number,
+  fgColor: S.String,
+  bgColor: S.String,
+  themeId: S.optional(S.String),
+  frameText: S.optional(S.String),
+  quietZoneModules: S.optional(S.Number),
+});
+/** Appearance settings used to render a generated QR asset. */
+export type SyntheticAppearance = S.Schema.Type<typeof SyntheticAppearanceSchema>;
+
+/** Schema for a single transformation applied to a generated QR asset. */
+export const SyntheticTransformationSchema = S.Struct({
+  kind: S.String,
+  recipeId: S.optional(S.String),
+  axis: S.optional(S.String),
+  direction: S.optional(S.String),
+  amount: S.optional(S.Number),
+  mode: S.optional(S.String),
+  opacity: S.optional(S.Number),
+  scale: S.optional(S.Number),
+  offsetX: S.optional(S.Number),
+  offsetY: S.optional(S.Number),
+  quality: S.optional(S.Number),
+  backgroundAssetId: S.optional(S.String),
+  backgroundAssetPath: S.optional(S.String),
+  parameters: S.optional(S.Record(S.String, SyntheticScalarSchema)),
+});
+/** A single transformation applied to a generated QR asset. */
+export type SyntheticTransformation = S.Schema.Type<typeof SyntheticTransformationSchema>;
+
+/** Schema for metadata attached to generated QR assets and their derived variants. */
+export const SyntheticAssetMetadataSchema = S.Struct({
+  source: S.Literal('generated'),
+  generator: S.String,
+  generatorVersion: S.optional(S.String),
+  variantKind: S.Literals(['base', 'derived']),
+  seed: S.String,
+  payloadType: S.String,
+  payloadFields: S.Record(S.String, SyntheticScalarSchema),
+  encodedData: S.String,
+  appearance: SyntheticAppearanceSchema,
+  transformations: S.Array(SyntheticTransformationSchema),
+  recipeId: S.optional(S.String),
+  parentAssetIds: S.optional(S.Array(S.String)),
+});
+/** Metadata attached to generated QR assets and their derived variants. */
+export type SyntheticAssetMetadata = S.Schema.Type<typeof SyntheticAssetMetadataSchema>;
+
 /** Schema for a single corpus asset entry in the manifest. */
 export const CorpusAssetSchema = S.Struct({
   id: S.String,
@@ -118,6 +175,7 @@ export const CorpusAssetSchema = S.Struct({
   groundTruth: S.optional(GroundTruthSchema),
   autoScan: S.optional(AutoScanSchema),
   licenseReview: S.optional(LicenseReviewSchema),
+  synthetic: S.optional(SyntheticAssetMetadataSchema),
 });
 /** A single corpus asset record stored in `manifest.json`. */
 export type CorpusAsset = S.Schema.Type<typeof CorpusAssetSchema>;
