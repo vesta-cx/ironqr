@@ -229,6 +229,7 @@ const scoreAssetForEngine = async (
       engineId: engine.id,
       assetId: asset.id,
       relativePath: asset.relativePath,
+      label: asset.label,
       cached: true,
       cacheable: true,
     });

@@ -24,6 +24,7 @@ export interface AccuracyWorkerJobStartedMessage {
   readonly engineId: string;
   readonly assetId: string;
   readonly relativePath: string;
+  readonly label: AccuracyWorkerAsset['label'];
 }
 
 export interface AccuracyWorkerImageLoadStartedMessage {
@@ -32,6 +33,7 @@ export interface AccuracyWorkerImageLoadStartedMessage {
   readonly engineId: string;
   readonly assetId: string;
   readonly relativePath: string;
+  readonly label: AccuracyWorkerAsset['label'];
 }
 
 export interface AccuracyWorkerImageLoadFinishedMessage {

@@ -88,6 +88,7 @@ export const createAccuracyWorkerPool = (
             engineId: message.engineId,
             assetId: message.assetId,
             relativePath: message.relativePath,
+            label: message.label,
             cached: false,
             cacheable: current.request.cacheable,
           });
@@ -97,6 +98,7 @@ export const createAccuracyWorkerPool = (
             engineId: message.engineId,
             assetId: message.assetId,
             relativePath: message.relativePath,
+            label: message.label,
           });
           return;
         case 'image-load-finished':

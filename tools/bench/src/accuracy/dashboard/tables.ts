@@ -15,7 +15,7 @@ export const renderActiveWorkers = (
   const nowMs = options.nowMs ?? Date.now();
   const rows = [...model.activeScans.values()].slice(
     0,
-    options.maxRows ?? Math.max(1, model.workerCount || 8),
+    normalizeMaxRows(options.maxRows, Math.max(1, model.workerCount || 8)),
   );
   const lines = [
     'active workers',
@@ -43,7 +43,7 @@ export const renderSlowestFreshScans = (
   options: TableWidgetOptions,
 ): readonly string[] => {
   const width = options.width;
-  const rows = model.slowestFreshScans.slice(0, options.maxRows ?? 8);
+  const rows = model.slowestFreshScans.slice(0, normalizeMaxRows(options.maxRows, 8));
   const lines = [
     'slowest fresh scans',
     truncate('#  engine     time      outcome      asset', width),
@@ -64,8 +64,8 @@ export const renderRecentScans = (
   options: TableWidgetOptions,
 ): readonly string[] => {
   const width = options.width;
-  const maxRows = options.maxRows ?? 8;
-  const rows = model.recentScans.slice(-maxRows);
+  const maxRows = normalizeMaxRows(options.maxRows, 8);
+  const rows = maxRows === 0 ? [] : model.recentScans.slice(-maxRows);
   const lines = [
     'recent scans',
     truncate(
@@ -101,7 +101,7 @@ export const renderSideBySide = (
 };
 
 const renderSlowScan = (rank: number, scan: SlowScan): string => {
-  return `${padLeft(String(rank), 1)}  ${padRight(scan.engineId, 9)}  ${padLeft(formatCompactDuration(scan.durationMs), 8)}  ${padRight(scan.outcome, 12)} ${truncate(scan.assetId, 18)}`;
+  return `${padLeft(String(rank), 2)} ${padRight(scan.engineId, 9)}  ${padLeft(formatCompactDuration(scan.durationMs), 8)}  ${padRight(scan.outcome, 12)} ${truncate(scan.assetId, 18)}`;
 };
 
 const renderRecentScan = (scan: RecentScan): string => {
@@ -124,4 +124,10 @@ const labelText = (label: 'qr-positive' | 'non-qr-negative'): string => {
 
 const timeText = (timestampMs: number): string => {
   return new Date(timestampMs).toISOString().slice(11, 19);
+};
+
+const normalizeMaxRows = (value: number | undefined, fallback: number): number => {
+  const candidate = value ?? fallback;
+  if (!Number.isFinite(candidate)) return fallback;
+  return Math.max(0, Math.floor(candidate));
 };

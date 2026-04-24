@@ -28,20 +28,20 @@ const BAR_HEIGHT = 4;
 const FILLED_BAR = '███';
 const EMPTY_BAR = '░░░';
 const NO_SAMPLE_BAR = '···';
-const CAPPED_BAR = '▲▲▲';
 
 export const renderTimingChart = (
   model: BenchDashboardModel,
   options: TimingChartOptions,
 ): readonly string[] => {
   const barHeight = options.barHeight ?? BAR_HEIGHT;
-  const engineOffset = Math.max(0, options.engineOffset ?? 0);
   const engineGroupWidth = bucketGroupWidth();
   const visibleWidth = Math.max(0, options.width - ROW_LABEL_WIDTH);
   const maxVisibleEngines = Math.max(
     1,
     Math.floor((visibleWidth + ENGINE_GAP.length) / (engineGroupWidth + ENGINE_GAP.length)),
   );
+  const maxOffset = Math.max(0, model.engineOrder.length - maxVisibleEngines);
+  const engineOffset = Math.min(Math.max(0, options.engineOffset ?? 0), maxOffset);
   const engines = model.engineOrder
     .slice(engineOffset, engineOffset + maxVisibleEngines)
     .map((engineId) => model.engines.get(engineId))
@@ -74,7 +74,7 @@ export const renderTimingChart = (
 };
 
 const viewportLabel = (totalEngines: number, offset: number, visibleCount: number): string => {
-  if (totalEngines === 0) return '';
+  if (totalEngines === 0 || visibleCount === 0) return '';
   const start = Math.min(totalEngines, offset + 1);
   const end = Math.min(totalEngines, offset + visibleCount);
   return `       ◀ engines ${start}-${end}/${totalEngines} ▶`;
@@ -109,7 +109,6 @@ const barGlyph = (
   const avgMs = averageTimingMs(bucket) ?? 0;
   const level = Math.max(1, Math.ceil((avgMs / scaleMax) * barHeight));
   if (row > level) return EMPTY_BAR;
-  if (row === barHeight && level > barHeight) return CAPPED_BAR;
   return FILLED_BAR;
 };
 

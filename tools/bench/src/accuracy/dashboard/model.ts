@@ -1,6 +1,6 @@
 import type { EngineAssetResult } from '../types.js';
 
-export type DashboardStage = 'manifest' | 'assets' | 'benchmark' | 'report' | 'done';
+export type DashboardStage = 'manifest' | 'assets' | 'benchmark' | 'done';
 
 export type TimingBucketKey = 'positive-pass' | 'positive-fail' | 'negative-pass' | 'negative-fail';
 
@@ -78,6 +78,9 @@ export interface BenchDashboardModel {
   readonly recentScans: RecentScan[];
   readonly slowestFreshScans: SlowScan[];
 }
+
+export const MAX_SLOWEST_FRESH_SCANS = 8;
+export const MAX_RECENT_SCANS = 100;
 
 const TIMING_BUCKETS: readonly TimingBucketKey[] = [
   'positive-pass',
@@ -204,6 +207,7 @@ export const onDashboardScanStarted = (
     readonly engineId: string;
     readonly assetId: string;
     readonly relativePath: string;
+    readonly label?: EngineAssetResult['label'];
     readonly cached: boolean;
     readonly cacheable: boolean;
     readonly nowMs?: number;
@@ -222,6 +226,7 @@ export const onDashboardScanStarted = (
     engineId: event.engineId,
     assetId: event.assetId,
     relativePath: event.relativePath,
+    ...(event.label === undefined ? {} : { label: event.label }),
     cached: event.cached,
     cacheable: event.cacheable,
     phase: 'scanning',
@@ -236,6 +241,7 @@ export const onDashboardImageLoadStarted = (
     readonly engineId: string;
     readonly assetId: string;
     readonly relativePath: string;
+    readonly label?: EngineAssetResult['label'];
     readonly nowMs?: number;
   },
 ): void => {
@@ -358,8 +364,8 @@ const recordSlowScan = (
     durationMs: event.result.durationMs,
   });
   model.slowestFreshScans.sort((left, right) => right.durationMs - left.durationMs);
-  if (model.slowestFreshScans.length > 8) {
-    model.slowestFreshScans.splice(8);
+  if (model.slowestFreshScans.length > MAX_SLOWEST_FRESH_SCANS) {
+    model.slowestFreshScans.splice(MAX_SLOWEST_FRESH_SCANS);
   }
 };
 
@@ -380,8 +386,8 @@ const recordRecentScan = (
     relativePath: event.relativePath,
     result: event.result,
   });
-  if (model.recentScans.length > 100) {
-    model.recentScans.splice(0, model.recentScans.length - 100);
+  if (model.recentScans.length > MAX_RECENT_SCANS) {
+    model.recentScans.splice(0, model.recentScans.length - MAX_RECENT_SCANS);
   }
 };
 
@@ -391,6 +397,7 @@ const getOrCreateActiveScan = (
     readonly engineId: string;
     readonly assetId: string;
     readonly relativePath: string;
+    readonly label?: EngineAssetResult['label'];
     readonly nowMs?: number;
   },
 ): ActiveScan => {
@@ -402,6 +409,7 @@ const getOrCreateActiveScan = (
     engineId: event.engineId,
     assetId: event.assetId,
     relativePath: event.relativePath,
+    ...(event.label === undefined ? {} : { label: event.label }),
     cached: false,
     cacheable: false,
     phase: 'queued',

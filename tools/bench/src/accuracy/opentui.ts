@@ -16,9 +16,21 @@ type OpenTuiKeyEvent = import('@opentui/core').KeyEvent;
 
 type OpenTuiPanel = {
   readonly box: OpenTuiBox;
-  readonly title: OpenTuiText;
   readonly body: OpenTuiText;
 };
+
+const CHART_PANEL_ROWS = 15;
+const SCORECARD_PANEL_ROWS = 11;
+const PANEL_BORDER_ROWS = 2;
+const PANEL_TITLE_ROWS = 1;
+const LEFT_COLUMN_RATIO = 0.42;
+const ROOT_HORIZONTAL_PADDING = 8;
+const TABLE_LAYOUT_RESERVED_ROWS = 26;
+const RECENT_LAYOUT_RESERVED_ROWS = 24;
+const PROGRESS_BAR_WIDTH = 24;
+
+const panelBodyRows = (panelRows: number): number =>
+  Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS);
 
 const THEME = {
   background: '#07111f',
@@ -127,13 +139,13 @@ export class BenchOpenTuiDashboard {
         id: 'chart',
         title: 'Timing by outcome',
         accent: THEME.cyan,
-        height: 15,
+        height: CHART_PANEL_ROWS,
       });
       const scorecard = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'scorecard',
         title: 'Accuracy scorecard',
         accent: THEME.green,
-        height: 11,
+        height: SCORECARD_PANEL_ROWS,
       });
 
       const tablesRow = new BoxRenderable(renderer, {
@@ -145,7 +157,7 @@ export class BenchOpenTuiDashboard {
       });
       const leftColumn = new BoxRenderable(renderer, {
         id: 'bench-dashboard-left-column',
-        width: '42%',
+        width: `${LEFT_COLUMN_RATIO * 100}%`,
         height: '100%',
         flexDirection: 'column',
       });
@@ -256,11 +268,11 @@ export class BenchOpenTuiDashboard {
 
     const width = process.stdout.columns ?? process.stderr.columns ?? 120;
     const height = process.stdout.rows ?? process.stderr.rows ?? 40;
-    const contentWidth = Math.max(36, width - 8);
-    const leftWidth = Math.max(34, Math.floor(contentWidth * 0.42) - 4);
+    const contentWidth = Math.max(36, width - ROOT_HORIZONTAL_PADDING);
+    const leftWidth = Math.max(34, Math.floor(contentWidth * LEFT_COLUMN_RATIO) - 4);
     const recentWidth = Math.max(40, contentWidth - leftWidth - 8);
-    const tableRows = Math.max(4, Math.floor((height - 26) / 2));
-    const recentRows = Math.max(4, height - 24);
+    const tableRows = Math.max(4, Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2));
+    const recentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
 
     panels.header.content = headerText(this.dashboard);
     panels.chart.body.content = panelBody(
@@ -268,11 +280,11 @@ export class BenchOpenTuiDashboard {
         width: contentWidth,
         barHeight: height < 34 ? 3 : 4,
       }),
-      10,
+      panelBodyRows(CHART_PANEL_ROWS),
     );
     panels.scorecard.body.content = panelBody(
       renderScorecard(this.dashboard, { width: contentWidth }),
-      7,
+      panelBodyRows(SCORECARD_PANEL_ROWS),
     );
     panels.active.body.content = panelBody(
       renderActiveWorkers(this.dashboard, {
@@ -346,7 +358,7 @@ const createPanel = (
   });
   box.add(title);
   box.add(body);
-  return { box, title, body };
+  return { box, body };
 };
 
 const panelBody = (lines: readonly string[], maxRows: number): string => {
@@ -354,11 +366,15 @@ const panelBody = (lines: readonly string[], maxRows: number): string => {
 };
 
 const headerText = (dashboard: BenchDashboardModel): string => {
-  const percent = dashboard.totalJobs > 0 ? dashboard.completedJobs / dashboard.totalJobs : 0;
-  const completeWidth = Math.round(percent * 24);
-  const progress = `${'█'.repeat(completeWidth)}${'░'.repeat(24 - completeWidth)}`;
+  const percent = clamp01(
+    dashboard.totalJobs > 0 ? dashboard.completedJobs / dashboard.totalJobs : 0,
+  );
+  const completeWidth = Math.round(percent * PROGRESS_BAR_WIDTH);
+  const progress = `${'█'.repeat(completeWidth)}${'░'.repeat(PROGRESS_BAR_WIDTH - completeWidth)}`;
   return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${dashboard.completedJobs}/${dashboard.totalJobs} jobs  ${dashboard.message}`;
 };
+
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
 const stageBadge = (stage: BenchDashboardModel['stage']): string => {
   if (stage === 'done') return 'DONE';

@@ -8,6 +8,10 @@ import {
 } from './tables.js';
 import { renderTimingChart } from './timing-chart.js';
 
+const FOOTER_ROWS = 1;
+const SECTION_SPACING_ROWS = 1;
+const MIN_RECENT_SCAN_ROWS = 4;
+
 export const renderRunFooter = (dashboard: BenchDashboardModel): string => {
   let cacheHits = 0;
   let cacheMisses = 0;
@@ -52,11 +56,11 @@ export const renderDashboardFrame = (
   lines.push(...renderSideBySide(activeWorkers, slowest, { width }));
   lines.push('');
 
-  const usedRows = lines.length + 2;
+  const usedRows = lines.length + SECTION_SPACING_ROWS + FOOTER_ROWS;
   lines.push(
     ...renderRecentScans(dashboard, {
       width,
-      maxRows: Math.max(4, options.height - usedRows - 2),
+      maxRows: Math.max(MIN_RECENT_SCAN_ROWS, options.height - usedRows - SECTION_SPACING_ROWS),
     }),
   );
   lines.push('');
