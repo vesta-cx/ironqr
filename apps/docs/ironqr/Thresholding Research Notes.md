@@ -101,41 +101,6 @@ Possible future view names:
 - `oklab-distance:normal`
 - `oklab-distance:inverted`
 
-## Adjacent product idea: mobile document scanning
-These thresholding ideas are also relevant outside QR detection, especially for mobile document scanning under uneven lighting.
-
-Useful direction:
-- separate color from luminance in a perceptual space such as OKLab, Lab, HSV, or YCbCr
-- use adaptive threshold / local-background algorithms to estimate illumination, shadow, and foreground/background structure from luminance
-- correct or replace the luminance channel with a shadow-flattened luminance result
-- preserve source hue/chroma so the output still looks like the original document instead of a harsh black-and-white scan
-
-This is not exactly “use Sauvola as the final image.” Classic thresholding produces a binary mask, which is too destructive for color document enhancement. The better document-scanning version is to use the same local statistics as a guide:
-- local background estimate
-- local contrast estimate
-- shadow / illumination field
-- foreground confidence mask
-
-Then recombine:
-
-```text
-corrected color document = original hue/chroma + corrected luminance
-```
-
-Potential UX goal:
-- remove shadows and gray paper gradients
-- increase text / line-art contrast
-- keep ink, highlights, stamps, signatures, and brand colors recognizable
-- avoid the photocopied “dead black text on dead white paper” look unless the user explicitly asks for monochrome
-
-Research risks:
-- preserving chroma can also preserve colored shadows or camera white-balance casts unless illumination correction handles color channels carefully
-- aggressive luminance correction can wash out faint pencil, highlighter, or low-contrast annotations
-- local methods may amplify paper texture, JPEG artifacts, and sensor noise
-- document scanning has different success metrics than QR decoding, so evaluate with OCR/readability and visual quality, not only binary detection accuracy
-
-This should stay separate from the QR proposal-view policy unless it demonstrably improves QR accuracy or becomes a shared image-enhancement primitive.
-
 ## Dotted / rounded QR caveat
 Thresholding alone is probably not enough for dotted or heavily rounded modules.
 
