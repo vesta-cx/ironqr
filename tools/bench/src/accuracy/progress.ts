@@ -23,6 +23,8 @@ import {
 import { renderTimingChart } from './dashboard/timing-chart.js';
 import type { EngineAssetResult } from './types.js';
 
+export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'off';
+
 export interface AccuracyProgressReporter {
   onManifestStarted: () => void;
   onManifestLoaded: (
@@ -118,20 +120,24 @@ const formatIronqrDiagnostics = (result: EngineAssetResult): string | null => {
 
 export const createAccuracyProgressReporter = (options: {
   readonly enabled: boolean;
+  readonly mode?: AccuracyProgressMode;
   readonly verbose?: boolean;
   readonly stderr?: NodeJS.WriteStream;
 }): AccuracyProgressReporter => {
   const stderr = options.stderr ?? process.stderr;
-  const enabled = options.enabled;
+  const mode = options.enabled ? (options.mode ?? 'auto') : 'off';
+  const enabled = mode !== 'off';
   const verbose = options.verbose ?? false;
-  const useTui = enabled && stderr.isTTY;
+  const wantsDashboard = mode === 'dashboard' || (mode === 'auto' && stderr.isTTY);
+  const useTui = enabled && stderr.isTTY && wantsDashboard;
+  const usePlainLogs = enabled && !useTui;
 
   let renderQueued = false;
   let stopped = false;
   const dashboard = createBenchDashboardModel();
 
   const logPlain = (line: string): void => {
-    if (!enabled) return;
+    if (!usePlainLogs) return;
     stderr.write(`[bench ${now()}] ${line}\n`);
   };
 

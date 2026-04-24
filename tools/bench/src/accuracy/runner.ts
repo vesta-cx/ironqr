@@ -376,6 +376,7 @@ export const runAccuracyBenchmark = async (
   const cacheFile = options.cache?.file ?? getDefaultAccuracyCachePath(repoRoot);
   const progress = createAccuracyProgressReporter({
     enabled: options.progress?.enabled ?? true,
+    mode: options.progress?.mode ?? 'auto',
     verbose: options.progress?.verbose ?? options.observability?.verbose ?? false,
   });
   progress.onManifestStarted();
