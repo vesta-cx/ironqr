@@ -55,16 +55,13 @@ createViewBank(image)
   +--> lazy binary views      (otsu / sauvola / hybrid) x (normal / inverted)
   |
   v
-generateProposalBatchForView() over prioritized proposal-view subset
+for each prioritized proposal view:
   |
-  v
-rankProposals() globally
-  |
-  v
-slice to proposal budget
-  |
-  v
-clusterRankedProposals()
+  +--> generateProposalBatchForView()
+  +--> add batch to proposal frontier
+  +--> rankProposalCandidates() globally
+  +--> slice to proposal budget
+  +--> clusterRankedProposals()
   |
   v
 for each cluster representative:
@@ -100,12 +97,14 @@ graph TD
     B --> C["createViewBank"]
     C --> D["lazy scalar views"]
     C --> E["lazy binary views"]
-    E --> F["generateProposalBatchForView on prioritized proposal views"]
-    F --> G["rankProposals globally"]
-    G --> H["proposal budget slice"]
-    H --> I["clusterRankedProposals"]
+    E --> F["next prioritized proposal view"]
+    F --> G["generateProposalBatchForView"]
+    G --> H["add to proposal frontier"]
+    H --> I["rankProposalCandidates globally"]
+    I --> X["proposal budget slice"]
+    X --> Y["clusterRankedProposals"]
 
-    I --> J["representative proposal"]
+    Y --> J["representative proposal"]
     J --> K["assessProposalStructure"]
     K -- "fail repeatedly" --> L["kill cluster"]
     K -- "pass" --> M["runDecodeCascade"]
@@ -203,7 +202,7 @@ Examples from the current ordered subset:
 This is a proposal-generation policy, not a full decode-neighborhood policy.
 
 ## 5. Proposal generation
-`generateProposals(...)` currently iterates the prioritized proposal views and collects per-view proposal batches. Each batch is produced by `generateProposalBatchForView(...)`, the first-class seam that future streaming scans will consume directly.
+The scanner now consumes prioritized proposal views as a sequential stream. Each view is produced by `generateProposalBatchForView(...)`, then appended to the active proposal frontier before the next view is generated.
 
 For each binary view it:
 1. runs row-scan finder detection
@@ -217,10 +216,10 @@ Proposal kinds currently include:
 - `finder-triple`
 - `quad`
 
-The result of this stage is a set of `ProposalViewBatch` values that can be flattened into today’s global pool of QR candidate explanations. The batch boundary is intentionally explicit so a future streaming frontier can start judging one view while later views are still generating.
+The result of this stage is a growing set of `ProposalViewBatch` values. For ordinary single-code scans, the frontier can be ranked, clustered, structurally screened, and decoded after early useful batches; if a high-priority view decodes successfully, later proposal views are never generated. Early frontier passes are deliberately capped so hard misses do not repeatedly re-rank and re-cluster the entire frontier after every view. For `allowMultiple: true` and unresolved scans, the scanner continues through the full proposal-view list.
 
-## 6. Global proposal ranking
-`rankProposalCandidates(...)` scores and sorts all proposals globally, while preserving the cheap initial geometry candidates computed during scoring. The legacy `rankProposals(...)` helper is now a projection over that richer ranked-candidate shape.
+## 6. Streaming proposal frontier
+After each generated proposal batch, `rankProposalCandidates(...)` scores and sorts the current frontier globally, while preserving the cheap initial geometry candidates computed during scoring. The legacy `rankProposals(...)` helper is now a projection over that richer ranked-candidate shape.
 
 Current score components include:
 - detector confidence / source prior

@@ -10,10 +10,11 @@ import {
 import { normalizeImageInput } from './frame.js';
 import { assessProposalStructure } from './plausibility.js';
 import {
-  generateProposals,
+  generateProposalBatchForView,
   type ProposalGenerationSummary,
   type ProposalScoreBreakdown,
   type ProposalViewBatch,
+  type RankedProposalCandidate,
   rankProposalCandidates,
   type ScanProposal,
   summarizeProposalBatches,
@@ -29,7 +30,7 @@ import {
   type TraceCounter,
   type TraceSink,
 } from './trace.js';
-import { type BinaryViewId, createViewBank, type ScalarViewId } from './views.js';
+import { type BinaryViewId, createViewBank, type ScalarViewId, type ViewBank } from './views.js';
 
 /**
  * Public runtime scan options that extend the schema-backed structural options
@@ -290,8 +291,35 @@ interface ScanExecution {
   readonly proposalGeneration: ProposalGenerationSummary;
 }
 
+interface FrontierSnapshot {
+  readonly proposals: readonly ScanProposal[];
+  readonly boundedProposals: readonly ScanProposal[];
+  readonly rankedProposalById: ReadonlyMap<string, RankedProposalCandidate>;
+  readonly proposalRankById: ReadonlyMap<string, number>;
+  readonly topProposalScore: number;
+  readonly clusters: ReturnType<typeof clusterRankedProposals>;
+  readonly representativeCount: number;
+  readonly rankingMs: number;
+  readonly clusteringMs: number;
+}
+
+interface ClusterProcessingState {
+  readonly results: RankedScanResult[];
+  readonly seenResults: Set<string>;
+  readonly attemptedProposalIds: Set<string>;
+  readonly attemptRecords: ScanAttemptRecord[];
+  processedRepresentativeCount: number;
+  killedClusterCount: number;
+}
+
+interface ClusterProcessingResult {
+  readonly stopScanning: boolean;
+  readonly processedRepresentativeCount: number;
+}
+
 const MAX_CLUSTER_REPRESENTATIVES = 3;
 const MAX_CLUSTER_STRUCTURAL_FAILURES = 3;
+const MAX_EARLY_FRONTIER_PASSES = 4;
 
 /**
  * Runs the full ranked proposal pipeline and returns either plain results or an
@@ -356,192 +384,88 @@ const scanFrameExecutionOnce = (
 
     const viewBank = createViewBank(image, traceSink ? { traceSink } : {});
 
-    const proposalGenerationStartedAt = nowMs();
     const maxProposalsPerView = resolveMaxProposalsPerView(options);
+    const maxProposals = normalizeProposalBudget(resolveMaxProposals(options));
     const proposalBatches: ProposalViewBatch[] = [];
-    const generatedProposals = generateProposals(viewBank, {
-      ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
-      ...(traceSink === undefined ? {} : { traceSink }),
-      onBatchGenerated: (batch) => {
-        proposalBatches.push(batch);
-      },
-    });
-    const proposalGenerationMs = nowMs() - proposalGenerationStartedAt;
-
-    const rankingStartedAt = nowMs();
-    const rankedProposalCandidates = rankProposalCandidates(
+    const generatedProposals: ScanProposal[] = [];
+    const processingState: ClusterProcessingState = {
+      results: [],
+      seenResults: new Set(),
+      attemptedProposalIds: new Set(),
+      attemptRecords,
+      processedRepresentativeCount: 0,
+      killedClusterCount: 0,
+    };
+    let proposalGenerationMs = 0;
+    let rankingMs = 0;
+    let clusteringMs = 0;
+    let clusterProcessingMs = 0;
+    let latestSnapshot = buildFrontierSnapshot(
       viewBank,
       generatedProposals,
-      traceSink === undefined ? {} : { traceSink },
+      maxProposals,
+      traceSink,
     );
-    const rankingMs = nowMs() - rankingStartedAt;
-
-    const maxProposals = normalizeProposalBudget(resolveMaxProposals(options));
-    const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
-    const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
-    const boundedProposals = boundedRankedProposalCandidates.map((candidate) => candidate.proposal);
-    const rankedProposalById = new Map(
-      boundedRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
-    );
-    const topProposalScore = boundedProposals[0]?.proposalScore ?? 0;
-    const proposalRankById = new Map(
-      boundedProposals.map((proposal, index) => [proposal.id, index + 1]),
-    );
-
-    const clusteringStartedAt = nowMs();
-    const clusters = clusterRankedProposals(boundedProposals, {
-      maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
-    });
-    const clusteringMs = nowMs() - clusteringStartedAt;
-
-    const representativeCount = clusters.reduce(
-      (sum, cluster) => sum + cluster.representatives.length,
-      0,
-    );
-    traceSink?.emit({
-      type: 'proposal-clusters-built',
-      rankedProposalCount: proposals.length,
-      boundedProposalCount: boundedProposals.length,
-      clusterCount: clusters.length,
-      representativeCount,
-      maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
-    });
-
-    const results: RankedScanResult[] = [];
-    const seen = new Set<string>();
-    let processedRepresentativeCount = 0;
-    let killedClusterCount = 0;
     let stopScanning = false;
+    let earlyFrontierPasses = 0;
 
-    const clusterProcessingStartedAt = nowMs();
-    for (let clusterIndex = 0; clusterIndex < clusters.length; clusterIndex += 1) {
-      const cluster = clusters[clusterIndex];
-      if (!cluster) continue;
-      const clusterRank = clusterIndex + 1;
-      const bestProposal = cluster.proposals[0];
-      if (!bestProposal) continue;
-
-      traceSink?.emit({
-        type: 'cluster-started',
-        clusterId: cluster.id,
-        clusterRank,
-        proposalCount: cluster.proposals.length,
-        representativeCount: cluster.representatives.length,
-        bestProposalId: bestProposal.id,
-        bestProposalScore: bestProposal.proposalScore,
+    for (const binaryViewId of viewBank.listProposalViewIds()) {
+      const proposalGenerationStartedAt = nowMs();
+      const batch = generateProposalBatchForView(viewBank, binaryViewId, {
+        ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
+        ...(traceSink === undefined ? {} : { traceSink }),
       });
+      proposalGenerationMs += nowMs() - proposalGenerationStartedAt;
+      proposalBatches.push(batch);
+      generatedProposals.push(...batch.proposals);
 
-      let structuralFailures = 0;
-      let clusterOutcome: 'decoded' | 'duplicate' | 'killed' | 'exhausted' = 'exhausted';
-      let winningProposalId: string | undefined;
-      let clusterProcessedRepresentatives = 0;
-
-      for (
-        let representativeIndex = 0;
-        representativeIndex < cluster.representatives.length;
-        representativeIndex += 1
+      if (
+        options.allowMultiple === true ||
+        batch.proposals.length === 0 ||
+        earlyFrontierPasses >= MAX_EARLY_FRONTIER_PASSES
       ) {
-        const proposal = cluster.representatives[representativeIndex];
-        if (!proposal) continue;
-        const proposalRank = proposalRankById.get(proposal.id) ?? 1;
-        processedRepresentativeCount += 1;
-        clusterProcessedRepresentatives += 1;
-
-        traceSink?.emit({
-          type: 'cluster-representative-started',
-          clusterId: cluster.id,
-          clusterRank,
-          representativeIndex: representativeIndex + 1,
-          proposalId: proposal.id,
-          proposalRank,
-          proposalScore: proposal.proposalScore,
-          binaryViewId: proposal.binaryViewId,
-        });
-
-        const structure = assessProposalStructure(proposal, viewBank);
-        traceSink?.emit({
-          type: 'proposal-structure-assessed',
-          clusterId: cluster.id,
-          clusterRank,
-          proposalId: proposal.id,
-          proposalRank,
-          proposalScore: proposal.proposalScore,
-          passed: structure.passed,
-          score: structure.score,
-          timingScore: structure.timingScore,
-          finderScore: structure.finderScore,
-          separatorScore: structure.separatorScore,
-          pitchScore: structure.pitchScore,
-        });
-        if (!structure.passed) {
-          structuralFailures += 1;
-          if (structuralFailures >= MAX_CLUSTER_STRUCTURAL_FAILURES) {
-            clusterOutcome = 'killed';
-            killedClusterCount += 1;
-            break;
-          }
-          continue;
-        }
-
-        const initialGeometryCandidates = rankedProposalById.get(
-          proposal.id,
-        )?.initialGeometryCandidates;
-        const success = yield* runDecodeCascade(proposal, viewBank, {
-          ...(traceSink === undefined ? {} : { traceSink }),
-          ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
-          proposalRank,
-          topProposalScore,
-          onAttemptMeasured: (attempt) => {
-            attemptRecords.push({
-              sequence: attemptRecords.length + 1,
-              proposalId: attempt.proposalId,
-              geometryCandidateId: attempt.geometryCandidateId,
-              decodeBinaryViewId: attempt.decodeBinaryViewId,
-              sampler: attempt.sampler,
-              refinement: attempt.refinement,
-              outcome: attempt.outcome,
-              durationMs: attempt.durationMs,
-            });
-          },
-        });
-        if (success === null) continue;
-        const ranked = toRankedResult(success.result, proposal, success.attempt);
-        if (!pushUniqueRankedResult(results, seen, ranked)) {
-          clusterOutcome = 'duplicate';
-          break;
-        }
-        clusterOutcome = 'decoded';
-        winningProposalId = proposal.id;
-        if (options.allowMultiple !== true) {
-          stopScanning = true;
-        }
-        break;
+        continue;
       }
+      earlyFrontierPasses += 1;
 
-      traceSink?.emit({
-        type: 'cluster-finished',
-        clusterId: cluster.id,
-        clusterRank,
-        proposalCount: cluster.proposals.length,
-        representativeCount: cluster.representatives.length,
-        processedRepresentativeCount: clusterProcessedRepresentatives,
-        structuralFailureCount: structuralFailures,
-        outcome: clusterOutcome,
-        ...(winningProposalId === undefined ? {} : { winningProposalId }),
+      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      rankingMs += latestSnapshot.rankingMs;
+      clusteringMs += latestSnapshot.clusteringMs;
+
+      const clusterProcessingStartedAt = nowMs();
+      const processed = yield* processFrontierClusters(latestSnapshot, viewBank, processingState, {
+        allowMultiple: false,
+        maxNewRepresentatives: 1,
+        ...(traceSink === undefined ? {} : { traceSink }),
       });
-
+      clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
+      stopScanning = processed.stopScanning;
       if (stopScanning) break;
     }
-    const clusterProcessingMs = nowMs() - clusterProcessingStartedAt;
+
+    if (!stopScanning) {
+      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      rankingMs += latestSnapshot.rankingMs;
+      clusteringMs += latestSnapshot.clusteringMs;
+
+      const clusterProcessingStartedAt = nowMs();
+      const processed = yield* processFrontierClusters(latestSnapshot, viewBank, processingState, {
+        allowMultiple: options.allowMultiple === true,
+        maxNewRepresentatives: Number.POSITIVE_INFINITY,
+        ...(traceSink === undefined ? {} : { traceSink }),
+      });
+      clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
+      stopScanning = processed.stopScanning;
+    }
 
     const summary = {
-      successCount: results.length,
-      proposalCount: proposals.length,
-      boundedProposalCount: boundedProposals.length,
-      clusterCount: clusters.length,
-      representativeCount,
-      processedRepresentativeCount,
-      killedClusterCount,
+      successCount: processingState.results.length,
+      proposalCount: latestSnapshot.proposals.length,
+      boundedProposalCount: latestSnapshot.boundedProposals.length,
+      clusterCount: latestSnapshot.clusters.length,
+      representativeCount: latestSnapshot.representativeCount,
+      processedRepresentativeCount: processingState.processedRepresentativeCount,
+      killedClusterCount: processingState.killedClusterCount,
     } satisfies ScanExecutionSummary;
 
     traceSink?.emit({
@@ -556,7 +480,7 @@ const scanFrameExecutionOnce = (
     });
 
     return {
-      rankedResults: results,
+      rankedResults: processingState.results,
       summary,
       timings: {
         totalMs: nowMs() - totalStartedAt,
@@ -575,6 +499,232 @@ const scanFrameExecutionOnce = (
       ),
       proposalGeneration: summarizeProposalBatches(proposalBatches),
     } satisfies ScanExecution;
+  });
+};
+
+const buildFrontierSnapshot = (
+  viewBank: ViewBank,
+  generatedProposals: readonly ScanProposal[],
+  maxProposals: number,
+  traceSink?: TraceSink,
+): FrontierSnapshot => {
+  const rankingStartedAt = nowMs();
+  const rankedProposalCandidates = rankProposalCandidates(
+    viewBank,
+    generatedProposals,
+    traceSink === undefined ? {} : { traceSink },
+  );
+  const rankingMs = nowMs() - rankingStartedAt;
+
+  const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
+  const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
+  const boundedProposals = boundedRankedProposalCandidates.map((candidate) => candidate.proposal);
+  const rankedProposalById = new Map(
+    boundedRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
+  );
+  const topProposalScore = boundedProposals[0]?.proposalScore ?? 0;
+  const proposalRankById = new Map(
+    boundedProposals.map((proposal, index) => [proposal.id, index + 1]),
+  );
+
+  const clusteringStartedAt = nowMs();
+  const clusters = clusterRankedProposals(boundedProposals, {
+    maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
+  });
+  const clusteringMs = nowMs() - clusteringStartedAt;
+
+  const representativeCount = clusters.reduce(
+    (sum, cluster) => sum + cluster.representatives.length,
+    0,
+  );
+  if (proposals.length > 0) {
+    traceSink?.emit({
+      type: 'proposal-clusters-built',
+      rankedProposalCount: proposals.length,
+      boundedProposalCount: boundedProposals.length,
+      clusterCount: clusters.length,
+      representativeCount,
+      maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
+    });
+  }
+
+  return {
+    proposals,
+    boundedProposals,
+    rankedProposalById,
+    proposalRankById,
+    topProposalScore,
+    clusters,
+    representativeCount,
+    rankingMs,
+    clusteringMs,
+  } satisfies FrontierSnapshot;
+};
+
+const processFrontierClusters = (
+  snapshot: FrontierSnapshot,
+  viewBank: ViewBank,
+  state: ClusterProcessingState,
+  options: {
+    readonly allowMultiple: boolean;
+    readonly maxNewRepresentatives: number;
+    readonly traceSink?: TraceSink;
+  },
+): Effect.Effect<ClusterProcessingResult, ScannerError> => {
+  return Effect.gen(function* () {
+    let processedThisPass = 0;
+
+    for (let clusterIndex = 0; clusterIndex < snapshot.clusters.length; clusterIndex += 1) {
+      if (processedThisPass >= options.maxNewRepresentatives) break;
+      const cluster = snapshot.clusters[clusterIndex];
+      if (!cluster) continue;
+      const clusterRank = clusterIndex + 1;
+      const bestProposal = cluster.proposals[0];
+      if (!bestProposal) continue;
+
+      const pendingRepresentatives = cluster.representatives.filter(
+        (proposal) => !state.attemptedProposalIds.has(proposal.id),
+      );
+      if (pendingRepresentatives.length === 0) continue;
+
+      options.traceSink?.emit({
+        type: 'cluster-started',
+        clusterId: cluster.id,
+        clusterRank,
+        proposalCount: cluster.proposals.length,
+        representativeCount: cluster.representatives.length,
+        bestProposalId: bestProposal.id,
+        bestProposalScore: bestProposal.proposalScore,
+      });
+
+      let structuralFailures = 0;
+      let clusterOutcome: 'decoded' | 'duplicate' | 'killed' | 'exhausted' = 'exhausted';
+      let winningProposalId: string | undefined;
+      let clusterProcessedRepresentatives = 0;
+
+      for (const proposal of pendingRepresentatives) {
+        if (processedThisPass >= options.maxNewRepresentatives) break;
+        const representativeIndex = cluster.representatives.indexOf(proposal);
+        const proposalRank = snapshot.proposalRankById.get(proposal.id) ?? 1;
+        state.attemptedProposalIds.add(proposal.id);
+        state.processedRepresentativeCount += 1;
+        clusterProcessedRepresentatives += 1;
+        processedThisPass += 1;
+
+        options.traceSink?.emit({
+          type: 'cluster-representative-started',
+          clusterId: cluster.id,
+          clusterRank,
+          representativeIndex: representativeIndex + 1,
+          proposalId: proposal.id,
+          proposalRank,
+          proposalScore: proposal.proposalScore,
+          binaryViewId: proposal.binaryViewId,
+        });
+
+        const structure = assessProposalStructure(proposal, viewBank);
+        options.traceSink?.emit({
+          type: 'proposal-structure-assessed',
+          clusterId: cluster.id,
+          clusterRank,
+          proposalId: proposal.id,
+          proposalRank,
+          proposalScore: proposal.proposalScore,
+          passed: structure.passed,
+          score: structure.score,
+          timingScore: structure.timingScore,
+          finderScore: structure.finderScore,
+          separatorScore: structure.separatorScore,
+          pitchScore: structure.pitchScore,
+        });
+        if (!structure.passed) {
+          structuralFailures += 1;
+          if (structuralFailures >= MAX_CLUSTER_STRUCTURAL_FAILURES) {
+            clusterOutcome = 'killed';
+            state.killedClusterCount += 1;
+            break;
+          }
+          continue;
+        }
+
+        const initialGeometryCandidates = snapshot.rankedProposalById.get(
+          proposal.id,
+        )?.initialGeometryCandidates;
+        const success = yield* runDecodeCascade(proposal, viewBank, {
+          ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
+          ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
+          proposalRank,
+          topProposalScore: snapshot.topProposalScore,
+          onAttemptMeasured: (attempt) => {
+            state.attemptRecords.push({
+              sequence: state.attemptRecords.length + 1,
+              proposalId: attempt.proposalId,
+              geometryCandidateId: attempt.geometryCandidateId,
+              decodeBinaryViewId: attempt.decodeBinaryViewId,
+              sampler: attempt.sampler,
+              refinement: attempt.refinement,
+              outcome: attempt.outcome,
+              durationMs: attempt.durationMs,
+            });
+          },
+        });
+        if (success === null) continue;
+        const ranked = toRankedResult(success.result, proposal, success.attempt);
+        if (!pushUniqueRankedResult(state.results, state.seenResults, ranked)) {
+          clusterOutcome = 'duplicate';
+          break;
+        }
+        clusterOutcome = 'decoded';
+        winningProposalId = proposal.id;
+        if (!options.allowMultiple) {
+          emitClusterFinished(
+            options.traceSink,
+            cluster,
+            clusterRank,
+            clusterProcessedRepresentatives,
+            structuralFailures,
+            clusterOutcome,
+            winningProposalId,
+          );
+          return { stopScanning: true, processedRepresentativeCount: processedThisPass };
+        }
+        break;
+      }
+
+      emitClusterFinished(
+        options.traceSink,
+        cluster,
+        clusterRank,
+        clusterProcessedRepresentatives,
+        structuralFailures,
+        clusterOutcome,
+        winningProposalId,
+      );
+    }
+
+    return { stopScanning: false, processedRepresentativeCount: processedThisPass };
+  });
+};
+
+const emitClusterFinished = (
+  traceSink: TraceSink | undefined,
+  cluster: ReturnType<typeof clusterRankedProposals>[number],
+  clusterRank: number,
+  processedRepresentativeCount: number,
+  structuralFailureCount: number,
+  outcome: 'decoded' | 'duplicate' | 'killed' | 'exhausted',
+  winningProposalId?: string,
+): void => {
+  traceSink?.emit({
+    type: 'cluster-finished',
+    clusterId: cluster.id,
+    clusterRank,
+    proposalCount: cluster.proposals.length,
+    representativeCount: cluster.representatives.length,
+    processedRepresentativeCount,
+    structuralFailureCount,
+    outcome,
+    ...(winningProposalId === undefined ? {} : { winningProposalId }),
   });
 };
 

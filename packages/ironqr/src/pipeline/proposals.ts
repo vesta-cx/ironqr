@@ -233,17 +233,7 @@ export const generateProposals = (
     const batch = generateProposalBatchForView(viewBank, binaryViewId, options);
     options.onViewGenerated?.(batch.summary);
     options.onBatchGenerated?.(batch);
-    for (const proposal of batch.proposals) {
-      options.traceSink?.emit({
-        type: 'proposal-generated',
-        proposalId: proposal.id,
-        proposalKind: proposal.kind,
-        binaryViewId: proposal.binaryViewId,
-        sources: listProposalSources(proposal),
-        estimatedVersions: proposal.estimatedVersions,
-      });
-      proposals.push(proposal);
-    }
+    proposals.push(...batch.proposals);
   }
 
   return proposals;
@@ -255,7 +245,7 @@ export const generateProposals = (
  * @param viewBank - Lazy scalar/binary view cache.
  * @param binaryViewId - Binary view to search.
  * @param options - Per-view proposal-generation options.
- * @returns One proposal batch suitable for future streaming frontier scans.
+ * @returns One proposal batch suitable for streaming frontier scans.
  */
 export const generateProposalBatchForView = (
   viewBank: ViewBank,
@@ -266,6 +256,9 @@ export const generateProposalBatchForView = (
   const binaryView = viewBank.getBinaryView(binaryViewId);
   const batch = generateProposalsForView(binaryView, maxPerView);
   emitProposalViewGenerated(batch.summary, options.traceSink);
+  for (const proposal of batch.proposals) {
+    emitProposalGenerated(proposal, options.traceSink);
+  }
   return batch;
 };
 
@@ -413,6 +406,17 @@ const generateProposalsForView = (
       proposalConstructionDurationMs,
     },
   } satisfies ProposalViewBatch;
+};
+
+const emitProposalGenerated = (proposal: ScanProposal, traceSink?: TraceSink): void => {
+  traceSink?.emit({
+    type: 'proposal-generated',
+    proposalId: proposal.id,
+    proposalKind: proposal.kind,
+    binaryViewId: proposal.binaryViewId,
+    sources: listProposalSources(proposal),
+    estimatedVersions: proposal.estimatedVersions,
+  });
 };
 
 const emitProposalViewGenerated = (
