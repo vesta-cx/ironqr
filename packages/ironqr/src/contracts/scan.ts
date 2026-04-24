@@ -56,12 +56,14 @@ export type ScanTraceEventsLevel = S.Schema.Type<typeof ScanTraceEventsLevelSche
 export type ScanTimingSpanName =
   | 'normalize'
   | 'scalar-view'
+  | 'binary-plane'
   | 'binary-view'
   | 'proposal-view'
   | 'ranking'
   | 'clustering'
   | 'structure'
   | 'geometry'
+  | 'module-sampling'
   | 'decode-attempt'
   | 'decode-cascade';
 

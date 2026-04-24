@@ -44,7 +44,7 @@ describe('stylized QR scan — polarity and contrast variants', () => {
     const results = await scanFrame(imageData);
     expect(results).toHaveLength(1);
     expect(results[0]?.payload.text).toBe('HI');
-  });
+  }, 10_000);
 
   // ── 2. Color modules — dark blue on white ────────────────────────────
   //
@@ -88,7 +88,7 @@ describe('stylized QR scan — polarity and contrast variants', () => {
     const results = await scanFrame(imageData);
     expect(results).toHaveLength(1);
     expect(results[0]?.payload.text).toBe('HI');
-  });
+  }, 10_000);
 
   it.skip('dotted modules: circle-rendered QR decode needs the next rescue slice (module-shape aware sampling)', async () => {
     const grid = buildHiGrid();

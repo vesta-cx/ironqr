@@ -418,9 +418,9 @@ const getOrBuildBinaryView = (
   const cached = image.derivedViews.binaryViews.get(id);
   if (isBinaryView(cached, id)) return cached;
 
-  const startedAtMs = nowMs();
   const [scalarViewId, threshold, polarity] = parseBinaryViewId(id);
   const plane = getOrBuildBinaryPlane(image, scalarViewId, threshold, traceSink, metricsSink);
+  const startedAtMs = nowMs();
   const view = {
     id,
     scalarViewId,
@@ -465,6 +465,7 @@ const getOrBuildBinaryPlane = (
   if (isBinaryPlane(cached, scalarViewId, threshold)) return cached;
 
   const scalarView = getOrBuildScalarView(image, scalarViewId, traceSink, metricsSink);
+  const startedAtMs = nowMs();
   const data =
     threshold === 'otsu'
       ? otsuBitPlane(scalarView.values, scalarView.width, scalarView.height)
@@ -479,6 +480,12 @@ const getOrBuildBinaryPlane = (
     data,
   } satisfies BinaryPlane;
   image.derivedViews.binaryPlanes.set(key, plane);
+  recordTimingSpan(metricsSink, 'binary-plane', startedAtMs, {
+    scalarViewId,
+    threshold,
+    width: plane.width,
+    height: plane.height,
+  });
   return plane;
 };
 

@@ -170,6 +170,7 @@ export const runDecodeCascade = (
         ['cross-vote'],
         options.traceSink,
         options.onAttemptMeasured,
+        options.metricsSink,
       );
       if (plain) return plain;
 
@@ -188,6 +189,7 @@ export const runDecodeCascade = (
         ['cross-vote'],
         options.traceSink,
         options.onAttemptMeasured,
+        options.metricsSink,
       );
       if (refined) return refined;
       if (!allowRescue || geometryIndex >= maxRescueGeometries) continue;
@@ -210,6 +212,7 @@ export const runDecodeCascade = (
             ['cross-vote', 'dense-vote', 'nearest'],
             options.traceSink,
             options.onAttemptMeasured,
+            options.metricsSink,
           );
           if (alignmentResult) return alignmentResult;
         }
@@ -232,6 +235,7 @@ export const runDecodeCascade = (
           ['cross-vote', 'dense-vote', 'nearest'],
           options.traceSink,
           options.onAttemptMeasured,
+          options.metricsSink,
         );
         if (nudgedResult) return nudgedResult;
       }
@@ -264,6 +268,7 @@ export const runDecodeCascade = (
         ['cross-vote', 'dense-vote'],
         options.traceSink,
         options.onAttemptMeasured,
+        options.metricsSink,
       );
       if (rescue) return rescue;
 
@@ -282,6 +287,7 @@ export const runDecodeCascade = (
         ['cross-vote', 'dense-vote'],
         options.traceSink,
         options.onAttemptMeasured,
+        options.metricsSink,
       );
       if (rescueRefined) return rescueRefined;
     }
@@ -316,6 +322,7 @@ const tryGeometryAcrossViews = (
   samplers: readonly DecodeSampler[],
   traceSink?: TraceSink,
   onAttemptMeasured?: DecodeCascadeOptions['onAttemptMeasured'],
+  metricsSink?: ScanMetricsSink,
 ): Effect.Effect<DecodeCascadeSuccess | null, ScannerError> => {
   return Effect.gen(function* () {
     for (const decodeBinaryViewId of decodeNeighborhood) {
@@ -339,7 +346,20 @@ const tryGeometryAcrossViews = (
         });
 
         const startedAt = nowMs();
+        const moduleSamplingStartedAt = metricsSink === undefined ? 0 : nowMs();
         const grid = sampleGrid(binaryView.width, binaryView.height, geometry, binaryView, sampler);
+        if (metricsSink !== undefined) {
+          recordTimingSpan(metricsSink, 'module-sampling', moduleSamplingStartedAt, {
+            proposalId: proposal.id,
+            proposalBinaryViewId: proposal.binaryViewId,
+            geometryCandidateId,
+            decodeBinaryViewId,
+            sampler,
+            refinement,
+            version: geometry.version,
+            moduleCount: geometry.size * geometry.size,
+          });
+        }
         const decoded = yield* decodeGridVariants(
           grid,
           minimumTimingScore(attempt.refinement, attempt.sampler),
