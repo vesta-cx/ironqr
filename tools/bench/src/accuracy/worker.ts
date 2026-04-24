@@ -42,6 +42,7 @@ const toBenchAsset = (message: AccuracyWorkerRequest): CorpusBenchAsset => {
         engineId: message.engineId,
         assetId: message.asset.id,
         relativePath: message.asset.relativePath,
+        label: message.asset.label,
       };
       postWorkerMessage(started);
       const image = await readBenchImage(message.asset.imagePath);
@@ -71,6 +72,7 @@ addEventListener('message', async (event: MessageEvent<AccuracyWorkerRequest>) =
     engineId: message.engineId,
     assetId: message.asset.id,
     relativePath: message.asset.relativePath,
+    label: message.asset.label,
   };
   postWorkerMessage(started);
 

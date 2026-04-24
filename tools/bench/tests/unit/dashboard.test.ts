@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  center,
+  formatCompactDuration,
+  padLeft,
+  padRight,
+  truncate,
+} from '../../src/accuracy/dashboard/format.js';
+import {
   classifyTimingBucket,
   createBenchDashboardModel,
   ensureDashboardEngine,
@@ -68,6 +75,19 @@ describe('bench dashboard progress renderer', () => {
     expect(output).not.toContain('\nengines:\n');
     expect(output).not.toContain('\nrecent:\n');
     reporter.stop();
+    expect(output).toContain('stage=done');
+  });
+});
+
+describe('dashboard formatting', () => {
+  it('handles invalid widths, zero durations, and grapheme truncation', () => {
+    expect(padRight('abc', -1)).toBe('');
+    expect(padLeft('abc', Number.NaN)).toBe('');
+    expect(center('abc', 0)).toBe('');
+    expect(formatCompactDuration(0)).toBe('0ms');
+    expect(formatCompactDuration(-1)).toBe('-');
+    expect(truncate('a😀b', 3)).toBe('a…');
+    expect(truncate('\u001B[31mred', 10)).toBe('red');
   });
 });
 
@@ -159,6 +179,21 @@ describe('bench dashboard model', () => {
 
     expect(model.activeScans.get('ironqr:asset-1')?.phase).toBe('scanning');
     expect(model.engines.get('ironqr')?.cacheMisses).toBe(1);
+  });
+
+  it('carries labels on active scans', () => {
+    const model = createBenchDashboardModel();
+    onDashboardScanStarted(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-1',
+      relativePath: 'assets/asset-1.webp',
+      label: 'qr-positive',
+      cached: false,
+      cacheable: true,
+      nowMs: 100,
+    });
+
+    expect(renderActiveWorkers(model, { width: 80, nowMs: 200 }).join('\n')).toContain('+QR');
   });
 
   it('keeps the eight slowest fresh scans', () => {
@@ -263,6 +298,13 @@ describe('scorecard widget', () => {
     expect(output).toContain('fp 1');
     expect(output).toContain('1/1');
   });
+
+  it('renders a visible placeholder when engine order is inconsistent', () => {
+    const model = createBenchDashboardModel();
+    model.engineOrder.push('missing');
+
+    expect(renderScorecard(model, { width: 120 }).join('\n')).toContain('missing engine state');
+  });
 });
 
 describe('table widgets', () => {
@@ -299,6 +341,7 @@ describe('table widgets', () => {
     expect(renderSlowestFreshScans(model, { width: 80 }).join('\n')).toContain('asset-slow');
     expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('02:45:12');
     expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('decoded=0 matched=0');
+    expect(renderRecentScans(model, { width: 100, maxRows: 0 }).join('\n')).toContain('none yet');
   });
 
   it('renders two widgets side by side', () => {
@@ -368,5 +411,15 @@ describe('timing chart widget', () => {
     expect(output).not.toContain('ironqr');
     expect(output).toContain('jsqr');
     expect(output).toContain('engines 2-2/3');
+  });
+
+  it('clamps horizontal engine offsets past the end', () => {
+    const model = createBenchDashboardModel();
+    for (const engine of ['ironqr', 'jsqr', 'zxing']) ensureDashboardEngine(model, engine);
+
+    const output = renderTimingChart(model, { width: 38, engineOffset: 99 }).join('\n');
+    expect(output).toContain('zxing');
+    expect(output).toContain('engines 3-3/3');
+    expect(output).not.toContain('engines 3-0/3');
   });
 });

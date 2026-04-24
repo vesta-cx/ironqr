@@ -31,11 +31,26 @@ export const renderScorecard = (
 
   for (const engineId of model.engineOrder) {
     const engine = model.engines.get(engineId);
-    if (!engine) continue;
-    lines.push(truncate(renderEngineRow(model, engine), options.width));
+    lines.push(
+      truncate(
+        engine ? renderEngineRow(model, engine) : renderMissingEngineRow(engineId),
+        options.width,
+      ),
+    );
   }
 
   return lines;
+};
+
+const renderMissingEngineRow = (engineId: string): string => {
+  return joinColumns([
+    padRight(engineId, COLUMNS.engine),
+    padRight('missing engine state', COLUMNS.qrPass),
+    padRight('-', COLUMNS.qrFail),
+    padRight('-', COLUMNS.negativePass),
+    padRight('-', COLUMNS.negativeFail),
+    padLeft('-', COLUMNS.cache),
+  ]);
 };
 
 const renderEngineRow = (model: BenchDashboardModel, engine: DashboardEngineStats): string => {

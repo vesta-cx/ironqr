@@ -1,4 +1,5 @@
 import process from 'node:process';
+import { sanitizeDisplayText } from './dashboard/format.js';
 import { renderDashboardFrame } from './dashboard/frame.js';
 import {
   createBenchDashboardModel,
@@ -14,9 +15,7 @@ import {
   onDashboardScanStarted,
 } from './dashboard/model.js';
 import { BenchOpenTuiDashboard } from './opentui.js';
-import type { EngineAssetResult } from './types.js';
-
-export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
+import type { AccuracyProgressMode, EngineAssetResult } from './types.js';
 
 export interface AccuracyProgressReporter {
   onManifestStarted: () => void;
@@ -37,6 +36,7 @@ export interface AccuracyProgressReporter {
     readonly engineId: string;
     readonly assetId: string;
     readonly relativePath: string;
+    readonly label?: EngineAssetResult['label'];
     readonly cached: boolean;
     readonly cacheable: boolean;
   }) => void;
@@ -44,6 +44,7 @@ export interface AccuracyProgressReporter {
     readonly engineId: string;
     readonly assetId: string;
     readonly relativePath: string;
+    readonly label?: EngineAssetResult['label'];
   }) => void;
   onImageLoadFinished: (event: {
     readonly engineId: string;
@@ -112,7 +113,7 @@ export const createAccuracyProgressReporter = (options: {
 
   const logPlain = (line: string): void => {
     if (!usePlainLogs) return;
-    stderr.write(`[bench ${now()}] ${line}\n`);
+    stderr.write(`[bench ${now()}] ${sanitizeDisplayText(line)}\n`);
   };
 
   const queueRender = (): void => {
@@ -174,8 +175,15 @@ export const createAccuracyProgressReporter = (options: {
       );
       queueRender();
     },
-    onScanStarted: ({ engineId, assetId, relativePath, cached, cacheable }) => {
-      onDashboardScanStarted(dashboard, { engineId, assetId, relativePath, cached, cacheable });
+    onScanStarted: ({ engineId, assetId, relativePath, label, cached, cacheable }) => {
+      onDashboardScanStarted(dashboard, {
+        engineId,
+        assetId,
+        relativePath,
+        ...(label === undefined ? {} : { label }),
+        cached,
+        cacheable,
+      });
       if (!useTui) {
         if (cached) {
           logPlain(`cache hit: ${engineId} ${assetId} ${relativePath}`);
@@ -185,8 +193,13 @@ export const createAccuracyProgressReporter = (options: {
       }
       queueRender();
     },
-    onImageLoadStarted: ({ engineId, assetId, relativePath }) => {
-      onDashboardImageLoadStarted(dashboard, { engineId, assetId, relativePath });
+    onImageLoadStarted: ({ engineId, assetId, relativePath, label }) => {
+      onDashboardImageLoadStarted(dashboard, {
+        engineId,
+        assetId,
+        relativePath,
+        ...(label === undefined ? {} : { label }),
+      });
       if (!useTui) {
         logPlain(`image load: ${engineId} ${assetId} ${relativePath}`);
       }
@@ -216,7 +229,6 @@ export const createAccuracyProgressReporter = (options: {
     },
     stop: () => {
       if (stopped) return;
-      stopped = true;
       onDashboardDone(dashboard);
       if (openTui) {
         openTui.stop();

@@ -1,6 +1,5 @@
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import type { BenchImageData } from '../shared/image.js';
-import type { AccuracyProgressMode } from './progress.js';
 
 export interface CorpusBenchAsset {
   readonly id: string;
@@ -186,6 +185,8 @@ export interface AccuracyBenchmarkCacheSummary {
   readonly misses: number;
   readonly writes: number;
 }
+
+export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
 
 export interface AccuracyBenchmarkOptions {
   readonly cache?: {
