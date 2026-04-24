@@ -19,7 +19,7 @@ const makeTempFile = async (): Promise<string> => {
 
 const asset: Pick<CorpusBenchAsset, 'id' | 'label' | 'sha256' | 'relativePath'> = {
   id: 'asset-1',
-  label: 'qr-positive',
+  label: 'qr-pos',
   sha256: 'sha-a',
   relativePath: 'assets/asset-1.png',
 };

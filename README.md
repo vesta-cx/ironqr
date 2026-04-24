@@ -34,7 +34,7 @@ bun run bench accuracy --workers 8
 bun run bench performance
 bun run benchmark
 bun --filter ironqr-corpus-cli run cli --
-bun --filter ironqr-corpus-cli run cli -- scrape --label qr-positive https://example.com
+bun --filter ironqr-corpus-cli run cli -- scrape --label qr-pos https://example.com
 bun --filter ironqr-corpus-cli run cli -- review corpus/staging/<run-id>
 bun --filter ironqr-corpus-cli run cli -- import path/to/file.png
 bun --filter ironqr-corpus-cli run cli -- import corpus/staging/<run-id>

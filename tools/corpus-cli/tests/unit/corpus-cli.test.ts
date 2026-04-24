@@ -504,7 +504,7 @@ describe('corpus cli helpers', () => {
       {
         version: MAJOR_VERSION,
         id: 'stage-deadbeefcafef00d',
-        suggestedLabel: 'qr-positive',
+        suggestedLabel: 'qr-pos',
         imageFileName: 'image.webp',
         sourcePageUrl: 'https://commons.wikimedia.org/wiki/File:Example.jpg',
         imageUrl: 'https://upload.wikimedia.org/example.webp',
@@ -603,7 +603,7 @@ describe('corpus cli helpers', () => {
       {
         version: MAJOR_VERSION,
         id: 'stage-pixabay-license-skip',
-        suggestedLabel: 'qr-positive',
+        suggestedLabel: 'qr-pos',
         imageFileName: 'image.webp',
         sourcePageUrl: 'https://pixabay.com/photos/example/',
         imageUrl: 'https://cdn.pixabay.com/example.webp',
@@ -704,7 +704,7 @@ describe('corpus cli helpers', () => {
       {
         version: MAJOR_VERSION,
         id: 'stage-pixabay-review-skip',
-        suggestedLabel: 'non-qr-negative',
+        suggestedLabel: 'qr-neg',
         imageFileName: 'image.webp',
         sourcePageUrl: 'https://pixabay.com/photos/example/',
         imageUrl: 'https://cdn.pixabay.com/example.webp',

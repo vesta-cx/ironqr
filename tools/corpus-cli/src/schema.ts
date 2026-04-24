@@ -1,11 +1,11 @@
 import * as S from 'effect/Schema';
 
-export const CORPUS_ASSET_LABELS = ['qr-positive', 'non-qr-negative'] as const;
+export const CORPUS_ASSET_LABELS = ['qr-pos', 'qr-neg'] as const;
 export const REVIEW_STATUSES = ['pending', 'approved', 'rejected'] as const;
 
 /** Schema for the corpus asset classification label. */
 export const CorpusAssetLabelSchema = S.Literals(CORPUS_ASSET_LABELS);
-/** Whether an asset contains QR codes (`qr-positive`) or should not decode as one (`non-qr-negative`). */
+/** Whether an asset contains QR codes (`qr-pos`) or should not decode as one (`qr-neg`). */
 export type CorpusAssetLabel = S.Schema.Type<typeof CorpusAssetLabelSchema>;
 
 /** Schema for the human-review status of a corpus asset. */

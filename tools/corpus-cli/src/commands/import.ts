@@ -117,7 +117,7 @@ const promptGroundTruthIfNeeded = async (
   label: CorpusAssetLabel,
   reviewStatus: ReviewStatus,
 ): Promise<GroundTruth | undefined> => {
-  if (label !== 'qr-positive' || reviewStatus !== 'approved') {
+  if (label !== 'qr-pos' || reviewStatus !== 'approved') {
     return undefined;
   }
 
@@ -262,7 +262,7 @@ const fillMissingStagedMetadata = async (
     }
 
     let groundTruth = asset.groundTruth;
-    if (!groundTruth && effectiveLabel === 'qr-positive') {
+    if (!groundTruth && effectiveLabel === 'qr-pos') {
       const qrCount = await promptQrCount(
         context.ui,
         `How many QR codes are present in ${asset.id}?`,

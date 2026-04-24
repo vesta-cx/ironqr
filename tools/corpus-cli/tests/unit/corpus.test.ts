@@ -32,7 +32,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [positivePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
       reviewNotes: 'seed positive',
@@ -42,14 +42,14 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [negativePath],
-      label: 'non-qr-negative',
+      label: 'qr-neg',
     });
 
     const manifest = await readCorpusManifest(repoRoot);
     expect(manifest.version).toBe(1);
     expect(manifest.assets).toHaveLength(2);
 
-    const positive = manifest.assets.find((asset) => asset.label === 'qr-positive');
+    const positive = manifest.assets.find((asset) => asset.label === 'qr-pos');
     expect(positive).toBeDefined();
     expect(positive?.review.status).toBe('approved');
     expect(positive?.review.reviewer).toBe('mia');
@@ -77,7 +77,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [pendingPath],
-      label: 'non-qr-negative',
+      label: 'qr-neg',
       reviewStatus: 'pending',
       reviewer: 'mia',
     });
@@ -101,13 +101,13 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [firstPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
     });
 
     await importLocalAssets({
       repoRoot,
       paths: [secondPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
       reviewNotes: 'confirmed on second pass',
@@ -135,14 +135,14 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [firstPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
     });
 
     await importLocalAssets({
       repoRoot,
       paths: [secondPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
       reviewNotes: 'verified on second pass',
@@ -167,7 +167,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [firstPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
     });
@@ -175,7 +175,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [secondPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'bob',
     });
@@ -196,7 +196,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [firstPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
     });
 
@@ -204,7 +204,7 @@ describe('real-world corpus toolkit', () => {
       importLocalAssets({
         repoRoot,
         paths: [secondPath],
-        label: 'qr-positive',
+        label: 'qr-pos',
         reviewStatus: 'rejected',
       }),
     ).rejects.toThrow(/Cannot change review status from approved to rejected/);
@@ -222,12 +222,12 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [firstPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
     });
     const secondImport = await importLocalAssets({
       repoRoot,
       paths: [secondPath, secondPath],
-      label: 'qr-positive',
+      label: 'qr-pos',
     });
 
     expect(secondImport.imported).toHaveLength(0);
@@ -254,7 +254,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [sourcePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       attribution: 'initial-attribution',
       license: 'initial-license',
       provenanceNotes: 'initial notes',
@@ -262,7 +262,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [sourcePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       attribution: 'self-generated',
       license: 'test-only',
       provenanceNotes: 'verified later',
@@ -300,24 +300,24 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [approvedPositivePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
     });
     await importLocalAssets({
       repoRoot,
       paths: [approvedNegativePath],
-      label: 'non-qr-negative',
+      label: 'qr-neg',
       reviewStatus: 'approved',
     });
     await importLocalAssets({
       repoRoot,
       paths: [pendingNegativePath],
-      label: 'non-qr-negative',
+      label: 'qr-neg',
       reviewStatus: 'pending',
     });
 
     const manifest = await readCorpusManifest(repoRoot);
-    const approvedPositive = manifest.assets.find((asset) => asset.label === 'qr-positive');
+    const approvedPositive = manifest.assets.find((asset) => asset.label === 'qr-pos');
     if (!approvedPositive) {
       throw new Error('expected approved positive asset');
     }
@@ -398,7 +398,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [positivePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
       groundTruth: {
@@ -409,7 +409,7 @@ describe('real-world corpus toolkit', () => {
     await importLocalAssets({
       repoRoot,
       paths: [negativePath],
-      label: 'non-qr-negative',
+      label: 'qr-neg',
       reviewStatus: 'approved',
       reviewer: 'mia',
     });

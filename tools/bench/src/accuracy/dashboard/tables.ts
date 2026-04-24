@@ -118,8 +118,8 @@ const recentDetail = (scan: RecentScan): string => {
   return `${base} attempts=${attempts} timing=${diagnostics.attemptFailures.timingCheck} decode=${diagnostics.attemptFailures.decodeFailed}`;
 };
 
-const labelText = (label: 'qr-positive' | 'non-qr-negative'): string => {
-  return label === 'qr-positive' ? '+QR' : '-NEG';
+const labelText = (label: 'qr-pos' | 'qr-neg'): string => {
+  return label === 'qr-pos' ? '+QR' : '-NEG';
 };
 
 const timeText = (timestampMs: number): string => {

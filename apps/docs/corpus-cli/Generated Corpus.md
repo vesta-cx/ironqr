@@ -99,7 +99,7 @@ The recipe catalog should cover a mix of realistic failure modes, including fami
 - multi-step combo recipes
 
 ## Background compositing policy
-When background blending is used, prefer approved canonical `non-qr-negative` assets as the background source.
+When background blending is used, prefer approved canonical `qr-neg` assets as the background source.
 
 That preserves a useful connection between synthetic foregrounds and real-world negative texture/background clutter.
 

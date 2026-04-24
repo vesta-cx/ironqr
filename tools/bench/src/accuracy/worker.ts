@@ -114,7 +114,7 @@ const isRunMessage = (value: AccuracyWorkerRequest): value is AccuracyWorkerRunM
     !!value.asset &&
     typeof value.asset === 'object' &&
     typeof value.asset.id === 'string' &&
-    (value.asset.label === 'qr-positive' || value.asset.label === 'non-qr-negative') &&
+    (value.asset.label === 'qr-pos' || value.asset.label === 'qr-neg') &&
     typeof value.asset.sha256 === 'string' &&
     typeof value.asset.imagePath === 'string' &&
     typeof value.asset.relativePath === 'string' &&

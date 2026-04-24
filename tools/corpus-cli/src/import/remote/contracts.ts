@@ -51,7 +51,7 @@ export type StageReview = S.Schema.Type<typeof StageReviewSchema>;
 export const StagedRemoteAssetSchema = S.Struct({
   version: S.Number,
   id: S.String,
-  suggestedLabel: S.Literals(['qr-positive', 'non-qr-negative']),
+  suggestedLabel: S.Literals(['qr-pos', 'qr-neg']),
   imageFileName: S.String,
   sourcePageUrl: S.String,
   imageUrl: S.String,

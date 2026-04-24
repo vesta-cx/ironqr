@@ -80,7 +80,7 @@ const isValidCacheEntry = (value: unknown): value is CachedScanEntry => {
   const entry = value as Partial<CachedScanEntry>;
   return (
     typeof entry.assetId === 'string' &&
-    (entry.assetLabel === 'qr-positive' || entry.assetLabel === 'non-qr-negative') &&
+    (entry.assetLabel === 'qr-pos' || entry.assetLabel === 'qr-neg') &&
     typeof entry.assetSha256 === 'string' &&
     typeof entry.relativePath === 'string' &&
     typeof entry.engineId === 'string' &&

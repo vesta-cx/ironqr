@@ -519,10 +519,10 @@ const main = async () => {
 
   const canonicalManifest = await readCorpusManifest(options.repoRoot);
   const negativeAssets = canonicalManifest.assets.filter(
-    (asset) => asset.label === 'non-qr-negative' && asset.review.status === 'approved',
+    (asset) => asset.label === 'qr-neg' && asset.review.status === 'approved',
   );
   if (negativeAssets.length === 0) {
-    throw new Error('Need at least one approved non-qr-negative asset for background blending.');
+    throw new Error('Need at least one approved qr-neg asset for background blending.');
   }
 
   const recipes = buildGeneratedRecipeCatalog();
@@ -623,7 +623,7 @@ const main = async () => {
       const asset = await buildGeneratedAssetRecord({
         repoRoot: options.repoRoot,
         outputPath: currentPath,
-        label: 'qr-positive',
+        label: 'qr-pos',
         provenance: [
           buildLocalGeneratedProvenance(basePath, `Derived from ${assignment.baseAssetId}`),
           ...(resolvedBackgroundAsset

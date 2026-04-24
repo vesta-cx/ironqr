@@ -1,7 +1,7 @@
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import type { BenchImageData } from '../shared/image.js';
 
-export type CorpusAssetLabel = 'qr-positive' | 'non-qr-negative';
+export type CorpusAssetLabel = 'qr-pos' | 'qr-neg';
 
 export interface CorpusBenchAsset {
   readonly id: string;
@@ -214,8 +214,6 @@ export interface AccuracyBenchmarkCacheSummary {
   readonly writes: number;
 }
 
-export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
-
 export interface AccuracyBenchmarkOptions {
   readonly cache?: {
     readonly enabled?: boolean;
@@ -225,8 +223,6 @@ export interface AccuracyBenchmarkOptions {
   };
   readonly progress?: {
     readonly enabled?: boolean;
-    readonly mode?: AccuracyProgressMode;
-    readonly verbose?: boolean;
   };
   readonly execution?: {
     readonly workers?: number;

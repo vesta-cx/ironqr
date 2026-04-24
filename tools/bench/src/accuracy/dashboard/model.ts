@@ -316,7 +316,7 @@ export const onDashboardDone = (model: BenchDashboardModel): void => {
 };
 
 export const classifyTimingBucket = (result: EngineAssetResult): TimingBucketKey => {
-  if (result.label === 'qr-positive') {
+  if (result.label === 'qr-pos') {
     return result.outcome === 'pass' || result.outcome === 'partial-pass'
       ? 'positive-pass'
       : 'positive-fail';
@@ -332,7 +332,7 @@ export const averageTimingMs = (bucket: TimingBucketStats): number | null => {
 export const timingBucketKeys = (): readonly TimingBucketKey[] => TIMING_BUCKETS;
 
 const recordOutcome = (engine: DashboardEngineStats, result: EngineAssetResult): void => {
-  if (result.label === 'qr-positive') {
+  if (result.label === 'qr-pos') {
     if (result.outcome === 'pass') engine.qrPass += 1;
     else if (result.outcome === 'partial-pass') engine.qrPartial += 1;
     else if (result.outcome === 'fail-no-decode') engine.qrNoDecode += 1;

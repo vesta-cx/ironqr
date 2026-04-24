@@ -33,7 +33,7 @@ export const normalizeAccuracyEngineRunOptions = (
 
 interface CorpusAsset {
   readonly id: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly label: 'qr-pos' | 'qr-neg';
   readonly sha256: string;
   readonly relativePath: string;
   readonly review: {
@@ -160,8 +160,8 @@ const summarizeEngine = (
   const results = assets.flatMap((asset) =>
     asset.results.filter((result) => result.engineId === engineId),
   );
-  const positives = results.filter((result) => result.label === 'qr-positive');
-  const negatives = results.filter((result) => result.label === 'non-qr-negative');
+  const positives = results.filter((result) => result.label === 'qr-pos');
+  const negatives = results.filter((result) => result.label === 'qr-neg');
   const fullPasses = positives.filter((result) => result.outcome === 'pass').length;
   const partialPasses = positives.filter((result) => result.outcome === 'partial-pass').length;
   const positiveFailures = positives.length - fullPasses - partialPasses;
@@ -222,7 +222,7 @@ const toEngineAssetResult = (
   durationMs: number,
   cached: boolean,
 ): EngineAssetResult => {
-  if (label === 'qr-positive') {
+  if (label === 'qr-pos') {
     const scored = scorePositiveScan(expectedTexts, scan);
     return {
       engineId,
@@ -373,8 +373,6 @@ export const runAccuracyBenchmark = async (
   const cacheFile = options.cache?.file ?? getDefaultAccuracyCachePath(repoRoot);
   const progress = createAccuracyProgressReporter({
     enabled: options.progress?.enabled ?? true,
-    mode: options.progress?.mode ?? 'auto',
-    verbose: options.progress?.verbose ?? options.observability?.verbose ?? false,
   });
   progress.onManifestStarted();
   let cache: Awaited<ReturnType<typeof openAccuracyCacheStore>> | null = null;
@@ -393,7 +391,7 @@ export const runAccuracyBenchmark = async (
     const activeWorkerPool = workerPool;
     const manifest = await readBenchCorpusManifest(repoRoot);
     const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
-    const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-positive').length;
+    const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-pos').length;
     const negativeCount = approvedAssets.length - positiveCount;
     progress.onManifestLoaded(
       approvedAssets.length,

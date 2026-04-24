@@ -89,7 +89,7 @@ describe('accuracy scoring', () => {
     expect(
       statusCodeForResult({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'fail-no-decode',
         decodedTexts: [],
         matchedTexts: [],
@@ -140,7 +140,7 @@ describe('accuracy cacheability policy', () => {
 
   const result = (outcome: EngineAssetResult['outcome']): EngineAssetResult => ({
     engineId: passOnlyEngine.id,
-    label: outcome === 'false-positive' ? 'non-qr-negative' : 'qr-positive',
+    label: outcome === 'false-positive' ? 'qr-neg' : 'qr-pos',
     outcome,
     decodedTexts: [],
     matchedTexts: [],
