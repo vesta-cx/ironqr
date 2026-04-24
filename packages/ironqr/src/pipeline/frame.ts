@@ -50,6 +50,8 @@ export interface DerivedViewCache {
   readonly scalarViews: Map<string, unknown>;
   /** Lazily filled binary-view cache keyed by view id. */
   readonly binaryViews: Map<string, unknown>;
+  /** Lazily filled polarity-free binary-plane cache keyed by scalar view and threshold. */
+  readonly binaryPlanes: Map<string, unknown>;
   /** Lazily filled OKLab planes used by multiple scalar views. */
   oklab?: OklabPlanes;
 }
@@ -125,6 +127,7 @@ export const createNormalizedImage = (imageData: ImageDataLike): NormalizedImage
     derivedViews: {
       scalarViews: new Map(),
       binaryViews: new Map(),
+      binaryPlanes: new Map(),
     },
   };
 };

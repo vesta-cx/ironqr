@@ -15,7 +15,13 @@ import {
 } from '../../src/pipeline/proposals.js';
 import { sampleGrid } from '../../src/pipeline/samplers.js';
 import { createTraceCollector } from '../../src/pipeline/trace.js';
-import { createViewBank, otsuBinarize, toGrayscale } from '../../src/pipeline/views.js';
+import {
+  createViewBank,
+  listDefaultBinaryViewIds,
+  otsuBinarize,
+  readBinaryBit,
+  toGrayscale,
+} from '../../src/pipeline/views.js';
 import { decodeGridLogical } from '../../src/qr/index.js';
 import {
   appendBits,
@@ -95,6 +101,23 @@ describe('single-image baseline pipeline (internal modules)', () => {
         }),
       ),
     ).rejects.toThrow('Browser image source size must not exceed');
+  });
+
+  it('shares one threshold plane across normal and inverted binary view identities', () => {
+    const imageData = makeImageData(
+      2,
+      1,
+      new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]),
+    );
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const normal = bank.getBinaryView('gray:otsu:normal');
+    const inverted = bank.getBinaryView('gray:otsu:inverted');
+
+    expect(normal.plane).toBe(inverted.plane);
+    expect(bank.listBinaryViewIds()).toHaveLength(54);
+    expect(listDefaultBinaryViewIds()).toHaveLength(54);
+    expect(readBinaryBit(normal, 0)).toBe(1);
+    expect(readBinaryBit(inverted, 0)).toBe(0);
   });
 
   it('orders proposal views by the current view-study priority list', () => {

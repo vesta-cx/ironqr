@@ -1,4 +1,5 @@
 import type { GridResolution } from './geometry.js';
+import { type BinaryView, isDarkPixel } from './views.js';
 
 /**
  * Supported logical-grid samplers.
@@ -25,7 +26,7 @@ export const sampleGrid = (
   width: number,
   height: number,
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   sampler: DecodeSampler = 'cross-vote',
 ): boolean[][] => {
   switch (sampler) {
@@ -56,7 +57,7 @@ export const sampleCrossVote = (
   width: number,
   height: number,
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
 ): boolean[][] => {
   const { size } = geometry;
   return Array.from({ length: size }, (_, row) =>
@@ -102,7 +103,7 @@ export const sampleDenseVote = (
   width: number,
   height: number,
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
 ): boolean[][] => {
   const { size } = geometry;
   return Array.from({ length: size }, (_, row) =>
@@ -159,7 +160,7 @@ export const sampleNearest = (
   width: number,
   height: number,
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
 ): boolean[][] => {
   const { size } = geometry;
   return Array.from({ length: size }, (_, row) =>
@@ -171,7 +172,7 @@ export const sampleNearest = (
 };
 
 const isDark = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   x: number,
@@ -179,5 +180,10 @@ const isDark = (
 ): boolean => {
   const px = Math.max(0, Math.min(width - 1, Math.round(x)));
   const py = Math.max(0, Math.min(height - 1, Math.round(y)));
-  return (binary[py * width + px] ?? 255) === 0;
+  const index = py * width + px;
+  if (isBinaryViewInput(binary)) return isDarkPixel(binary, index);
+  return (binary[index] ?? 255) === 0;
 };
+
+const isBinaryViewInput = (value: Uint8Array | BinaryView): value is BinaryView =>
+  !(value instanceof Uint8Array);

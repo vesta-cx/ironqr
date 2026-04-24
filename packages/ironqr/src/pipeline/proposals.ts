@@ -7,7 +7,7 @@ import {
   type GridResolution,
 } from './geometry.js';
 import type { TraceSink } from './trace.js';
-import type { BinaryView, BinaryViewId, ViewBank } from './views.js';
+import { type BinaryView, type BinaryViewId, readBinaryPixel, type ViewBank } from './views.js';
 
 const MAX_FINDER_EVIDENCE_TOTAL = 12;
 const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
@@ -455,13 +455,13 @@ const emitProposalViewGenerated = (
 };
 
 const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidenceDetection => {
-  const rowScan = detectRowScanFinders(binaryView.binary, binaryView.width, binaryView.height);
+  const rowScan = detectRowScanFinders(binaryView, binaryView.width, binaryView.height);
   const expensiveDetectorsRan = shouldRunExpensiveDetectors(binaryView, rowScan);
   const flood = expensiveDetectorsRan
-    ? detectFloodFinders(binaryView.binary, binaryView.width, binaryView.height)
+    ? detectFloodFinders(binaryView, binaryView.width, binaryView.height)
     : [];
   const matcher = expensiveDetectorsRan
-    ? detectMatcherFinders(binaryView.binary, binaryView.width, binaryView.height)
+    ? detectMatcherFinders(binaryView, binaryView.width, binaryView.height)
     : [];
   const evidence = dedupeFinderEvidence([...rowScan, ...flood, ...matcher]).slice(
     0,
@@ -738,7 +738,7 @@ const scoreTripleGeometry = (
 };
 
 const detectRowScanFinders = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): FinderEvidence[] => {
@@ -781,7 +781,7 @@ const detectRowScanFinders = (
 };
 
 const createRowScanEvidence = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   runs: readonly [number, number, number, number, number],
@@ -808,7 +808,7 @@ const createRowScanEvidence = (
 };
 
 const detectMatcherFinders = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): FinderEvidence[] => {
@@ -840,7 +840,7 @@ const detectMatcherFinders = (
 };
 
 const detectFloodFinders = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): FinderEvidence[] => {
@@ -899,7 +899,7 @@ const detectFloodFinders = (
 };
 
 const crossCheck = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   centerX: number,
@@ -1077,7 +1077,7 @@ const sampleBinary = (binaryView: BinaryView, x: number, y: number): number | un
   const px = Math.round(x);
   const py = Math.round(y);
   if (px < 0 || py < 0 || px >= binaryView.width || py >= binaryView.height) return undefined;
-  return binaryView.binary[py * binaryView.width + px];
+  return readBinaryPixel(binaryView, py * binaryView.width + px);
 };
 
 const dedupeRankedProposalCandidates = (
@@ -1246,7 +1246,7 @@ interface ComponentStats {
 }
 
 const labelConnectedComponents = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): Int32Array => {
@@ -1259,7 +1259,7 @@ const labelConnectedComponents = (
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
       if (labels[index] !== 0) continue;
-      const color = binary[index] ?? 255;
+      const color = pixelAtIndex(binary, index);
       let head = 0;
       let tail = 0;
       queueX[tail] = x;
@@ -1280,7 +1280,8 @@ const labelConnectedComponents = (
         for (const [nx, ny] of neighbors) {
           if (!inside(nx, ny, width, height)) continue;
           const neighborIndex = ny * width + nx;
-          if (labels[neighborIndex] !== 0 || (binary[neighborIndex] ?? 255) !== color) continue;
+          if (labels[neighborIndex] !== 0 || pixelAtIndex(binary, neighborIndex) !== color)
+            continue;
           labels[neighborIndex] = nextLabel;
           queueX[tail] = nx;
           queueY[tail] = ny;
@@ -1297,7 +1298,7 @@ const labelConnectedComponents = (
 
 const collectComponentStats = (
   labels: Int32Array,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): readonly ComponentStats[] => {
@@ -1330,7 +1331,7 @@ const collectComponentStats = (
         existing.sumY += y;
       } else {
         map.set(id, {
-          color: binary[index] ?? 255,
+          color: pixelAtIndex(binary, index),
           pixelCount: 1,
           minX: x,
           minY: y,
@@ -1356,9 +1357,17 @@ const collectComponentStats = (
   }));
 };
 
-const pixel = (binary: Uint8Array, width: number, x: number, y: number): number => {
-  return binary[y * width + x] ?? 255;
+const pixel = (binary: Uint8Array | BinaryView, width: number, x: number, y: number): number => {
+  return pixelAtIndex(binary, y * width + x);
 };
+
+const pixelAtIndex = (binary: Uint8Array | BinaryView, index: number): number => {
+  if (isBinaryViewInput(binary)) return readBinaryPixel(binary, index);
+  return binary[index] ?? 255;
+};
+
+const isBinaryViewInput = (value: Uint8Array | BinaryView): value is BinaryView =>
+  !(value instanceof Uint8Array);
 
 const inside = (x: number, y: number, width: number, height: number): boolean => {
   return x >= 0 && y >= 0 && x < width && y < height;

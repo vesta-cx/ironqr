@@ -45,6 +45,8 @@ import { type BinaryViewId, createViewBank, type ScalarViewId, type ViewBank } f
 export interface ScanRuntimeOptions extends ScanOptions {
   /** Optional typed trace sink for diagnostics, tests, and benchmark harnesses. */
   readonly traceSink?: TraceSink;
+  /** Optional proposal-generation view override. Defaults to the production priority subset. */
+  readonly proposalViewIds?: readonly BinaryViewId[];
   /** Optional low-overhead timing span sink for performance harnesses. */
   readonly metricsSink?: ScanMetricsSink;
   /** Optional cooperative scheduler used between proposal-view batches. */
@@ -442,7 +444,7 @@ const scanFrameExecutionOnce = (
     let earlyFrontierPasses = 0;
     const batchSource = createSequentialProposalBatchSource({
       viewBank,
-      viewIds: viewBank.listProposalViewIds(),
+      viewIds: options.proposalViewIds ?? viewBank.listProposalViewIds(),
       ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
       ...(traceSink === undefined ? {} : { traceSink }),
       ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),

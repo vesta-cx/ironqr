@@ -79,7 +79,7 @@ export const assessProposalStructure = (
       sourceBinaryView.width,
       sourceBinaryView.height,
       geometry,
-      sourceBinaryView.binary,
+      sourceBinaryView,
       'cross-vote',
     );
     const timingScore = measureTimingSupport(grid);

@@ -175,7 +175,7 @@ export const runDecodeCascade = (
 
       const refinedGeometry = refineGeometryByFitness(
         geometry,
-        sourceBinaryView.binary,
+        sourceBinaryView,
         sourceBinaryView.width,
         sourceBinaryView.height,
       );
@@ -196,7 +196,7 @@ export const runDecodeCascade = (
         const alignment = refineGeometryWithAlignment(
           proposal,
           refinedGeometry,
-          sourceBinaryView.binary,
+          sourceBinaryView,
           sourceBinaryView.width,
           sourceBinaryView.height,
         );
@@ -217,7 +217,7 @@ export const runDecodeCascade = (
 
       for (const nudged of selectTopCornerNudges(
         refinedGeometry,
-        sourceBinaryView.binary,
+        sourceBinaryView,
         sourceBinaryView.width,
         sourceBinaryView.height,
         maxCornerNudgeAttempts,
@@ -269,7 +269,7 @@ export const runDecodeCascade = (
 
       const rescueRefinedGeometry = refineGeometryByFitness(
         geometry,
-        sourceBinaryView.binary,
+        sourceBinaryView,
         sourceBinaryView.width,
         sourceBinaryView.height,
       );
@@ -339,13 +339,7 @@ const tryGeometryAcrossViews = (
         });
 
         const startedAt = nowMs();
-        const grid = sampleGrid(
-          binaryView.width,
-          binaryView.height,
-          geometry,
-          binaryView.binary,
-          sampler,
-        );
+        const grid = sampleGrid(binaryView.width, binaryView.height, geometry, binaryView, sampler);
         const decoded = yield* decodeGridVariants(
           grid,
           minimumTimingScore(attempt.refinement, attempt.sampler),
