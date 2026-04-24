@@ -191,6 +191,12 @@ export interface BlobLikeImageSource {
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
+/** Structural subset of canvas/image-like inputs accepted by `createImageBitmap`. */
+export interface CanvasLikeImageSource {
+  readonly width: number;
+  readonly height: number;
+}
+
 /** Structural subset of ImageBitmap-like inputs accepted by the browser adapter path. */
 export interface ImageBitmapLikeSource {
   readonly width: number;
@@ -198,7 +204,21 @@ export interface ImageBitmapLikeSource {
   close(): void;
 }
 
-export type BrowserImageSource = ImageDataLike | BlobLikeImageSource | ImageBitmapLikeSource;
+/** Structural subset of VideoFrame-like inputs accepted by `createImageBitmap`. */
+export interface VideoFrameLikeSource {
+  readonly displayWidth?: number;
+  readonly displayHeight?: number;
+  readonly codedWidth?: number;
+  readonly codedHeight?: number;
+  close(): void;
+}
+
+export type BrowserImageSource =
+  | ImageDataLike
+  | BlobLikeImageSource
+  | CanvasLikeImageSource
+  | ImageBitmapLikeSource
+  | VideoFrameLikeSource;
 
 export type ScanImageInput = BrowserImageSource;
 export type ScanFrameInput = BrowserImageSource;

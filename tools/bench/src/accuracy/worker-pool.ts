@@ -29,8 +29,10 @@ interface WorkerSlot {
 }
 
 const resolveWorkerModuleUrl = (): URL => {
-  const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
-  return new URL(`./worker.${extension}`, import.meta.url);
+  if (import.meta.url.endsWith('.ts')) {
+    return new URL('./worker.ts', import.meta.url);
+  }
+  return new URL('./accuracy/worker.js', import.meta.url);
 };
 
 const asError = (error: unknown): Error =>

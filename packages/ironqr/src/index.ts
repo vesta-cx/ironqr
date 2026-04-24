@@ -112,6 +112,10 @@ export function scanFrame(
   input: ScanFrameInput,
   options?: ScanRuntimeOptionsWithoutObservability,
 ): Promise<readonly ScanResult[]>;
+export function scanFrame(
+  input: ScanFrameInput,
+  options?: ScanRuntimeOptions,
+): Promise<readonly ScanResult[] | ScanReport>;
 /**
  * Scans a single still image or video frame for QR symbols.
  *
@@ -159,6 +163,10 @@ export function scanImage(
   input: ScanImageInput,
   options?: ScanRuntimeOptionsWithoutObservability,
 ): Promise<readonly ScanResult[]>;
+export function scanImage(
+  input: ScanImageInput,
+  options?: ScanRuntimeOptions,
+): Promise<readonly ScanResult[] | ScanReport>;
 /**
  * Scans an image-like source by delegating to `scanFrame`.
  *

@@ -1,8 +1,6 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readCorpusManifest } from '../../../corpus-cli/src/manifest.js';
-import type { CorpusAsset } from '../../../corpus-cli/src/schema.js';
 import { getDefaultAccuracyCachePath, openAccuracyCacheStore } from './cache.js';
 import { describeAccuracyEngine, listAccuracyEngines } from './engines.js';
 import { createAccuracyProgressReporter } from './progress.js';
@@ -24,6 +22,45 @@ import { createAccuracyWorkerPool } from './worker-pool.js';
 const REPORTS_DIRECTORY = path.join('tools', 'bench', 'reports');
 const DEFAULT_REPORT_FILE = path.join(REPORTS_DIRECTORY, 'accuracy.json');
 const DEFAULT_WORKER_LIMIT = 8;
+const CORPUS_MANIFEST_VERSION = 1;
+
+interface CorpusAsset {
+  readonly id: string;
+  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly sha256: string;
+  readonly relativePath: string;
+  readonly review: {
+    readonly status: string;
+  };
+  readonly groundTruth?: {
+    readonly codes: readonly { readonly text: string }[];
+  };
+}
+
+interface CorpusManifest {
+  readonly version: number;
+  readonly assets: readonly CorpusAsset[];
+}
+
+const readBenchCorpusManifest = async (repoRoot: string): Promise<CorpusManifest> => {
+  const filePath = path.join(repoRoot, 'corpus', 'data', 'manifest.json');
+  const parsed: unknown = JSON.parse(await readFile(filePath, 'utf8'));
+  if (!isCorpusManifest(parsed)) {
+    throw new Error(`Invalid corpus manifest: ${filePath}`);
+  }
+  if (parsed.version > CORPUS_MANIFEST_VERSION) {
+    throw new Error(
+      `Incompatible corpus manifest version: ${parsed.version}; bench supports ${CORPUS_MANIFEST_VERSION}.`,
+    );
+  }
+  return parsed;
+};
+
+const isCorpusManifest = (value: unknown): value is CorpusManifest => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<CorpusManifest>;
+  return typeof candidate.version === 'number' && Array.isArray(candidate.assets);
+};
 
 const mapConcurrent = async <Input, Output>(
   values: readonly Input[],
@@ -154,6 +191,18 @@ export const isCacheableEngineResult = (
   return result.outcome === 'pass' || result.outcome === 'partial-pass';
 };
 
+const cacheRunKey = (
+  asset: CorpusAsset,
+  expectedTexts: readonly string[],
+  runOptions: AccuracyEngineRunOptions,
+): string => {
+  return JSON.stringify({
+    label: asset.label,
+    expectedTexts,
+    ironqrTraceMode: runOptions.ironqrTraceMode ?? 'summary',
+  });
+};
+
 const scoreAssetForEngine = async (
   asset: CorpusAsset,
   repoRoot: string,
@@ -166,6 +215,7 @@ const scoreAssetForEngine = async (
   const expectedTexts = expectedTextsFor({
     expectedTexts: asset.groundTruth?.codes.map((code) => code.text) ?? [],
   });
+  const runKey = cacheRunKey(asset, expectedTexts, runOptions);
   const cacheLookupAsset = {
     id: asset.id,
     label: asset.label,
@@ -173,7 +223,7 @@ const scoreAssetForEngine = async (
     relativePath: asset.relativePath,
   };
 
-  const cached = cache.read(engine, cacheLookupAsset);
+  const cached = cache.read(engine, cacheLookupAsset, runKey);
   if (cached) {
     progress.onScanStarted({
       engineId: engine.id,
@@ -265,7 +315,7 @@ const scoreAssetForEngine = async (
     };
     const wroteToCache = isCacheableEngineResult(engine, cache, result);
     if (wroteToCache) {
-      await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs);
+      await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs, runKey);
     } else if (engine.cache.mode === 'pass-only') {
       await cache.evict(engine, cacheLookupAsset);
     }
@@ -294,7 +344,7 @@ const scoreAssetForEngine = async (
   };
   const wroteToCache = isCacheableEngineResult(engine, cache, result);
   if (wroteToCache) {
-    await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs);
+    await cache.write(engine, cacheLookupAsset, execution.scan, execution.durationMs, runKey);
   } else if (engine.cache.mode === 'pass-only') {
     await cache.evict(engine, cacheLookupAsset);
   }
@@ -337,7 +387,7 @@ export const runAccuracyBenchmark = async (
   const workerPool = createAccuracyWorkerPool(workerCount, progress);
 
   try {
-    const manifest = await readCorpusManifest(repoRoot);
+    const manifest = await readBenchCorpusManifest(repoRoot);
     const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
     progress.onManifestLoaded(
       approvedAssets.length,

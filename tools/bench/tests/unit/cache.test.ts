@@ -62,11 +62,12 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
     await firstStore.save();
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    const hit = secondStore.read(cacheableEngine, asset);
+    const hit = secondStore.read(cacheableEngine, asset, 'default');
     expect(hit).not.toBeNull();
     expect(hit?.scan.results).toEqual([{ text: 'HELLO' }]);
     expect(hit?.durationMs).toBe(42.75);
@@ -87,10 +88,11 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    expect(secondStore.read(cacheableEngine, asset)?.durationMs).toBe(42.75);
+    expect(secondStore.read(cacheableEngine, asset, 'default')?.durationMs).toBe(42.75);
   });
 
   it('invalidates a cached result when the asset hash changes', async () => {
@@ -107,11 +109,36 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
     await firstStore.save();
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    const miss = secondStore.read(cacheableEngine, { ...asset, sha256: 'sha-b' });
+    const miss = secondStore.read(cacheableEngine, { ...asset, sha256: 'sha-b' }, 'default');
+    expect(miss).toBeNull();
+    expect(secondStore.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
+  });
+
+  it('invalidates a cached result when run options change', async () => {
+    const file = await makeTempFile();
+    const firstStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
+    await firstStore.write(
+      cacheableEngine,
+      asset,
+      {
+        attempted: true,
+        succeeded: true,
+        results: [{ text: 'HELLO' }],
+        failureReason: null,
+        error: null,
+      },
+      42.75,
+      'trace:off',
+    );
+    await firstStore.save();
+
+    const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
+    const miss = secondStore.read(cacheableEngine, asset, 'trace:summary');
     expect(miss).toBeNull();
     expect(secondStore.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
@@ -130,11 +157,12 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
     await firstStore.save();
 
     const refreshedStore = await openAccuracyCacheStore(file, { enabled: true, refresh: true });
-    expect(refreshedStore.read(cacheableEngine, asset)).toBeNull();
+    expect(refreshedStore.read(cacheableEngine, asset, 'default')).toBeNull();
     expect(refreshedStore.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
 
@@ -152,6 +180,7 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
     await firstStore.save();
 
@@ -161,7 +190,7 @@ describe('accuracy cache', () => {
       disabledEngineIds: [cacheableEngine.id],
     });
     expect(disabledStore.isEnabledFor(cacheableEngine)).toBe(false);
-    expect(disabledStore.read(cacheableEngine, asset)).toBeNull();
+    expect(disabledStore.read(cacheableEngine, asset, 'default')).toBeNull();
     await disabledStore.write(
       cacheableEngine,
       asset,
@@ -173,10 +202,13 @@ describe('accuracy cache', () => {
         error: null,
       },
       99,
+      'default',
     );
 
     const enabledStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    expect(enabledStore.read(cacheableEngine, asset)?.scan.results).toEqual([{ text: 'HELLO' }]);
+    expect(enabledStore.read(cacheableEngine, asset, 'default')?.scan.results).toEqual([
+      { text: 'HELLO' },
+    ]);
   });
 
   it('opens malformed cache files as empty cache snapshots', async () => {
@@ -184,7 +216,7 @@ describe('accuracy cache', () => {
     await writeFile(file, '{not-json', 'utf8');
 
     const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    expect(store.read(cacheableEngine, asset)).toBeNull();
+    expect(store.read(cacheableEngine, asset, 'default')).toBeNull();
     expect(store.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
 
@@ -197,7 +229,7 @@ describe('accuracy cache', () => {
     );
 
     const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    expect(store.read(cacheableEngine, asset)).toBeNull();
+    expect(store.read(cacheableEngine, asset, 'default')).toBeNull();
     expect(store.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
 
@@ -215,10 +247,11 @@ describe('accuracy cache', () => {
         error: null,
       },
       42.75,
+      'default',
     );
     await store.evict(cacheableEngine, asset);
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
-    expect(secondStore.read(cacheableEngine, asset)).toBeNull();
+    expect(secondStore.read(cacheableEngine, asset, 'default')).toBeNull();
   });
 });

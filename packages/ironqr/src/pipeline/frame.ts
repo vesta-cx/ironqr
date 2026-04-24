@@ -23,7 +23,7 @@ type OffscreenCanvasConstructorLike = new (
 
 type BrowserBitmapRuntime = {
   createImageBitmap?: (
-    input: Exclude<BrowserImageSource, ImageDataLike>,
+    input: Exclude<BrowserImageSource, ImageDataLike | ImageBitmapLikeSource>,
   ) => Promise<ImageBitmapLikeSource>;
   OffscreenCanvas?: OffscreenCanvasConstructorLike;
 };
@@ -224,13 +224,20 @@ const isImageDataLike = (value: unknown): value is ImageDataLike => {
 };
 
 const isImageBitmapLike = (value: BrowserImageSource): value is ImageBitmapLikeSource => {
-  return 'close' in value && typeof value.close === 'function';
+  return (
+    'close' in value &&
+    typeof value.close === 'function' &&
+    'width' in value &&
+    'height' in value &&
+    typeof value.width === 'number' &&
+    typeof value.height === 'number'
+  );
 };
 
 const toImageData = async (input: BrowserImageSource): Promise<ImageDataLike> => {
   if (isImageDataLike(input)) return input;
 
-  const runtime = globalThis as BrowserBitmapRuntime;
+  const runtime = globalThis as unknown as BrowserBitmapRuntime;
   const OffscreenCanvasCtor = runtime.OffscreenCanvas;
   if (!OffscreenCanvasCtor) {
     throw new ScannerError(

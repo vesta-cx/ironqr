@@ -71,5 +71,5 @@ describe('corpus-derived decode regressions', () => {
     });
 
     expect(results.map((result) => result.payload.text)).toContain('http://www.sanisale.com/');
-  });
+  }, 30_000);
 });

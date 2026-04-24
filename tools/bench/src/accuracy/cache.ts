@@ -20,6 +20,7 @@ interface CachedScanEntry {
   readonly engineVersion: string;
   readonly durationMs: number;
   readonly scan: AccuracyScanResult;
+  readonly runKey: string;
   readonly updatedAt: string;
 }
 
@@ -34,12 +35,14 @@ export interface AccuracyCacheStore {
   read: (
     engine: AccuracyEngine,
     asset: Pick<CorpusBenchAsset, 'id' | 'label' | 'sha256' | 'relativePath'>,
+    runKey: string,
   ) => { readonly scan: AccuracyScanResult; readonly durationMs: number } | null;
   write: (
     engine: AccuracyEngine,
     asset: Pick<CorpusBenchAsset, 'id' | 'label' | 'sha256' | 'relativePath'>,
     scan: AccuracyScanResult,
     durationMs: number,
+    runKey: string,
   ) => Promise<void>;
   evict: (
     engine: AccuracyEngine,
@@ -125,8 +128,13 @@ export const openAccuracyCacheStore = async (
     if (!dirty) return;
     const snapshotToWrite = snapshot;
     dirty = false;
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify(snapshotToWrite, null, 2)}\n`, 'utf8');
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, `${JSON.stringify(snapshotToWrite, null, 2)}\n`, 'utf8');
+    } catch (error) {
+      dirty = true;
+      throw error;
+    }
     if (snapshot !== snapshotToWrite) {
       dirty = true;
     }
@@ -138,7 +146,7 @@ export const openAccuracyCacheStore = async (
 
   return {
     isEnabledFor,
-    read: (engine, asset) => {
+    read: (engine, asset, runKey) => {
       if (!isEnabledFor(engine)) return null;
       if (options.refresh) {
         stats.misses += 1;
@@ -154,7 +162,8 @@ export const openAccuracyCacheStore = async (
         entry.engineVersion !== engine.cache.version ||
         entry.assetSha256 !== asset.sha256 ||
         entry.assetLabel !== asset.label ||
-        entry.relativePath !== asset.relativePath
+        entry.relativePath !== asset.relativePath ||
+        entry.runKey !== runKey
       ) {
         stats.misses += 1;
         return null;
@@ -166,7 +175,7 @@ export const openAccuracyCacheStore = async (
         durationMs: entry.durationMs,
       };
     },
-    write: async (engine, asset, scan, durationMs) => {
+    write: async (engine, asset, scan, durationMs, runKey) => {
       if (!isEnabledFor(engine)) return;
       snapshot = {
         ...snapshot,
@@ -184,6 +193,7 @@ export const openAccuracyCacheStore = async (
               engineVersion: engine.cache.version,
               durationMs,
               scan,
+              runKey,
               updatedAt: new Date().toISOString(),
             },
           },

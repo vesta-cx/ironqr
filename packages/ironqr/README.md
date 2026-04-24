@@ -114,10 +114,10 @@ const result = await decodeGrid({
 | ------------ | --------------------------------- | --------------------------------------------------- | -------------------------------------- |
 | `scanImage`  | `BrowserImageSource`              | `Promise<ScanResult[] \| ScanReport>`              | Scan a still image for QR codes        |
 | `scanFrame`  | `BrowserImageSource`              | `Promise<ScanResult[] \| ScanReport>`              | Scan one frame; report when observability is requested |
-| `scanStream` | `MediaStream \| HTMLVideoElement` | `Promise<ScanResult[]>`                             | Managed stream scanning with callbacks |
+| `scanStream` | `unknown`                         | `Promise<ScanResult[]>`                             | Reserved stream scanning placeholder   |
 | `decodeGrid` | `DecodeGridInput`                 | `Promise<DecodeGridResult>`                         | Decode a pre-extracted logical grid    |
 
-`BrowserImageSource` accepts `Blob`, `File`, `ImageBitmap`, `ImageData`, `HTMLCanvasElement`, `HTMLImageElement`, `OffscreenCanvas`, or `VideoFrame`.
+`BrowserImageSource` is structural so non-DOM TypeScript consumers can compile without `lib.dom`: pass `ImageDataLike` (`{ width, height, data }`), Blob/File-like objects, ImageBitmap-like objects, canvas/image-like objects with dimensions, or VideoFrame-like objects accepted by the host `createImageBitmap` implementation.
 
 ### ScanResult
 

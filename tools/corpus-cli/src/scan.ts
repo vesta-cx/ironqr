@@ -1,4 +1,5 @@
 import { Effect } from 'effect';
+import type { ImageDataLike } from 'ironqr';
 import { scanFrame } from 'ironqr';
 import sharp from 'sharp';
 import type { AutoScan } from './schema.js';
@@ -7,7 +8,7 @@ interface ScanFrameResult {
   readonly payload: { readonly text: string; readonly kind?: string };
 }
 
-interface ScanImageData {
+interface ScanImageData extends ImageDataLike {
   readonly width: number;
   readonly height: number;
   readonly data: Uint8ClampedArray;
@@ -23,9 +24,7 @@ const scanLocalImageFileEffect = (imagePath: string) => {
   return Effect.gen(function* () {
     const imageData = yield* readImageData(imagePath);
     const scanOutcome = yield* Effect.match(
-      Effect.tryPromise(
-        () => scanFrame(imageData as unknown as ImageData) as Promise<readonly ScanFrameResult[]>,
-      ),
+      Effect.tryPromise(() => scanFrame(imageData) as Promise<readonly ScanFrameResult[]>),
       {
         onFailure: (error) => ({ ok: false as const, error }),
         onSuccess: (results) => ({ ok: true as const, results }),

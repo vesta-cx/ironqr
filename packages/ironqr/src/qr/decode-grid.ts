@@ -145,15 +145,30 @@ const buildFormatPreludeCandidates = (
   matrix: boolean[][],
 ): readonly DecodedFormatInfoCandidate[] => {
   const strict = decodeFormatInfoCandidates(matrix, { maxDistance: 3, limit: 1 });
-  if (strict.length > 0) return strict;
-
   const rescue = decodeFormatInfoCandidates(matrix, {
     maxDistance: MAX_FORMAT_INFO_RESCUE_DISTANCE,
     limit: MAX_FORMAT_INFO_RESCUE_CANDIDATES,
   });
-  if (rescue.length > 0) return rescue;
+  const candidates = dedupeFormatPreludeCandidates([...strict, ...rescue]);
+  if (candidates.length > 0) return candidates;
 
   throw new ScannerError('decode_failed', 'Could not decode QR format information.');
+};
+
+const dedupeFormatPreludeCandidates = (
+  candidates: readonly DecodedFormatInfoCandidate[],
+): readonly DecodedFormatInfoCandidate[] => {
+  const bestByKey = new Map<string, DecodedFormatInfoCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.errorCorrectionLevel}:${candidate.maskPattern}`;
+    const current = bestByKey.get(key);
+    if (!current || candidate.hammingDistance < current.hammingDistance) {
+      bestByKey.set(key, candidate);
+    }
+  }
+  return [...bestByKey.values()].sort(
+    (left, right) => left.hammingDistance - right.hammingDistance,
+  );
 };
 
 const buildVersionPreludeCandidates = (

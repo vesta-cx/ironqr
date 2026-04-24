@@ -21,6 +21,20 @@ import type { CliUi, SelectValue } from '../../src/ui.js';
 import { MAJOR_VERSION } from '../../src/version.js';
 import { makeTestDir } from '../helpers.js';
 
+const withPixabayApiKey = async (run: () => Promise<void>): Promise<void> => {
+  const previous = process.env.PIXABAY_API_KEY;
+  process.env.PIXABAY_API_KEY = 'test-key';
+  try {
+    await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PIXABAY_API_KEY;
+    } else {
+      process.env.PIXABAY_API_KEY = previous;
+    }
+  }
+};
+
 describe('corpus cli helpers', () => {
   it('builds a Windows-safe opener invocation', () => {
     const target = 'https://example.com/a?x=1&y=2';
@@ -211,14 +225,16 @@ describe('corpus cli helpers', () => {
     };
 
     try {
-      await expect(
-        resolveSeedUrls(
-          { ui },
-          { command: 'scrape', positionals: [], options: {}, help: false, verbose: false },
-        ),
-      ).resolves.toEqual([
-        'https://pixabay.com/api/?q=qr+code&image_type=photo&safesearch=true&order=popular',
-      ]);
+      await withPixabayApiKey(async () => {
+        await expect(
+          resolveSeedUrls(
+            { ui },
+            { command: 'scrape', positionals: [], options: {}, help: false, verbose: false },
+          ),
+        ).resolves.toEqual([
+          'https://pixabay.com/api/?q=qr+code&image_type=photo&safesearch=true&order=popular',
+        ]);
+      });
 
       expect(selectCalls[0]).toEqual({
         message: 'Choose scrape source',
@@ -270,20 +286,22 @@ describe('corpus cli helpers', () => {
       },
     };
 
-    await expect(
-      resolveSeedUrls(
-        { ui },
-        {
-          command: 'scrape',
-          positionals: [],
-          options: { source: 'pixabay-api', query: 'wifi qr' },
-          help: false,
-          verbose: false,
-        },
-      ),
-    ).resolves.toEqual([
-      'https://pixabay.com/api/?q=wifi+qr&image_type=photo&safesearch=true&order=popular',
-    ]);
+    await withPixabayApiKey(async () => {
+      await expect(
+        resolveSeedUrls(
+          { ui },
+          {
+            command: 'scrape',
+            positionals: [],
+            options: { source: 'pixabay-api', query: 'wifi qr' },
+            help: false,
+            verbose: false,
+          },
+        ),
+      ).resolves.toEqual([
+        'https://pixabay.com/api/?q=wifi+qr&image_type=photo&safesearch=true&order=popular',
+      ]);
+    });
   });
 
   it('prompts for a customizable search term when a preset source is selected', async () => {
@@ -317,14 +335,16 @@ describe('corpus cli helpers', () => {
     };
 
     try {
-      await expect(
-        resolveSeedUrls(
-          { ui },
-          { command: 'scrape', positionals: [], options: {}, help: false, verbose: false },
-        ),
-      ).resolves.toEqual([
-        'https://pixabay.com/api/?q=QR&image_type=photo&safesearch=true&order=popular',
-      ]);
+      await withPixabayApiKey(async () => {
+        await expect(
+          resolveSeedUrls(
+            { ui },
+            { command: 'scrape', positionals: [], options: {}, help: false, verbose: false },
+          ),
+        ).resolves.toEqual([
+          'https://pixabay.com/api/?q=QR&image_type=photo&safesearch=true&order=popular',
+        ]);
+      });
 
       expect(textCalls[0]).toEqual({
         message: 'Pixabay API search term',
