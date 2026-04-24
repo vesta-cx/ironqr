@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { scanFrame } from '../../../../packages/ironqr/src/index.js';
@@ -130,6 +131,36 @@ export const getDefaultPerformanceReportPath = (repoRoot: string): string => {
   return path.join(repoRoot, DEFAULT_REPORT_FILE);
 };
 
+const resolvePerformanceSelection = (
+  selection: PerformanceBenchmarkOptions['selection'] = {},
+): {
+  readonly seed: string | null;
+  readonly assetIds: readonly string[];
+  readonly labels: readonly ('qr-pos' | 'qr-neg')[];
+  readonly maxAssets: number | null;
+  readonly filters: Record<string, unknown>;
+} => {
+  const seed =
+    selection.seed === undefined
+      ? selection.maxAssets === undefined
+        ? null
+        : crypto.randomUUID()
+      : selection.seed;
+  const filters = {
+    assetIds: selection.assetIds ?? [],
+    labels: selection.labels ?? [],
+    maxAssets: selection.maxAssets ?? null,
+    ...(selection.filters ?? {}),
+  };
+  return {
+    seed,
+    assetIds: selection.assetIds ?? [],
+    labels: selection.labels ?? [],
+    maxAssets: selection.maxAssets ?? null,
+    filters,
+  };
+};
+
 export const runPerformanceBenchmark = async (
   repoRoot: string,
   reportFile = getDefaultPerformanceReportPath(repoRoot),
@@ -140,6 +171,7 @@ export const runPerformanceBenchmark = async (
     throw new Error(`Performance iterations must be a positive integer, got ${iterations}`);
   }
 
+  const selection = resolvePerformanceSelection(options.selection);
   const engines = resolveAccuracyEngines();
   const iterationResults: PerformanceIterationResult[] = [];
   let lastAssets: readonly AccuracyAssetResult[] = [];
@@ -163,14 +195,10 @@ export const runPerformanceBenchmark = async (
       progress: { enabled: false },
       execution: options.workers === undefined ? {} : { workers: options.workers },
       selection: {
-        assetIds: options.selection?.assetIds ?? [],
-        labels: options.selection?.labels ?? [],
-        ...(options.selection?.maxAssets === undefined
-          ? {}
-          : { maxAssets: options.selection.maxAssets }),
-        ...(options.selection?.seed === null || options.selection?.seed === undefined
-          ? {}
-          : { seed: options.selection.seed }),
+        assetIds: selection.assetIds,
+        labels: selection.labels,
+        ...(selection.maxAssets === null ? {} : { maxAssets: selection.maxAssets }),
+        ...(selection.seed === null ? {} : { seed: selection.seed }),
       },
     });
     lastAssets = accuracy.assets;
@@ -210,12 +238,15 @@ export const runPerformanceBenchmark = async (
     benchmark: {
       name: 'Performance Benchmark',
       description:
-        'Compares ironqr scan speed against every target baseline engine and records first-party timing metrics for ironqr. Start with summary.ranking, summary.ironqr, and summary.hotSpots, then inspect details.assets for per-asset iteration timings.',
+        'Compares `ironqr` scan speed against every target baseline engine and records detailed first-party timing metrics for `ironqr`. This report answers whether `ironqr` is competitive on latency/throughput and where it spends time internally. Start with `summary.ranking`, `summary.ironqr`, and `summary.hotSpots`, then inspect `details.assets` for per-asset iteration timings and `details.ironqrProfile` for stage/view/decode-attempt breakdowns.',
     },
     command: { name: 'performance', argv: process.argv.slice(2) },
     repo: await readRepoMetadata(repoRoot),
     corpus: await buildReportCorpus({ repoRoot, assets: lastAssets }),
-    selection: { seed: options.selection?.seed ?? null, filters: options.selection?.filters ?? {} },
+    selection: {
+      seed: selection.seed,
+      filters: selection.filters,
+    },
     engines: engines.map((engine) => ({
       id: engine.id,
       adapterVersion: engine.cache.version,

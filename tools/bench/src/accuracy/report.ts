@@ -255,7 +255,7 @@ export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
     benchmark: {
       name: 'Accuracy Benchmark',
       description:
-        'Compares ironqr correctness against every target baseline engine on the selected corpus. Start with summary.ironqr, then inspect summary.gaps for baseline passes that ironqr missed and ironqr wins that baselines missed.',
+        'Compares `ironqr` correctness against every target baseline engine on the selected corpus. This report answers where `ironqr` is ahead of, tied with, or behind other engines. Start with `summary.ironqr`, then inspect `summary.gaps` for baseline passes that `ironqr` missed and `ironqr` wins that baselines missed. Use `details.assets` for per-asset decoded text, expected text, matched text, and error details.',
     },
     command: { name: 'accuracy' as const, argv: process.argv.slice(2) },
     repo: await readRepoMetadata(result.repoRoot),
@@ -263,13 +263,13 @@ export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
       repoRoot: result.repoRoot,
       assets: result.assets,
     }),
-    selection: { seed: null, filters: {} },
+    selection: result.selection,
     engines: result.engines.map((engine) => ({
       id: engine.id,
       adapterVersion: '1',
       runtimeVersion: engine.capabilities.runtime,
     })),
-    options: {},
+    options: result.options,
     summary: {
       ironqr,
       baselines,

@@ -28,6 +28,13 @@ describe('bench cli args', () => {
     expect(options.help).toBe(true);
   });
 
+  it('parses suite flags without requiring an explicit mode', () => {
+    const { mode, options } = parseArgs(['--max-assets', '1', '--seed', 'smoke']);
+    expect(mode).toBeUndefined();
+    expect(options.maxAssets).toBe(1);
+    expect(options.seed).toBe('smoke');
+  });
+
   it('rejects partially numeric worker and iteration counts', () => {
     expect(() => parseArgs(['accuracy', '--workers=2abc'])).toThrow('positive integer');
     expect(() => parseArgs(['accuracy', '--workers', '1.5'])).toThrow('positive integer');

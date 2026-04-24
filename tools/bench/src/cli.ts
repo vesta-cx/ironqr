@@ -50,7 +50,8 @@ interface CliOptions {
 export const parseArgs = (
   argv: readonly string[],
 ): { readonly mode: string | undefined; readonly options: CliOptions } => {
-  const [mode, ...rest] = argv;
+  const mode = argv[0]?.startsWith('-') ? undefined : argv[0];
+  const rest = mode === undefined ? argv : argv.slice(1);
   let help = false;
   let failuresOnly = false;
   let reportFile: string | undefined;
@@ -340,30 +341,39 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
             description: 'At least one component regression verdict is unavailable.',
           }
         : { status: 'passed', description: 'No component benchmark reported a regression.' };
+  const accuracySummary = recordAt(accuracyReport, 'summary');
+  const performanceSummary = recordAt(performanceReport, 'summary');
+  const accuracyIronqr = recordAt(accuracySummary, 'ironqr');
+  const performanceIronqr = recordAt(performanceSummary, 'ironqr');
+  const performanceRanking = recordAt(performanceSummary, 'ranking');
+  const accuracyGaps = recordAt(accuracySummary, 'gaps');
+  const suiteRepo = reportRepo(accuracyReport.repo, repoRoot);
   const summary = {
     kind: 'suite-report',
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    status: 'passed',
+    status: pass.status === 'failed' ? 'failed' : 'passed',
     verdicts: { pass, regression },
     benchmark: {
       name: 'Bench Full Suite',
       description:
-        'Runs the standard ironqr benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. Start with summary.verdicts, then inspect linked reports.',
+        'Runs the standard `ironqr` benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. This report answers whether the current branch regressed on correctness or speed. Start with `summary.verdicts`, then inspect `summary.highlights`, then open the linked accuracy and performance reports for details.',
     },
     command: { name: 'suite', argv: process.argv.slice(2) },
-    repo: { root: repoRoot, commit: null, dirty: null },
-    corpus: {
-      manifestPath: path.join(repoRoot, 'corpus', 'data', 'manifest.json'),
-      assetCount: 0,
-      positiveCount: 0,
-      negativeCount: 0,
-      manifestHash: '',
-      assetIds: [],
+    repo: suiteRepo,
+    corpus: accuracyReport.corpus ?? performanceReport.corpus,
+    selection: accuracyReport.selection ??
+      performanceReport.selection ?? { seed: null, filters: {} },
+    engines: mergeEngines(accuracyReport.engines, performanceReport.engines),
+    options: {
+      cacheEnabled: options.cacheEnabled,
+      refreshCache: options.refreshCache,
+      refreshCacheEngineId: options.refreshCacheEngineId ?? null,
+      workers: options.workers ?? null,
+      iterations: options.iterations ?? null,
+      maxAssets: options.maxAssets ?? null,
+      seed: options.seed ?? null,
     },
-    selection: { seed: null, filters: {} },
-    engines: [],
-    options: {},
     summary: {
       verdicts: {
         accuracyPass,
@@ -372,12 +382,12 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
         performanceRegression,
       },
       highlights: {
-        ironqrAccuracyRank: null,
-        ironqrSpeedRank: null,
-        ironqrPassRate: 0,
-        ironqrP95DurationMs: 0,
-        biggestAccuracyGaps: [],
-        slowestIronqrAssets: [],
+        ironqrAccuracyRank: rankAccuracyIronqr(accuracySummary),
+        ironqrSpeedRank: numberOrNull(performanceRanking.ironqrP95Rank),
+        ironqrPassRate: numberOrZero(accuracyIronqr.fullPassRate),
+        ironqrP95DurationMs: numberOrZero(performanceIronqr.p95DurationMs),
+        biggestAccuracyGaps: arrayOrEmpty(accuracyGaps.topIronqrMissedBaselineHits),
+        slowestIronqrAssets: slowestIronqrAssets(performanceReport),
       },
     },
     details: { accuracyReportFile, performanceReportFile },
@@ -389,6 +399,67 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
 
 const readReport = async (filePath: string): Promise<Record<string, unknown>> => {
   return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const recordAt = (record: Record<string, unknown>, key: string): Record<string, unknown> => {
+  const value = record[key];
+  return isRecord(value) ? value : {};
+};
+
+const arrayOrEmpty = (value: unknown): readonly unknown[] => (Array.isArray(value) ? value : []);
+
+const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+
+const numberOrZero = (value: unknown): number => numberOrNull(value) ?? 0;
+
+const reportRepo = (value: unknown, repoRoot: string) => {
+  if (!isRecord(value)) return { root: repoRoot, commit: null, dirty: null };
+  return {
+    root: typeof value.root === 'string' ? value.root : repoRoot,
+    commit: typeof value.commit === 'string' ? value.commit : null,
+    dirty: typeof value.dirty === 'boolean' ? value.dirty : null,
+  };
+};
+
+const mergeEngines = (...engineLists: readonly unknown[]): readonly unknown[] => {
+  const engines = new Map<string, unknown>();
+  for (const engineList of engineLists) {
+    if (!Array.isArray(engineList)) continue;
+    for (const engine of engineList) {
+      if (!isRecord(engine) || typeof engine.id !== 'string') continue;
+      engines.set(engine.id, engine);
+    }
+  }
+  return [...engines.values()];
+};
+
+const rankAccuracyIronqr = (accuracySummary: Record<string, unknown>): number | null => {
+  const ironqr = recordAt(accuracySummary, 'ironqr');
+  const baselines = arrayOrEmpty(accuracySummary.baselines).filter(isRecord);
+  if (!isRecord(ironqr) || typeof ironqr.engineId !== 'string') return null;
+  const ranked = [ironqr, ...baselines].sort((left, right) => {
+    const passRateDelta = numberOrZero(right.fullPassRate) - numberOrZero(left.fullPassRate);
+    if (passRateDelta !== 0) return passRateDelta;
+    return numberOrZero(left.falsePositiveRate) - numberOrZero(right.falsePositiveRate);
+  });
+  const index = ranked.findIndex((engine) => engine.engineId === 'ironqr');
+  return index === -1 ? null : index + 1;
+};
+
+const slowestIronqrAssets = (performanceReport: Record<string, unknown>): readonly unknown[] => {
+  const details = recordAt(performanceReport, 'details');
+  return arrayOrEmpty(details.assets)
+    .filter(isRecord)
+    .filter((asset) => asset.engineId === 'ironqr')
+    .sort(
+      (left, right) =>
+        numberOrZero(right.engineScanDurationMs) - numberOrZero(left.engineScanDurationMs),
+    )
+    .slice(0, 20);
 };
 
 const readVerdict = (

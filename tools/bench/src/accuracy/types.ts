@@ -240,6 +240,24 @@ export interface AccuracyBenchmarkOptions {
   };
 }
 
+export interface AccuracyBenchmarkSelectionSummary {
+  readonly seed: string | null;
+  readonly filters: {
+    readonly assetIds: readonly string[];
+    readonly labels: readonly CorpusAssetLabel[];
+    readonly maxAssets: number | null;
+  };
+}
+
+export interface AccuracyBenchmarkRunOptionsSummary {
+  readonly workers: number;
+  readonly progressEnabled: boolean;
+  readonly cacheEnabled: boolean;
+  readonly refreshCache: boolean;
+  readonly refreshEngineIds: readonly string[];
+  readonly observability: AccuracyEngineRunOptions;
+}
+
 export interface AccuracyBenchmarkResult {
   readonly repoRoot: string;
   readonly reportFile: string;
@@ -249,5 +267,7 @@ export interface AccuracyBenchmarkResult {
   readonly engines: readonly AccuracyEngineDescriptor[];
   readonly assets: readonly AccuracyAssetResult[];
   readonly summaries: readonly AccuracyEngineSummary[];
+  readonly selection: AccuracyBenchmarkSelectionSummary;
+  readonly options: AccuracyBenchmarkRunOptionsSummary;
   readonly cache: AccuracyBenchmarkCacheSummary;
 }

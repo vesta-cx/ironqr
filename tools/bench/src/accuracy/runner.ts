@@ -115,9 +115,22 @@ const seededRandom = (seed: string): (() => number) => {
   };
 };
 
+const resolveSelection = (
+  selection: AccuracyBenchmarkOptions['selection'] = {},
+): NonNullable<AccuracyBenchmarkOptions['selection']> & { readonly seed?: string } => ({
+  assetIds: selection.assetIds ?? [],
+  labels: selection.labels ?? [],
+  ...(selection.maxAssets === undefined ? {} : { maxAssets: selection.maxAssets }),
+  ...(selection.seed === undefined && selection.maxAssets !== undefined
+    ? { seed: crypto.randomUUID() }
+    : selection.seed === undefined
+      ? {}
+      : { seed: selection.seed }),
+});
+
 const sampleAssets = (
   assets: readonly CorpusAsset[],
-  selection: AccuracyBenchmarkOptions['selection'] = {},
+  selection: NonNullable<AccuracyBenchmarkOptions['selection']> = {},
 ): readonly CorpusAsset[] => {
   let selected = [...assets];
   if (selection.assetIds && selection.assetIds.length > 0) {
@@ -421,9 +434,10 @@ export const runAccuracyBenchmark = async (
     const activeCache = cache;
     const activeWorkerPool = workerPool;
     const manifest = await readBenchCorpusManifest(repoRoot);
+    const selection = resolveSelection(options.selection);
     const approvedAssets = sampleAssets(
       manifest.assets.filter((asset) => asset.review.status === 'approved'),
-      options.selection,
+      selection,
     );
     const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-pos').length;
     const negativeCount = approvedAssets.length - positiveCount;
@@ -481,6 +495,22 @@ export const runAccuracyBenchmark = async (
       engines: engines.map(describeAccuracyEngine),
       assets: assetResults,
       summaries: engines.map((engine) => summarizeEngine(engine.id, assetResults)),
+      selection: {
+        seed: selection.seed ?? null,
+        filters: {
+          assetIds: selection.assetIds ?? [],
+          labels: selection.labels ?? [],
+          maxAssets: selection.maxAssets ?? null,
+        },
+      },
+      options: {
+        workers: workerCount,
+        progressEnabled: options.progress?.enabled ?? true,
+        cacheEnabled: options.cache?.enabled ?? true,
+        refreshCache: options.cache?.refresh ?? false,
+        refreshEngineIds: options.cache?.refreshEngineIds ?? [],
+        observability: runOptions,
+      },
       cache: activeCache.summary(),
     };
   } catch (error) {
