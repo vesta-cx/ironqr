@@ -64,6 +64,7 @@ export class BenchOpenTuiDashboard {
   private keyHandler: ((key: OpenTuiKeyEvent) => void) | null = null;
   private sigintHandler: (() => void) | null = null;
   private renderQueued = false;
+  private renderPaused = false;
   private stopped = false;
 
   constructor(
@@ -96,7 +97,14 @@ export class BenchOpenTuiDashboard {
   private async startAsync(): Promise<void> {
     try {
       const { BoxRenderable, TextRenderable, createCliRenderer } = await import('@opentui/core');
-      const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 12 });
+      const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 12,
+        screenMode: 'main-screen',
+        clearOnShutdown: false,
+        useMouse: false,
+        enableMouseMovement: false,
+      });
       if (this.stopped) {
         renderer.destroy();
         return;
@@ -231,6 +239,11 @@ export class BenchOpenTuiDashboard {
         this.quit();
         return;
       }
+      if (key.name === 'p' && !key.ctrl && !key.meta) {
+        this.renderPaused = !this.renderPaused;
+        this.render(true);
+        return;
+      }
       if ((key.name === 'c' && key.ctrl) || key.sequence === '\u0003') {
         this.quit();
       }
@@ -263,9 +276,9 @@ export class BenchOpenTuiDashboard {
     renderer?.destroy();
   }
 
-  private render(): void {
+  private render(force = false): void {
     const panels = this.panels;
-    if (!panels || this.stopped) return;
+    if (!panels || this.stopped || (this.renderPaused && !force)) return;
 
     const width = process.stdout.columns ?? process.stderr.columns ?? 120;
     const height = process.stdout.rows ?? process.stderr.rows ?? 40;
@@ -312,7 +325,7 @@ export class BenchOpenTuiDashboard {
       renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
       recentRows + 1,
     );
-    panels.footer.content = renderRunFooter(this.dashboard);
+    panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}`;
   }
 }
 
