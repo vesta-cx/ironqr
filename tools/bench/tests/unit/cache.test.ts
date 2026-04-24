@@ -130,6 +130,7 @@ describe('accuracy cache', () => {
       cacheableEngine,
       asset,
       {
+        status: 'decoded',
         attempted: true,
         succeeded: true,
         results: [{ text: 'HELLO' }],
@@ -257,11 +258,12 @@ describe('accuracy cache', () => {
           error: null,
         },
         42.75,
+        'default',
       ),
       store.evict(cacheableEngine, asset),
     ]);
 
-    expect(store.read(cacheableEngine, asset)).toBeNull();
+    expect(store.read(cacheableEngine, asset, 'default')).toBeNull();
   });
 
   it('evicts a cached engine result', async () => {
