@@ -21,6 +21,11 @@ import {
   unavailableVerdict,
 } from '../core/reports.js';
 import { readBenchImage } from '../shared/image.js';
+import {
+  getDefaultPerformanceCachePath,
+  openPerformanceCacheStore,
+  performanceOptionsKey,
+} from './cache.js';
 
 const REPORTS_DIRECTORY = path.join('tools', 'bench', 'reports');
 const DEFAULT_REPORT_FILE = path.join(REPORTS_DIRECTORY, 'performance.json');
@@ -145,6 +150,8 @@ export const getDefaultPerformanceReportPath = (repoRoot: string): string => {
   return path.join(repoRoot, DEFAULT_REPORT_FILE);
 };
 
+export { getDefaultPerformanceCachePath };
+
 const resolvePerformanceSelection = (
   selection: PerformanceBenchmarkOptions['selection'] = {},
 ): {
@@ -194,24 +201,30 @@ export const runPerformanceBenchmark = async (
     selection,
     options,
   );
+  const cache = await openPerformanceCacheStore(
+    options.cache?.file ?? getDefaultPerformanceCachePath(repoRoot),
+    {
+      enabled: options.cache?.enabled ?? true,
+      refresh: options.cache?.refresh ?? false,
+      ...(options.cache?.refreshEngineId ? { refreshEngineId: options.cache.refreshEngineId } : {}),
+    },
+  );
+  const optionsKey = performanceOptionsKey({
+    iterations,
+    seed: selection.seed,
+    filters: selection.filters,
+  });
   const iterationResults: PerformanceIterationResult[] = [];
   let lastAssets: readonly AccuracyAssetResult[] = [];
-  let cacheSummary = {
-    enabled: options.cache?.enabled ?? true,
-    file: null as string | null,
-    hits: 0,
-    misses: 0,
-    writes: 0,
-  };
+  let cacheSummary = cache.summary();
 
   for (let iteration = 1; iteration <= iterations; iteration += 1) {
     const accuracy = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
       cache: {
-        enabled: options.cache?.enabled ?? true,
-        refresh: options.cache?.refresh ?? false,
-        ...(options.cache?.file ? { file: options.cache.file } : {}),
+        enabled: false,
+        refresh: true,
         disabledEngineIds: [],
-        refreshEngineIds: options.cache?.refreshEngineId ? [options.cache.refreshEngineId] : [],
+        refreshEngineIds: [],
       },
       progress: { enabled: false },
       execution: options.workers === undefined ? {} : { workers: options.workers },
@@ -223,10 +236,22 @@ export const runPerformanceBenchmark = async (
       },
     });
     lastAssets = accuracy.assets;
-    cacheSummary = accuracy.cache;
     for (const asset of accuracy.assets) {
       for (const result of asset.results) {
-        iterationResults.push({
+        const key = {
+          engineId: result.engineId,
+          engineVersion: engineVersion(engines, result.engineId),
+          assetId: asset.assetId,
+          assetSha256: asset.sha256,
+          iteration,
+          optionsKey,
+        };
+        const cached = cache.read(key);
+        if (cached) {
+          iterationResults.push(cached);
+          continue;
+        }
+        const iterationResult = {
           iteration,
           assetId: asset.assetId,
           label: asset.label,
@@ -237,11 +262,16 @@ export const runPerformanceBenchmark = async (
           warmupDurationMs: null,
           engineScanDurationMs: result.durationMs,
           totalJobDurationMs: result.totalJobDurationMs,
-          cached: result.cached,
-        });
+          cached: false,
+        } satisfies PerformanceIterationResult;
+        iterationResults.push(iterationResult);
+        await cache.write(key, iterationResult);
       }
     }
   }
+
+  await cache.save();
+  cacheSummary = cache.summary();
 
   const summaries = engines.map((engine) =>
     summarizePerformanceEngine(engine.id, iterationResults),
@@ -345,6 +375,13 @@ const runPerformanceWarmup = async (
       totalJobDurationMs: result.totalJobDurationMs,
     })),
   );
+};
+
+const engineVersion = (
+  engines: ReturnType<typeof resolveAccuracyEngines>,
+  engineId: string,
+): string => {
+  return engines.find((engine) => engine.id === engineId)?.cache.version ?? 'unknown';
 };
 
 const buildIronqrProfile = async (

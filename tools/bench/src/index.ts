@@ -11,7 +11,11 @@ export type { BenchmarkVerdict } from './core/reports.js';
 export { writeJsonReport, writeReportWithSnapshot } from './core/reports.js';
 export { printPerformanceSummary, writePerformanceReport } from './performance/report.js';
 export type { PerformanceBenchmarkResult, PerformanceReport } from './performance/runner.js';
-export { getDefaultPerformanceReportPath, runPerformanceBenchmark } from './performance/runner.js';
+export {
+  getDefaultPerformanceCachePath,
+  getDefaultPerformanceReportPath,
+  runPerformanceBenchmark,
+} from './performance/runner.js';
 export type { StudyBenchmarkResult } from './study/command.js';
 export {
   createDefaultStudyRegistry,

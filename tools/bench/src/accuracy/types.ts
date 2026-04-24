@@ -181,6 +181,7 @@ export interface EngineAssetResult {
 
 export interface AccuracyAssetResult {
   readonly assetId: string;
+  readonly sha256: string;
   readonly label: CorpusAssetLabel;
   readonly relativePath: string;
   readonly expectedTexts: readonly string[];

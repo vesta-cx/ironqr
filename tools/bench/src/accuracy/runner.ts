@@ -477,6 +477,7 @@ export const runAccuracyBenchmark = async (
       assetConcurrency,
       async (asset): Promise<AccuracyAssetResult> => ({
         assetId: asset.id,
+        sha256: asset.sha256,
         label: asset.label,
         relativePath: asset.relativePath,
         expectedTexts: expectedTextsFor({

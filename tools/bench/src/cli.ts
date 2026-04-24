@@ -6,6 +6,7 @@ import {
   type BenchmarkVerdict,
   getDefaultAccuracyCachePath,
   getDefaultAccuracyReportPath,
+  getDefaultPerformanceCachePath,
   inspectAccuracyEngines,
   printAccuracyHome,
   printAccuracySummary,
@@ -312,7 +313,7 @@ const runPerformance = async (repoRoot: string, options: CliOptions): Promise<vo
     : path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
   const cacheFile = options.cacheFile
     ? path.resolve(repoRoot, options.cacheFile)
-    : getDefaultAccuracyCachePath(repoRoot);
+    : getDefaultPerformanceCachePath(repoRoot);
   const seed = options.seed ?? (options.maxAssets === undefined ? undefined : crypto.randomUUID());
   const result = await runPerformanceBenchmark(repoRoot, reportFile, {
     ...(options.iterations === undefined ? {} : { iterations: options.iterations }),
