@@ -627,24 +627,33 @@ const buildFrontierSnapshot = (
     proposalCount: generatedProposals.length,
   });
 
-  const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
+  const viableRankedProposalCandidates = rankedProposalCandidates.filter((candidate) =>
+    hasViableGeometry(candidate, viewBank),
+  );
   const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
-  const boundedProposals = boundedRankedProposalCandidates.map((candidate) => candidate.proposal);
-  const rankedProposalById = new Map(
-    boundedRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
-  );
-  const topProposalScore = boundedProposals[0]?.proposalScore ?? 0;
-  const proposalRankById = new Map(
-    boundedProposals.map((proposal, index) => [proposal.id, index + 1]),
-  );
+  const viableProposals = viableRankedProposalCandidates.map((candidate) => candidate.proposal);
 
   const clusteringStartedAt = nowMs();
-  const clusters = clusterRankedProposals(boundedProposals, {
+  const allClusters = clusterRankedProposals(viableProposals, {
     maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
   });
+  const clusters = allClusters.slice(0, maxProposals);
   const clusteringMs = nowMs() - clusteringStartedAt;
+  const boundedProposals = clusters.flatMap((cluster) => cluster.proposals);
+  const rankedProposalById = new Map(
+    viableRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
+  );
+  const topProposalScore = clusters[0]?.clusterScore ?? boundedProposals[0]?.proposalScore ?? 0;
+  const proposalRankById = new Map(
+    clusters.flatMap((cluster, clusterIndex) =>
+      cluster.representatives.map((proposal) => [proposal.id, clusterIndex + 1] as const),
+    ),
+  );
   recordTimingSpan(metricsSink, 'clustering', clusteringStartedAt, {
+    proposalCount: proposals.length,
+    viableProposalCount: viableProposals.length,
     boundedProposalCount: boundedProposals.length,
+    totalClusterCount: allClusters.length,
     clusterCount: clusters.length,
   });
 
@@ -674,6 +683,31 @@ const buildFrontierSnapshot = (
     rankingMs,
     clusteringMs,
   } satisfies FrontierSnapshot;
+};
+
+const hasViableGeometry = (candidate: RankedProposalCandidate, viewBank: ViewBank): boolean => {
+  for (const geometry of candidate.initialGeometryCandidates) {
+    const sourceView = viewBank.getBinaryView(geometry.binaryViewId);
+    if (geometryProjectsNearImage(geometry, sourceView.width, sourceView.height)) return true;
+  }
+  return false;
+};
+
+const geometryProjectsNearImage = (
+  geometry: RankedProposalCandidate['initialGeometryCandidates'][number],
+  width: number,
+  height: number,
+): boolean => {
+  if (!Number.isFinite(geometry.bounds.width) || !Number.isFinite(geometry.bounds.height))
+    return false;
+  if (geometry.bounds.width < 8 || geometry.bounds.height < 8) return false;
+  const margin = Math.max(geometry.bounds.width, geometry.bounds.height) * 0.5;
+  return (
+    geometry.bounds.x + geometry.bounds.width >= -margin &&
+    geometry.bounds.y + geometry.bounds.height >= -margin &&
+    geometry.bounds.x <= width - 1 + margin &&
+    geometry.bounds.y <= height - 1 + margin
+  );
 };
 
 const processFrontierClusters = (

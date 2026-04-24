@@ -94,7 +94,10 @@ describe('proposal clusters', () => {
     const clusters = clusterRankedProposals(proposals, { maxRepresentatives: 3 });
     expect(clusters).toHaveLength(2);
     expect(clusters[0]?.proposals.map((proposal) => proposal.id)).toEqual(['a', 'b']);
-    expect(clusters[0]?.representatives.map((proposal) => proposal.id)).toEqual(['a', 'b']);
+    expect(clusters[0]?.representatives.map((proposal) => proposal.id)).toEqual([
+      'cluster:1:3:3:3:3:average',
+      'a',
+    ]);
     expect(clusters[1]?.proposals.map((proposal) => proposal.id)).toEqual(['c']);
   });
 });
