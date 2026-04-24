@@ -5789,9 +5789,9 @@
         "qrCount": 1,
         "codes": [
           {
-            "text": "http://sagasou.mobi \r\n\r\nMEBKM:TITLE:’T‚»‚¤ƒ‚ƒr‚Åê–åŠwZ’T‚µI;URL:http\\://sagasou.mobi;;",
+            "text": "http://sagasou.mobi \r\n\r\nMEBKM:TITLE:探そうモビで専門学校探し！;URL:http\\://sagasou.mobi;;",
             "kind": "bookmark",
-            "notes": "TITLE field is Shift-JIS encoded (raw bytes shown). Original Japanese: 探そうモビで専門学校探し！"
+            "notes": "TITLE field decoded from Shift-JIS bytes to Unicode Japanese. Previous manifest value was mojibake."
           }
         ]
       },
@@ -7226,7 +7226,7 @@
     },
     {
       "id": "asset-c0bd421b70f742ad",
-      "label": "non-qr-negative",
+      "label": "qr-positive",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c0bd421b70f742ad.webp",
@@ -7250,8 +7250,14 @@
         "reviewedAt": "2026-04-14T18:20:19.698Z"
       },
       "groundTruth": {
-        "qrCount": 0,
-        "codes": []
+        "qrCount": 1,
+        "codes": [
+          {
+            "text": "MEBKM:TITLE:Wikipedia, the free encyclopedia that anyone can edit.;URL:http\\://en.wikipedia.org/wiki/Main_Page;;",
+            "kind": "bookmark",
+            "verifiedWith": "ironqr"
+          }
+        ]
       },
       "autoScan": {
         "attempted": true,
@@ -7386,8 +7392,9 @@
         "qrCount": 1,
         "codes": [
           {
-            "text": "(__) \n         (oo) \n   /------\\/ \n  / |    ||   \n *  /\\---/\\ \n    ~~   ~~",
-            "kind": "text"
+            "text": "         (__) \n         (oo) \n   /------\\/ \n  / |    ||   \n *  /\\---/\\ \n    ~~   ~~   \n\n",
+            "kind": "text",
+            "verifiedWith": "ironqr"
           }
         ]
       },
