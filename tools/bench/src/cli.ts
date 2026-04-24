@@ -212,26 +212,54 @@ export const parseArgs = (
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return {
-    mode,
-    options: {
-      help,
-      failuresOnly,
-      cacheEnabled,
-      refreshCache,
-      progressEnabled,
-      ...(refreshCacheEngineId === undefined ? {} : { refreshCacheEngineId }),
-      ...(workers === undefined ? {} : { workers }),
-      ...(iterations === undefined ? {} : { iterations }),
-      assetIds,
-      labels,
-      ...(maxAssets === undefined ? {} : { maxAssets }),
-      ...(seed === undefined ? {} : { seed }),
-      ...(studyId === undefined ? {} : { studyId }),
-      ...(reportFile === undefined ? {} : { reportFile }),
-      ...(cacheFile === undefined ? {} : { cacheFile }),
-    },
-  };
+  const options = {
+    help,
+    failuresOnly,
+    cacheEnabled,
+    refreshCache,
+    progressEnabled,
+    ...(refreshCacheEngineId === undefined ? {} : { refreshCacheEngineId }),
+    ...(workers === undefined ? {} : { workers }),
+    ...(iterations === undefined ? {} : { iterations }),
+    assetIds,
+    labels,
+    ...(maxAssets === undefined ? {} : { maxAssets }),
+    ...(seed === undefined ? {} : { seed }),
+    ...(studyId === undefined ? {} : { studyId }),
+    ...(reportFile === undefined ? {} : { reportFile }),
+    ...(cacheFile === undefined ? {} : { cacheFile }),
+  } satisfies CliOptions;
+  validateModeOptions(mode, options);
+  return { mode, options };
+};
+
+const validateModeOptions = (mode: string | undefined, options: CliOptions): void => {
+  const command = mode ?? 'suite';
+  if (options.help) return;
+  if (command === 'accuracy' && options.iterations !== undefined) {
+    throw new Error('--iterations is only supported by bench performance and the full suite');
+  }
+  if (command === 'study' && options.iterations !== undefined) {
+    throw new Error('--iterations is not supported by bench study');
+  }
+  if (command === 'engines') {
+    const unsupported = [
+      options.failuresOnly ? '--failures-only' : null,
+      options.reportFile ? '--report-file' : null,
+      options.cacheFile ? '--cache-file' : null,
+      options.workers !== undefined ? '--workers' : null,
+      options.iterations !== undefined ? '--iterations' : null,
+      options.assetIds.length > 0 ? '--asset' : null,
+      options.labels.length > 0 ? '--label' : null,
+      options.maxAssets !== undefined ? '--max-assets' : null,
+      options.seed !== undefined ? '--seed' : null,
+      options.refreshCache ? '--refresh-cache' : null,
+      !options.cacheEnabled ? '--no-cache' : null,
+    ].filter(Boolean);
+    if (unsupported.length > 0) {
+      throw new Error(`bench engines does not support: ${unsupported.join(', ')}`);
+    }
+  }
 };
 
 const printUsage = (): void => {

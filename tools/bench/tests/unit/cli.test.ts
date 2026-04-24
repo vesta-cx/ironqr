@@ -42,6 +42,14 @@ describe('bench cli args', () => {
     expect(options.maxAssets).toBe(3);
   });
 
+  it('rejects unsupported command-specific flags', () => {
+    expect(() => parseArgs(['accuracy', '--iterations', '2'])).toThrow('only supported');
+    expect(() => parseArgs(['study', 'view-order', '--iterations', '2'])).toThrow('not supported');
+    expect(() => parseArgs(['engines', '--max-assets', '1'])).toThrow(
+      'bench engines does not support',
+    );
+  });
+
   it('rejects partially numeric worker and iteration counts', () => {
     expect(() => parseArgs(['accuracy', '--workers=2abc'])).toThrow('positive integer');
     expect(() => parseArgs(['accuracy', '--workers', '1.5'])).toThrow('positive integer');
