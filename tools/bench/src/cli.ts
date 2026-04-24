@@ -14,7 +14,13 @@ import {
 } from './index.js';
 
 const isProgressMode = (value: string): value is CliOptions['progressMode'] => {
-  return value === 'auto' || value === 'plain' || value === 'dashboard' || value === 'off';
+  return (
+    value === 'auto' ||
+    value === 'plain' ||
+    value === 'dashboard' ||
+    value === 'tui' ||
+    value === 'off'
+  );
 };
 
 interface CliOptions {
@@ -27,7 +33,7 @@ interface CliOptions {
   readonly cacheEnabled: boolean;
   readonly ironqrCacheEnabled: boolean;
   readonly refreshCache: boolean;
-  readonly progressMode: 'auto' | 'plain' | 'dashboard' | 'off';
+  readonly progressMode: 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
   readonly verbose: boolean;
   readonly ironqrTraceMode: 'off' | 'summary' | 'full';
   readonly workers?: number;
@@ -46,7 +52,7 @@ export const parseArgs = (
   let cacheEnabled = true;
   let ironqrCacheEnabled = true;
   let refreshCache = false;
-  let progressMode: 'auto' | 'plain' | 'dashboard' | 'off' = 'auto';
+  let progressMode: 'auto' | 'plain' | 'dashboard' | 'tui' | 'off' = 'auto';
   let verbose = false;
   let ironqrTraceMode: 'off' | 'summary' | 'full' = 'off';
   let workers: number | undefined;
@@ -86,7 +92,7 @@ export const parseArgs = (
       const next = rest[index + 1];
       if (!next) throw new Error('--progress requires a value');
       if (!isProgressMode(next)) {
-        throw new Error(`--progress must be one of auto|plain|dashboard|off, got: ${next}`);
+        throw new Error(`--progress must be one of auto|plain|dashboard|tui|off, got: ${next}`);
       }
       progressMode = next;
       index += 1;
@@ -95,7 +101,7 @@ export const parseArgs = (
     if (arg.startsWith('--progress=')) {
       const value = arg.slice('--progress='.length);
       if (!isProgressMode(value)) {
-        throw new Error(`--progress must be one of auto|plain|dashboard|off, got: ${value}`);
+        throw new Error(`--progress must be one of auto|plain|dashboard|tui|off, got: ${value}`);
       }
       progressMode = value;
       continue;
@@ -209,7 +215,7 @@ const printUsage = (): void => {
   console.log('  "bun run bench accuracy --refresh-cache"');
   console.log('  "bun run bench accuracy --no-cache"');
   console.log('  "bun run bench accuracy --no-ironqr-cache"');
-  console.log('  "bun run bench accuracy --progress auto|plain|dashboard|off"');
+  console.log('  "bun run bench accuracy --progress auto|plain|dashboard|tui|off"');
   console.log('  "bun run bench accuracy --no-progress"');
   console.log('  "bun run bench accuracy --workers 8"');
   console.log('  "bun run bench accuracy --verbose"');

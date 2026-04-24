@@ -37,6 +37,7 @@ describe('bench cli args', () => {
     expect(parseArgs(['accuracy', '--progress', 'dashboard']).options.progressMode).toBe(
       'dashboard',
     );
+    expect(parseArgs(['accuracy', '--progress=tui']).options.progressMode).toBe('tui');
     expect(parseArgs(['accuracy', '--quiet']).options.progressMode).toBe('off');
   });
 });

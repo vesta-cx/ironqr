@@ -1,5 +1,5 @@
 import process from 'node:process';
-import type { BenchDashboardModel } from './dashboard/model.js';
+import { renderDashboardFrame } from './dashboard/frame.js';
 import {
   createBenchDashboardModel,
   onDashboardAssetPrepared,
@@ -13,17 +13,10 @@ import {
   onDashboardScanFinished,
   onDashboardScanStarted,
 } from './dashboard/model.js';
-import { renderScorecard } from './dashboard/scorecard.js';
-import {
-  renderActiveWorkers,
-  renderRecentScans,
-  renderSideBySide,
-  renderSlowestFreshScans,
-} from './dashboard/tables.js';
-import { renderTimingChart } from './dashboard/timing-chart.js';
+import { BenchOpenTuiDashboard } from './opentui.js';
 import type { EngineAssetResult } from './types.js';
 
-export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'off';
+export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
 
 export interface AccuracyProgressReporter {
   onManifestStarted: () => void;
@@ -73,27 +66,6 @@ const formatDuration = (value: number | null): string =>
 
 const now = (): string => new Date().toISOString().slice(11, 19);
 
-const renderRunFooter = (dashboard: BenchDashboardModel): string => {
-  let cacheHits = 0;
-  let cacheMisses = 0;
-  let cacheWrites = 0;
-  for (const engine of dashboard.engines.values()) {
-    cacheHits += engine.cacheHits;
-    cacheMisses += engine.cacheMisses;
-    cacheWrites += engine.cacheWrites;
-  }
-
-  return [
-    `bench accuracy`,
-    `stage=${dashboard.stage}`,
-    dashboard.message,
-    `jobs=${dashboard.completedJobs}/${dashboard.totalJobs}`,
-    `assets=${dashboard.preparedAssets}/${dashboard.assetCount}`,
-    `workers=${dashboard.workerCount || '-'}`,
-    `cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cacheHits}/${cacheMisses}/${cacheWrites}`,
-  ].join(' | ');
-};
-
 const formatIronqrDiagnostics = (result: EngineAssetResult): string | null => {
   const diagnostics = result.diagnostics;
   if (!diagnostics || diagnostics.kind !== 'ironqr-trace') return null;
@@ -128,13 +100,15 @@ export const createAccuracyProgressReporter = (options: {
   const mode = options.enabled ? (options.mode ?? 'auto') : 'off';
   const enabled = mode !== 'off';
   const verbose = options.verbose ?? false;
+  const useOpenTui = enabled && stderr.isTTY && mode === 'tui';
   const wantsDashboard = mode === 'dashboard' || (mode === 'auto' && stderr.isTTY);
-  const useTui = enabled && stderr.isTTY && wantsDashboard;
-  const usePlainLogs = enabled && !useTui;
+  const useTui = enabled && !useOpenTui && stderr.isTTY && wantsDashboard;
+  const usePlainLogs = enabled && !useOpenTui && !useTui;
 
   let renderQueued = false;
   let stopped = false;
   const dashboard = createBenchDashboardModel();
+  const openTui = useOpenTui ? new BenchOpenTuiDashboard(dashboard) : null;
 
   const logPlain = (line: string): void => {
     if (!usePlainLogs) return;
@@ -142,6 +116,10 @@ export const createAccuracyProgressReporter = (options: {
   };
 
   const queueRender = (): void => {
+    if (openTui) {
+      openTui.update();
+      return;
+    }
     if (!useTui || renderQueued || stopped) return;
     renderQueued = true;
     queueMicrotask(() => {
@@ -152,34 +130,14 @@ export const createAccuracyProgressReporter = (options: {
 
   const render = (): void => {
     if (!useTui || stopped) return;
-    const lines: string[] = [];
     const width = stderr.columns ?? 120;
-    lines.push(...renderTimingChart(dashboard, { width }));
-    lines.push('');
-    lines.push(...renderScorecard(dashboard, { width }));
-    lines.push('');
-    const activeWorkers = renderActiveWorkers(dashboard, {
-      width: Math.floor(width / 2),
-      nowMs: Date.now(),
-    });
-    const slowest = renderSlowestFreshScans(dashboard, { width: Math.floor(width / 2) });
-    lines.push(...renderSideBySide(activeWorkers, slowest, { width }));
-    lines.push('');
-    const usedRows = lines.length + 2;
-    const terminalRows = stderr.rows ?? 40;
-    lines.push(
-      ...renderRecentScans(dashboard, {
-        width,
-        maxRows: Math.max(4, terminalRows - usedRows - 2),
-      }),
-    );
-    lines.push('');
-    lines.push(renderRunFooter(dashboard));
-
-    stderr.write(`\u001B[H\u001B[J${lines.join('\n')}\n`);
+    const height = stderr.rows ?? 40;
+    stderr.write(`\u001B[H\u001B[J${renderDashboardFrame(dashboard, { width, height })}\n`);
   };
 
-  if (useTui) {
+  if (openTui) {
+    openTui.start();
+  } else if (useTui) {
     stderr.write('\u001B[?1049h\u001B[?25l');
     queueRender();
   }
@@ -260,7 +218,9 @@ export const createAccuracyProgressReporter = (options: {
       if (stopped) return;
       stopped = true;
       onDashboardDone(dashboard);
-      if (useTui) {
+      if (openTui) {
+        openTui.stop();
+      } else if (useTui) {
         render();
         stderr.write('\u001B[?25h\u001B[?1049l');
       }
