@@ -360,10 +360,22 @@ const findAccuracyGaps = (result: AccuracyBenchmarkResult) => {
   for (const asset of result.assets) {
     const ironqr = asset.results.find((entry) => entry.engineId === 'ironqr');
     if (!ironqr) continue;
-    const ironqrPassed = ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass';
     for (const baseline of asset.results.filter((entry) => entry.engineId !== 'ironqr')) {
+      const ironqrSatisfiesBaseline =
+        baseline.outcome === 'pass'
+          ? ironqr.outcome === 'pass'
+          : baseline.outcome === 'partial-pass'
+            ? ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass'
+            : true;
+      const baselineSatisfiesIronqr =
+        ironqr.outcome === 'pass'
+          ? baseline.outcome === 'pass'
+          : ironqr.outcome === 'partial-pass'
+            ? baseline.outcome === 'pass' || baseline.outcome === 'partial-pass'
+            : true;
       const baselinePassed = baseline.outcome === 'pass' || baseline.outcome === 'partial-pass';
-      if (baselinePassed && !ironqrPassed) {
+      const ironqrPassed = ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass';
+      if (baselinePassed && !ironqrSatisfiesBaseline) {
         ironqrMissedBaselineHit.push({
           assetId: asset.assetId,
           baselineEngineId: baseline.engineId,
@@ -371,7 +383,7 @@ const findAccuracyGaps = (result: AccuracyBenchmarkResult) => {
           baselineOutcome: baseline.outcome,
         });
       }
-      if (ironqrPassed && !baselinePassed) {
+      if (ironqrPassed && !baselineSatisfiesIronqr) {
         ironqrHitBaselineMissed.push({
           assetId: asset.assetId,
           baselineEngineId: baseline.engineId,

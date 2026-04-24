@@ -532,6 +532,13 @@ const summarizePerformanceEngine = (
   };
 };
 
+const PERFORMANCE_DURATION_METRICS = [
+  'p50DurationMs',
+  'p95DurationMs',
+  'p99DurationMs',
+  'averageDurationMs',
+] as const;
+
 const buildPerformanceRegressionVerdict = async (
   reportFile: string,
   ironqr: PerformanceEngineSummary,
@@ -539,17 +546,19 @@ const buildPerformanceRegressionVerdict = async (
   try {
     const previous = JSON.parse(await readFile(reportFile, 'utf8')) as {
       readonly summary?: {
-        readonly ironqr?: {
-          readonly p95DurationMs?: number;
-          readonly throughputAssetsPerSecond?: number;
-        };
+        readonly ironqr?: Partial<PerformanceEngineSummary>;
       };
     };
     const previousIronqr = previous.summary?.ironqr;
     if (!previousIronqr)
       return unavailableVerdict('Previous performance summary is missing ironqr data.');
-    if (ironqr.p95DurationMs > (previousIronqr.p95DurationMs ?? Number.POSITIVE_INFINITY)) {
-      return failedVerdict('ironqr p95 duration regressed versus previous performance summary.');
+    const regressedDuration = PERFORMANCE_DURATION_METRICS.find(
+      (metric) => ironqr[metric] > (previousIronqr[metric] ?? Number.POSITIVE_INFINITY),
+    );
+    if (regressedDuration) {
+      return failedVerdict(
+        `ironqr ${regressedDuration} regressed versus previous performance summary.`,
+      );
     }
     if (ironqr.throughputAssetsPerSecond < (previousIronqr.throughputAssetsPerSecond ?? 0)) {
       return failedVerdict('ironqr throughput regressed versus previous performance summary.');
@@ -568,16 +577,16 @@ const buildPerformancePassVerdict = (
 ): BenchmarkVerdict => {
   const slower = baselines.filter(
     (baseline) =>
-      ironqr.p95DurationMs > baseline.p95DurationMs ||
+      PERFORMANCE_DURATION_METRICS.some((metric) => ironqr[metric] > baseline[metric]) ||
       ironqr.throughputAssetsPerSecond < baseline.throughputAssetsPerSecond,
   );
   if (slower.length === 0) {
     return passedVerdict(
-      'ironqr is competitive with or faster than all baseline engines on p95 and throughput.',
+      'ironqr is competitive with or faster than all baseline engines on p50/p95/p99/average duration and throughput.',
     );
   }
   return failedVerdict(
-    `ironqr trails baseline engine(s) on p95 or throughput: ${slower.map((engine) => engine.engineId).join(', ')}`,
+    `ironqr trails baseline engine(s) on duration or throughput: ${slower.map((engine) => engine.engineId).join(', ')}`,
   );
 };
 

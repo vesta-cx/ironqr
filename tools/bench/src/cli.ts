@@ -511,6 +511,12 @@ const buildSuiteRegressionVerdict = async (
     const currentPassRate = numberOrNull(currentHighlights.ironqrPassRate);
     const previousP95 = numberOrNull(previousHighlights.ironqrP95DurationMs);
     const currentP95 = numberOrNull(currentHighlights.ironqrP95DurationMs);
+    const previousAccuracyRank = numberOrNull(previousHighlights.ironqrAccuracyRank);
+    const currentAccuracyRank = numberOrNull(currentHighlights.ironqrAccuracyRank);
+    const previousSpeedRank = numberOrNull(previousHighlights.ironqrSpeedRank);
+    const currentSpeedRank = numberOrNull(currentHighlights.ironqrSpeedRank);
+    const previousGapCount = arrayOrEmpty(previousHighlights.biggestAccuracyGaps).length;
+    const currentGapCount = arrayOrEmpty(currentHighlights.biggestAccuracyGaps).length;
     if (
       previousPassRate === null ||
       currentPassRate === null ||
@@ -532,6 +538,32 @@ const buildSuiteRegressionVerdict = async (
       return {
         status: 'failed',
         description: 'ironqr suite p95 duration regressed versus previous summary.',
+      };
+    }
+    if (
+      previousAccuracyRank !== null &&
+      currentAccuracyRank !== null &&
+      currentAccuracyRank > previousAccuracyRank
+    ) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite accuracy rank regressed versus previous summary.',
+      };
+    }
+    if (
+      previousSpeedRank !== null &&
+      currentSpeedRank !== null &&
+      currentSpeedRank > previousSpeedRank
+    ) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite speed rank regressed versus previous summary.',
+      };
+    }
+    if (currentGapCount > previousGapCount) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite accuracy gap count regressed versus previous summary.',
       };
     }
     return {

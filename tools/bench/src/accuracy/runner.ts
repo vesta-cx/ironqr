@@ -16,7 +16,6 @@ import type {
   AccuracyEngineSummary,
   AccuracyScanResult,
   EngineAssetResult,
-  EngineFailureReason,
 } from './types.js';
 import { createAccuracyWorkerPool } from './worker-pool.js';
 
@@ -166,18 +165,6 @@ const resolveWorkerCount = (requested?: number): number => {
   }
   return requested;
 };
-
-const unexpectedFailureScan = (
-  error: unknown,
-  failureReason: EngineFailureReason = 'engine_error',
-): AccuracyScanResult => ({
-  status: 'error',
-  attempted: true,
-  succeeded: false,
-  results: [],
-  failureReason,
-  error: error instanceof Error ? error.message : String(error),
-});
 
 export const inspectAccuracyEngines = (): readonly AccuracyEngineDescriptor[] => {
   return listAccuracyEngines().map(describeAccuracyEngine);
@@ -370,13 +357,12 @@ const scoreAssetForEngine = async (
     },
     runOptions,
   };
-  const execution = await workerPool.run(job).catch(async () => {
-    return workerPool.run(job).catch((secondError) => ({
-      scan: unexpectedFailureScan(secondError),
-      durationMs: 0,
-      imageLoadDurationMs: null,
-      totalJobDurationMs: 0,
-    }));
+  const execution = await workerPool.run(job).catch(async (firstError) => {
+    return workerPool.run(job).catch((secondError) => {
+      throw new Error(
+        `Accuracy worker repeatedly failed for ${engine.id}/${asset.id}: ${String(firstError)}; ${String(secondError)}`,
+      );
+    });
   });
 
   const result = toEngineAssetResult(
