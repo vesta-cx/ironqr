@@ -23,7 +23,7 @@ export const viewOrderStudyPlugin: StudyPlugin<ViewOrderSummary> = {
     const summary = {
       recommendation: ['current-order'],
       evidence:
-        'No dedicated proposal-view timing metrics are available yet; keep the current order and use this report as the stable study execution contract.',
+        'Current performance evidence exposes scan stages and decode-attempt groups; keep the current proposal-view order until proposal-view spans show a stronger ordering signal.',
       assetCount: context.assets.length,
     };
     context.log(`view-order study inspected ${context.assets.length} sampled asset(s)`);

@@ -103,7 +103,7 @@ export const runStudyBenchmark = async (
   const pass = passedVerdict(`Study ${studyId} completed.`);
   const regression: BenchmarkVerdict = {
     status: 'unavailable',
-    description: 'Studies do not yet define cross-run regression checks.',
+    description: 'This study has no plugin-defined cross-run regression check.',
   };
   const report: StudyReport = {
     kind: 'study-report',
