@@ -220,7 +220,7 @@ Proposal kinds currently include:
 The result of this stage is a global pool of QR candidate explanations, not a winner.
 
 ## 6. Global proposal ranking
-`rankProposals(...)` scores and sorts all proposals globally.
+`rankProposalCandidates(...)` scores and sorts all proposals globally, while preserving the cheap initial geometry candidates computed during scoring. The legacy `rankProposals(...)` helper is now a projection over that richer ranked-candidate shape.
 
 Current score components include:
 - detector confidence / source prior
@@ -232,7 +232,7 @@ Current score components include:
 
 This is one of the core architectural changes:
 `ironqr` no longer behaves like a threshold loop.
-It builds many candidates, then spends expensive work on the best ones first.
+It builds many candidates, then spends expensive work on the best ones first. The decode cascade reuses the ranking-time geometry candidates before entering refinement and rescue paths, so the same initial homography work is not repeated for every processed representative.
 
 ## 7. Proposal budget
 After ranking, the scanner truncates the proposal list to a bounded global budget.

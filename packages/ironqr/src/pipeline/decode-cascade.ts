@@ -5,6 +5,7 @@ import { ScannerError } from '../qr/errors.js';
 import {
   createGeometryCandidates,
   expandVersionNeighborhood,
+  type GeometryCandidate,
   type GridResolution,
   rescueVersionsFromFinders,
 } from './geometry.js';
@@ -81,6 +82,8 @@ export interface DecodeCascadeOptions {
       readonly durationMs: number;
     },
   ) => void;
+  /** Cached initial geometry candidates produced during proposal ranking. */
+  readonly initialGeometryCandidates?: readonly GeometryCandidate[];
 }
 
 /**
@@ -116,7 +119,11 @@ export const runDecodeCascade = (
 ): Effect.Effect<DecodeCascadeSuccess | null, ScannerError> => {
   return Effect.gen(function* () {
     const traceOptions = options.traceSink ? { traceSink: options.traceSink } : {};
-    const geometryCandidates = createGeometryCandidates(proposal, traceOptions);
+    const geometryCandidates =
+      options.initialGeometryCandidates ?? createGeometryCandidates(proposal, traceOptions);
+    if (options.initialGeometryCandidates !== undefined) {
+      emitGeometryCandidates(options.initialGeometryCandidates, options.traceSink);
+    }
     if (geometryCandidates.length === 0) return null;
 
     const decodeNeighborhood = limitDecodeNeighborhood(
@@ -269,6 +276,23 @@ export const runDecodeCascade = (
 
     return null;
   });
+};
+
+const emitGeometryCandidates = (
+  candidates: readonly GeometryCandidate[],
+  traceSink?: TraceSink,
+): void => {
+  for (const candidate of candidates) {
+    traceSink?.emit({
+      type: 'geometry-candidate-created',
+      geometryCandidateId: candidate.id,
+      proposalId: candidate.proposalId,
+      binaryViewId: candidate.binaryViewId,
+      version: candidate.version,
+      geometryMode: candidate.geometryMode,
+      geometryScore: candidate.geometryScore,
+    });
+  }
 };
 
 const tryGeometryAcrossViews = (

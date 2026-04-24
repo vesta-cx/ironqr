@@ -2,7 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import { Effect } from 'effect';
 import { createNormalizedImage } from '../../src/pipeline/frame.js';
 import { resolveGrid } from '../../src/pipeline/geometry.js';
-import { detectBestFinderEvidence } from '../../src/pipeline/proposals.js';
+import {
+  detectBestFinderEvidence,
+  generateProposals,
+  rankProposalCandidates,
+} from '../../src/pipeline/proposals.js';
 import { sampleGrid } from '../../src/pipeline/samplers.js';
 import { createViewBank, otsuBinarize, toGrayscale } from '../../src/pipeline/views.js';
 import { decodeGridLogical } from '../../src/qr/index.js';
@@ -92,6 +96,17 @@ describe('single-image baseline pipeline (internal modules)', () => {
       'gray:hybrid:inverted',
       'gray:otsu:inverted',
     ]);
+  });
+
+  it('keeps ranking-time geometry candidates for decode reuse', () => {
+    const imageData = gridToImageData(buildHiGrid());
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const ranked = rankProposalCandidates(bank, generateProposals(bank));
+
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(ranked[0]?.proposal.proposalScore).toBeGreaterThan(0);
+    expect(ranked[0]?.initialGeometryCandidates.length).toBeGreaterThan(0);
+    expect(ranked[0]?.initialGeometryCandidates[0]?.proposalId).toBe(ranked[0]?.proposal.id);
   });
 
   it('detectBestFinderEvidence returns fewer than 3 candidates for a blank image', () => {

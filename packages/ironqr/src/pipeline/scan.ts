@@ -14,7 +14,7 @@ import {
   type ProposalGenerationSummary,
   type ProposalScoreBreakdown,
   type ProposalViewGenerationSummary,
-  rankProposals,
+  rankProposalCandidates,
   type ScanProposal,
 } from './proposals.js';
 import {
@@ -368,7 +368,7 @@ const scanFrameExecutionOnce = (
     const proposalGenerationMs = nowMs() - proposalGenerationStartedAt;
 
     const rankingStartedAt = nowMs();
-    const proposals = rankProposals(
+    const rankedProposalCandidates = rankProposalCandidates(
       viewBank,
       generatedProposals,
       traceSink === undefined ? {} : { traceSink },
@@ -376,7 +376,12 @@ const scanFrameExecutionOnce = (
     const rankingMs = nowMs() - rankingStartedAt;
 
     const maxProposals = normalizeProposalBudget(resolveMaxProposals(options));
-    const boundedProposals = proposals.slice(0, maxProposals);
+    const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
+    const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
+    const boundedProposals = boundedRankedProposalCandidates.map((candidate) => candidate.proposal);
+    const rankedProposalById = new Map(
+      boundedRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
+    );
     const topProposalScore = boundedProposals[0]?.proposalScore ?? 0;
     const proposalRankById = new Map(
       boundedProposals.map((proposal, index) => [proposal.id, index + 1]),
@@ -477,8 +482,12 @@ const scanFrameExecutionOnce = (
           continue;
         }
 
+        const initialGeometryCandidates = rankedProposalById.get(
+          proposal.id,
+        )?.initialGeometryCandidates;
         const success = yield* runDecodeCascade(proposal, viewBank, {
           ...(traceSink === undefined ? {} : { traceSink }),
+          ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
           proposalRank,
           topProposalScore,
           onAttemptMeasured: (attempt) => {

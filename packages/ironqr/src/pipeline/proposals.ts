@@ -2,6 +2,7 @@ import type { Point } from '../contracts/geometry.js';
 import {
   candidateVersionsFromFinders,
   createGeometryCandidates,
+  type GeometryCandidate,
   type GridResolution,
 } from './geometry.js';
 import type { TraceSink } from './trace.js';
@@ -109,6 +110,17 @@ export interface QuadProposal {
  * Complete proposal union.
  */
 export type ScanProposal = FinderTripleProposal | QuadProposal;
+
+/**
+ * A globally ranked proposal plus reusable cheap geometry candidates produced
+ * while scoring the proposal.
+ */
+export interface RankedProposalCandidate {
+  /** Scored proposal in best-first global order. */
+  readonly proposal: ScanProposal;
+  /** Initial geometry candidates built during ranking and reusable by decode. */
+  readonly initialGeometryCandidates: readonly GeometryCandidate[];
+}
 
 interface FinderTripleCandidate {
   readonly finders: readonly [FinderEvidence, FinderEvidence, FinderEvidence];
@@ -239,6 +251,39 @@ export const generateProposals = (
 };
 
 /**
+ * Ranks proposals globally by QR-specific evidence and keeps scoring-time
+ * geometry candidates for downstream decode reuse.
+ *
+ * @param viewBank - Lazy scalar/binary view cache.
+ * @param proposals - Proposals to rank.
+ * @param options - Optional trace configuration.
+ * @returns Best-first ranked proposal candidates.
+ */
+export const rankProposalCandidates = (
+  viewBank: ViewBank,
+  proposals: readonly ScanProposal[],
+  options: ProposalGenerationOptions = {},
+): readonly RankedProposalCandidate[] => {
+  const ranked = dedupeRankedProposalCandidates(
+    proposals
+      .map((proposal) => scoreProposal(viewBank.getBinaryView(proposal.binaryViewId), proposal))
+      .sort((left, right) => right.proposal.proposalScore - left.proposal.proposalScore),
+  ).map((candidate, index) => {
+    options.traceSink?.emit({
+      type: 'proposal-ranked',
+      proposalId: candidate.proposal.id,
+      proposalKind: candidate.proposal.kind,
+      binaryViewId: candidate.proposal.binaryViewId,
+      rank: index + 1,
+      scoreBreakdown: candidate.proposal.scoreBreakdown,
+    });
+    return candidate;
+  });
+
+  return ranked;
+};
+
+/**
  * Ranks proposals globally by QR-specific evidence.
  *
  * @param viewBank - Lazy scalar/binary view cache.
@@ -251,23 +296,9 @@ export const rankProposals = (
   proposals: readonly ScanProposal[],
   options: ProposalGenerationOptions = {},
 ): readonly ScanProposal[] => {
-  const ranked = dedupeRankedProposals(
-    proposals
-      .map((proposal) => scoreProposal(viewBank.getBinaryView(proposal.binaryViewId), proposal))
-      .sort((left, right) => right.proposalScore - left.proposalScore),
-  ).map((proposal, index) => {
-    options.traceSink?.emit({
-      type: 'proposal-ranked',
-      proposalId: proposal.id,
-      proposalKind: proposal.kind,
-      binaryViewId: proposal.binaryViewId,
-      rank: index + 1,
-      scoreBreakdown: proposal.scoreBreakdown,
-    });
-    return proposal;
-  });
-
-  return ranked;
+  return rankProposalCandidates(viewBank, proposals, options).map(
+    (candidate) => candidate.proposal,
+  );
 };
 
 /**
@@ -418,9 +449,10 @@ const proposalsFromFinderTriples = (
   return proposals;
 };
 
-const scoreProposal = (binaryView: BinaryView, proposal: ScanProposal): ScanProposal => {
+const scoreProposal = (binaryView: BinaryView, proposal: ScanProposal): RankedProposalCandidate => {
   const detectorScore = computeDetectorScore(proposal);
-  const initialGeometry = createGeometryCandidates(proposal)[0] ?? null;
+  const initialGeometryCandidates = createGeometryCandidates(proposal);
+  const initialGeometry = initialGeometryCandidates[0] ?? null;
   const geometryScore = computeProposalGeometryScore(proposal, initialGeometry);
   const quietZoneScore = computeQuietZoneScore(binaryView, proposal, initialGeometry);
   const timingScore = computeTimingScore(binaryView, initialGeometry);
@@ -438,19 +470,23 @@ const scoreProposal = (binaryView: BinaryView, proposal: ScanProposal): ScanProp
     total,
   } satisfies ProposalScoreBreakdown;
 
-  if (proposal.kind === 'finder-triple') {
-    return {
-      ...proposal,
-      proposalScore: total,
-      scoreBreakdown,
-    } satisfies FinderTripleProposal;
-  }
+  const scoredProposal =
+    proposal.kind === 'finder-triple'
+      ? ({
+          ...proposal,
+          proposalScore: total,
+          scoreBreakdown,
+        } satisfies FinderTripleProposal)
+      : ({
+          ...proposal,
+          proposalScore: total,
+          scoreBreakdown,
+        } satisfies QuadProposal);
 
   return {
-    ...proposal,
-    proposalScore: total,
-    scoreBreakdown,
-  } satisfies QuadProposal;
+    proposal: scoredProposal,
+    initialGeometryCandidates,
+  } satisfies RankedProposalCandidate;
 };
 
 const computeDetectorScore = (proposal: ScanProposal): number => {
@@ -954,14 +990,16 @@ const sampleBinary = (binaryView: BinaryView, x: number, y: number): number => {
   return binaryView.binary[py * binaryView.width + px] ?? 255;
 };
 
-const dedupeRankedProposals = (proposals: readonly ScanProposal[]): ScanProposal[] => {
+const dedupeRankedProposalCandidates = (
+  candidates: readonly RankedProposalCandidate[],
+): RankedProposalCandidate[] => {
   const seen = new Set<string>();
-  const deduped: ScanProposal[] = [];
-  for (const proposal of proposals) {
-    const signature = proposalSignature(proposal);
+  const deduped: RankedProposalCandidate[] = [];
+  for (const candidate of candidates) {
+    const signature = proposalSignature(candidate.proposal);
     if (seen.has(signature)) continue;
     seen.add(signature);
-    deduped.push(proposal);
+    deduped.push(candidate);
   }
   return deduped;
 };

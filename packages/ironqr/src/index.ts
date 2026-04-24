@@ -16,7 +16,9 @@ import {
   createTraceCollector,
   createTraceCounter,
   generateProposals,
+  type RankedProposalCandidate,
   type RankedScanResult,
+  rankProposalCandidates,
   rankProposals,
   runDecodeCascade,
   type ScanFrameOutput,
@@ -35,6 +37,7 @@ export * from './contracts/index.js';
 export { ScannerError } from './qr/index.js';
 export { ScannerNotImplementedError } from './runtime/index.js';
 export type {
+  RankedProposalCandidate,
   RankedScanResult,
   ScanFrameOutput,
   ScanReport,
@@ -50,6 +53,7 @@ export {
   createTraceCollector,
   createTraceCounter,
   generateProposals,
+  rankProposalCandidates,
   rankProposals,
   runDecodeCascade,
 };
