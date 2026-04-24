@@ -73,6 +73,7 @@ export const createBenchProgressReporter = (options: {
 
   let stopped = false;
   const dashboard = createBenchRunModel();
+  dashboard.commandName = options.commandName;
   dashboard.message = `${options.commandName} starting`;
   const openTui = enabled
     ? new BenchOpenTuiApp(dashboard, () => {

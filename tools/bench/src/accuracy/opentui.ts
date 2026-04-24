@@ -144,15 +144,16 @@ export class BenchOpenTuiDashboard {
       });
       headerBox.add(header);
 
+      const isStudy = this.dashboard.commandName === 'study';
       const chart = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'chart',
-        title: 'Timing by outcome',
+        title: isStudy ? 'Study progress' : 'Timing by outcome',
         accent: THEME.cyan,
         height: CHART_PANEL_ROWS,
       });
       const scorecard = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'scorecard',
-        title: 'Accuracy scorecard',
+        title: isStudy ? 'Study summary' : 'Accuracy scorecard',
         accent: THEME.green,
         height: SCORECARD_PANEL_ROWS,
       });
@@ -172,13 +173,13 @@ export class BenchOpenTuiDashboard {
       });
       const active = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'active',
-        title: 'Active workers',
+        title: isStudy ? 'Active study work' : 'Active workers',
         accent: THEME.blue,
         flexGrow: 1,
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
-        title: 'Slowest fresh scans',
+        title: isStudy ? 'Slowest study units' : 'Slowest fresh scans',
         accent: THEME.amber,
         flexGrow: 1,
       });
@@ -187,7 +188,7 @@ export class BenchOpenTuiDashboard {
 
       const recent = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'recent',
-        title: 'Recent scans',
+        title: isStudy ? 'Recent study units' : 'Recent scans',
         accent: THEME.purple,
         flexGrow: 1,
       });
@@ -301,14 +302,18 @@ export class BenchOpenTuiDashboard {
 
     panels.header.content = headerText(this.dashboard);
     panels.chart.body.content = panelBody(
-      renderTimingChart(this.dashboard, {
-        width: contentWidth,
-        barHeight: height < 34 ? 4 : 6,
-      }),
+      this.dashboard.commandName === 'study'
+        ? renderStudyProgress(this.dashboard, { width: contentWidth })
+        : renderTimingChart(this.dashboard, {
+            width: contentWidth,
+            barHeight: height < 34 ? 4 : 6,
+          }),
       panelBodyRows(CHART_PANEL_ROWS),
     );
     panels.scorecard.body.content = panelBody(
-      renderScorecard(this.dashboard, { width: contentWidth }),
+      this.dashboard.commandName === 'study'
+        ? renderStudySummary(this.dashboard, { width: contentWidth })
+        : renderScorecard(this.dashboard, { width: contentWidth }),
       panelBodyRows(SCORECARD_PANEL_ROWS),
     );
     panels.active.body.content = panelBody(
@@ -396,6 +401,83 @@ const measuredPanelDataRows = (panelRows: number, fallback: number): number => {
 
 const panelBody = (lines: readonly string[], maxRows: number): string => {
   return lines.slice(1, maxRows + 1).join('\n');
+};
+
+const renderStudyProgress = (
+  dashboard: BenchDashboardModel,
+  options: { readonly width: number },
+): readonly string[] => {
+  const cache = cacheTotals(dashboard);
+  return [
+    'study progress',
+    truncateLine(
+      `phase=${dashboard.stage} workers=${dashboard.workerCount || '-'} ${dashboard.message}`,
+      options.width,
+    ),
+    truncateLine(
+      `assets prepared ${dashboard.preparedAssets}/${dashboard.assetCount}`,
+      options.width,
+    ),
+    truncateLine(
+      `study units complete ${dashboard.completedJobs}/${dashboard.totalJobs}`,
+      options.width,
+    ),
+    truncateLine(`active units ${dashboard.activeScans.size}`, options.width),
+    truncateLine(
+      `cache ${dashboard.cacheEnabled ? 'on' : 'off'} hits=${cache.hits} misses=${cache.misses} writes=${cache.writes}`,
+      options.width,
+    ),
+  ];
+};
+
+const renderStudySummary = (
+  dashboard: BenchDashboardModel,
+  options: { readonly width: number },
+): readonly string[] => {
+  const rows = [...dashboard.engines.values()];
+  const lines = [
+    'study summary',
+    truncateLine('plugin        complete  fresh  cache-hit  last-ms', options.width),
+  ];
+  if (rows.length === 0) {
+    lines.push('none yet');
+    return lines;
+  }
+  for (const row of rows) {
+    lines.push(
+      truncateLine(
+        `${padRight(row.id, 13)} ${padLeft(String(row.completed), 8)} ${padLeft(String(row.fresh), 6)} ${padLeft(String(row.cacheHits), 10)} ${padLeft(row.lastDurationMs === null ? '-' : formatDuration(row.lastDurationMs), 8)}`,
+        options.width,
+      ),
+    );
+  }
+  return lines;
+};
+
+const cacheTotals = (dashboard: BenchDashboardModel) => {
+  let hits = 0;
+  let misses = 0;
+  let writes = 0;
+  for (const engine of dashboard.engines.values()) {
+    hits += engine.cacheHits;
+    misses += engine.cacheMisses;
+    writes += engine.cacheWrites;
+  }
+  return { hits, misses, writes };
+};
+
+const padRight = (value: string, width: number): string =>
+  value.length >= width ? value.slice(0, width) : `${value}${' '.repeat(width - value.length)}`;
+
+const padLeft = (value: string, width: number): string =>
+  value.length >= width ? value.slice(0, width) : `${' '.repeat(width - value.length)}${value}`;
+
+const truncateLine = (value: string, width: number): string =>
+  value.length > width ? value.slice(0, Math.max(0, width - 1)) : value;
+
+const formatDuration = (durationMs: number): string => {
+  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
+  return `${(durationMs / 1_000).toFixed(1)}s`;
 };
 
 const headerText = (dashboard: BenchDashboardModel): string => {

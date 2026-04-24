@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import type { AccuracyEngineDescriptor } from '../accuracy/types.js';
+import type { AccuracyEngineDescriptor, EngineAssetResult } from '../accuracy/types.js';
 import type { CorpusAssetLabel } from '../core/corpus.js';
 import { type BenchCorpusAsset, loadBenchCorpusAssets } from '../core/corpus.js';
 import {
@@ -117,7 +117,7 @@ export const runStudyBenchmark = async (
   });
 
   try {
-    const { result, config, engines, observability } = await runPlugin({
+    const { result, config, engines, observability, interrupted } = await runPlugin({
       repoRoot,
       plugin,
       assets,
@@ -141,7 +141,7 @@ export const runStudyBenchmark = async (
       kind: 'study-report',
       schemaVersion: REPORT_SCHEMA_VERSION,
       generatedAt: new Date().toISOString(),
-      status: 'passed',
+      status: interrupted ? 'interrupted' : 'passed',
       verdicts: { pass, regression },
       benchmark: {
         name: `Study: ${plugin.id}`,
@@ -201,6 +201,7 @@ const runPlugin = async (input: {
   readonly config: Record<string, unknown>;
   readonly engines: readonly AccuracyEngineDescriptor[];
   readonly observability: Record<string, unknown>;
+  readonly interrupted: boolean;
 }> => {
   const flags = {
     ...(input.selection.maxAssets === null ? {} : { 'max-assets': input.selection.maxAssets }),
@@ -215,8 +216,13 @@ const runPlugin = async (input: {
     const assetResults: unknown[] = [];
     input.progress.onBenchmarkStarted(input.assets.length, [input.plugin.id], 1);
 
+    let interrupted = false;
     for (const [index, asset] of input.assets.entries()) {
-      if (input.signal?.aborted) throw new Error('Study interrupted.');
+      if (input.signal?.aborted) {
+        interrupted = true;
+        input.log('study interrupted; writing partial report from completed assets');
+        break;
+      }
       input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
       const cacheKey = JSON.stringify({
         studyId: input.plugin.id,
@@ -229,10 +235,33 @@ const runPlugin = async (input: {
       });
       const cached = await input.cache.read(asset, cacheKey);
       if (cached !== null) {
+        input.progress.onScanStarted({
+          engineId: input.plugin.id,
+          assetId: asset.id,
+          relativePath: asset.relativePath,
+          label: asset.label,
+          cached: true,
+          cacheable: true,
+        });
+        input.progress.onScanFinished({
+          engineId: input.plugin.id,
+          assetId: asset.id,
+          relativePath: asset.relativePath,
+          result: studyUnitResult(input.plugin.id, asset, cached, true),
+          wroteToCache: false,
+        });
         input.progress.onMessage(`study cache hit ${asset.id}`);
         assetResults.push(cached);
         continue;
       }
+      input.progress.onScanStarted({
+        engineId: input.plugin.id,
+        assetId: asset.id,
+        relativePath: asset.relativePath,
+        label: asset.label,
+        cached: false,
+        cacheable: input.cache.summary().enabled,
+      });
       input.progress.onMessage(`study asset started ${asset.id}`);
       const result = await input.plugin.runAsset({
         repoRoot: input.repoRoot,
@@ -244,6 +273,13 @@ const runPlugin = async (input: {
       });
       await input.cache.write(asset, cacheKey, result);
       assetResults.push(result);
+      input.progress.onScanFinished({
+        engineId: input.plugin.id,
+        assetId: asset.id,
+        relativePath: asset.relativePath,
+        result: studyUnitResult(input.plugin.id, asset, result, false),
+        wroteToCache: input.cache.summary().enabled,
+      });
       input.progress.onMessage(`study asset finished ${asset.id}`);
     }
 
@@ -265,6 +301,7 @@ const runPlugin = async (input: {
       config,
       engines,
       observability,
+      interrupted,
     };
   }
 
@@ -280,8 +317,44 @@ const runPlugin = async (input: {
     log: input.log,
   };
   const result = await input.plugin.run(context);
-  return { result, config: {}, engines: [], observability: {} };
+  return { result, config: {}, engines: [], observability: {}, interrupted: false };
 };
+
+const studyUnitResult = (
+  engineId: string,
+  asset: BenchCorpusAsset,
+  value: unknown,
+  cached: boolean,
+): EngineAssetResult => {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const success = typeof record.success === 'boolean' ? record.success : true;
+  const decodedTexts = stringArray(record.decodedTexts);
+  const matchedTexts = stringArray(record.matchedTexts);
+  const durationMs = typeof record.scanDurationMs === 'number' ? record.scanDurationMs : 0;
+  return {
+    engineId,
+    label: asset.label,
+    outcome:
+      asset.label === 'qr-pos'
+        ? success
+          ? 'pass'
+          : 'fail-no-decode'
+        : success
+          ? 'pass'
+          : 'false-positive',
+    decodedTexts,
+    matchedTexts,
+    failureReason: success ? null : asset.label === 'qr-pos' ? 'no_decode' : 'false_positive',
+    error: null,
+    durationMs,
+    imageLoadDurationMs: null,
+    totalJobDurationMs: durationMs,
+    cached,
+  };
+};
+
+const stringArray = (value: unknown): readonly string[] =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 
 const isGenericStudyPlugin = (
   plugin: StudyPlugin,

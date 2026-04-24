@@ -64,6 +64,7 @@ export interface SlowScan {
 }
 
 export interface BenchDashboardModel {
+  commandName: string;
   stage: DashboardStage;
   message: string;
   assetCount: number;
@@ -107,6 +108,7 @@ const createTimingBuckets = (): TimingBuckets => ({
 });
 
 export const createBenchDashboardModel = (): BenchDashboardModel => ({
+  commandName: 'accuracy',
   stage: 'manifest',
   message: 'starting',
   assetCount: 0,
