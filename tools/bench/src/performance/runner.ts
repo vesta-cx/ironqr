@@ -149,6 +149,7 @@ export const runPerformanceBenchmark = async (
         refresh: options.cache?.refresh ?? false,
         ...(options.cache?.file ? { file: options.cache.file } : {}),
         disabledEngineIds: [],
+        refreshEngineIds: options.cache?.refreshEngineId ? [options.cache.refreshEngineId] : [],
       },
       progress: { enabled: false },
       execution: options.workers === undefined ? {} : { workers: options.workers },

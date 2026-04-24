@@ -116,6 +116,7 @@ export const openAccuracyCacheStore = async (
     readonly enabled: boolean;
     readonly refresh: boolean;
     readonly disabledEngineIds?: readonly string[];
+    readonly refreshEngineIds?: readonly string[];
   },
 ): Promise<AccuracyCacheStore> => {
   const stats = {
@@ -142,6 +143,7 @@ export const openAccuracyCacheStore = async (
   }
 
   const disabledEngineIds = new Set(options.disabledEngineIds ?? []);
+  const refreshEngineIds = new Set(options.refreshEngineIds ?? []);
   let snapshot = emptyCacheFile();
   try {
     const raw = await readFile(file, 'utf8');
@@ -182,7 +184,7 @@ export const openAccuracyCacheStore = async (
     isEnabledFor,
     read: (engine, asset, runKey) => {
       if (!isEnabledFor(engine)) return null;
-      if (options.refresh) {
+      if (options.refresh || refreshEngineIds.has(engine.id)) {
         stats.misses += 1;
         return null;
       }

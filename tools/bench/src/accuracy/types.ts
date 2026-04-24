@@ -220,6 +220,7 @@ export interface AccuracyBenchmarkOptions {
     readonly refresh?: boolean;
     readonly file?: string;
     readonly disabledEngineIds?: readonly string[];
+    readonly refreshEngineIds?: readonly string[];
   };
   readonly progress?: {
     readonly enabled?: boolean;

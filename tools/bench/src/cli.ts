@@ -248,6 +248,7 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
       refresh: options.refreshCache,
       file: cacheFile,
       disabledEngineIds: [],
+      refreshEngineIds: options.refreshCacheEngineId ? [options.refreshCacheEngineId] : [],
     },
     progress: { enabled: options.progressEnabled },
     execution: options.workers === undefined ? {} : { workers: options.workers },

@@ -415,6 +415,7 @@ export const runAccuracyBenchmark = async (
       enabled: options.cache?.enabled ?? true,
       refresh: options.cache?.refresh ?? false,
       disabledEngineIds: options.cache?.disabledEngineIds ?? [],
+      refreshEngineIds: options.cache?.refreshEngineIds ?? [],
     });
     workerPool = createAccuracyWorkerPool(workerCount, progress);
     const activeCache = cache;
