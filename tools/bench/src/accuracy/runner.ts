@@ -389,10 +389,13 @@ export const runAccuracyBenchmark = async (
   try {
     const manifest = await readBenchCorpusManifest(repoRoot);
     const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
+    const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-positive').length;
+    const negativeCount = approvedAssets.length - positiveCount;
     progress.onManifestLoaded(
       approvedAssets.length,
       engines.map((engine) => engine.id),
       options.cache?.enabled ?? true,
+      { positiveCount, negativeCount },
     );
     progress.onAssetsStarted(approvedAssets.length);
     const assets = approvedAssets.map((asset, index) => {
@@ -423,9 +426,6 @@ export const runAccuracyBenchmark = async (
         ),
       ),
     }))) as readonly AccuracyAssetResult[];
-
-    const positiveCount = assets.filter((asset) => asset.label === 'qr-positive').length;
-    const negativeCount = assets.length - positiveCount;
 
     return {
       reportFile,

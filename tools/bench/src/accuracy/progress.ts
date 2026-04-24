@@ -12,6 +12,7 @@ import {
   onDashboardScanFinished,
   onDashboardScanStarted,
 } from './dashboard/model.js';
+import { renderScorecard } from './dashboard/scorecard.js';
 import { renderTimingChart } from './dashboard/timing-chart.js';
 import type { EngineAssetResult } from './types.js';
 
@@ -44,6 +45,7 @@ export interface AccuracyProgressReporter {
     assetCount: number,
     engineIds: readonly string[],
     cacheEnabled: boolean,
+    totals?: { readonly positiveCount: number; readonly negativeCount: number },
   ) => void;
   onAssetsStarted: (assetCount: number) => void;
   onAssetPrepared: (assetId: string, prepared: number, total: number) => void;
@@ -156,7 +158,10 @@ export const createAccuracyProgressReporter = (options: {
   const render = (): void => {
     if (!useTui || stopped) return;
     const lines: string[] = [];
-    lines.push(...renderTimingChart(dashboard, { width: stderr.columns ?? 120 }));
+    const width = stderr.columns ?? 120;
+    lines.push(...renderTimingChart(dashboard, { width }));
+    lines.push('');
+    lines.push(...renderScorecard(dashboard, { width }));
     lines.push('');
     lines.push('bench accuracy');
     lines.push(`stage: ${stage} — ${message}`);
@@ -241,8 +246,8 @@ export const createAccuracyProgressReporter = (options: {
       logPlain('stage manifest: reading approved corpus manifest');
       queueRender();
     },
-    onManifestLoaded: (nextAssetCount, engineIds, nextCacheEnabled) => {
-      onDashboardManifestLoaded(dashboard, nextAssetCount, engineIds, nextCacheEnabled);
+    onManifestLoaded: (nextAssetCount, engineIds, nextCacheEnabled, totals) => {
+      onDashboardManifestLoaded(dashboard, nextAssetCount, engineIds, nextCacheEnabled, totals);
       assetCount = nextAssetCount;
       cacheEnabled = nextCacheEnabled;
       totalJobs = nextAssetCount * engineIds.length;

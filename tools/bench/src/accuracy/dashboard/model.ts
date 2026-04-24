@@ -65,6 +65,8 @@ export interface BenchDashboardModel {
   stage: DashboardStage;
   message: string;
   assetCount: number;
+  positiveAssetCount: number;
+  negativeAssetCount: number;
   preparedAssets: number;
   totalJobs: number;
   completedJobs: number;
@@ -97,6 +99,8 @@ export const createBenchDashboardModel = (): BenchDashboardModel => ({
   stage: 'manifest',
   message: 'starting',
   assetCount: 0,
+  positiveAssetCount: 0,
+  negativeAssetCount: 0,
   preparedAssets: 0,
   totalJobs: 0,
   completedJobs: 0,
@@ -150,8 +154,14 @@ export const onDashboardManifestLoaded = (
   assetCount: number,
   engineIds: readonly string[],
   cacheEnabled: boolean,
+  totals: { readonly positiveCount: number; readonly negativeCount: number } = {
+    positiveCount: 0,
+    negativeCount: 0,
+  },
 ): void => {
   model.assetCount = assetCount;
+  model.positiveAssetCount = totals.positiveCount;
+  model.negativeAssetCount = totals.negativeCount;
   model.totalJobs = assetCount * engineIds.length;
   model.cacheEnabled = cacheEnabled;
   model.message = `loaded ${assetCount} approved assets and ${engineIds.length} engines`;

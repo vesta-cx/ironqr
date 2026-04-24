@@ -7,6 +7,7 @@ import {
   onDashboardScanFinished,
   onDashboardScanStarted,
 } from '../../src/accuracy/dashboard/model.js';
+import { renderScorecard } from '../../src/accuracy/dashboard/scorecard.js';
 import { renderTimingChart } from '../../src/accuracy/dashboard/timing-chart.js';
 import type { EngineAssetResult } from '../../src/accuracy/types.js';
 
@@ -134,6 +135,86 @@ describe('bench dashboard model', () => {
     expect(model.slowestFreshScans).toHaveLength(8);
     expect(model.slowestFreshScans[0]?.assetId).toBe('asset-9');
     expect(model.slowestFreshScans.at(-1)?.assetId).toBe('asset-2');
+  });
+});
+
+describe('scorecard widget', () => {
+  it('renders pass/fail/cache summaries by engine', () => {
+    const model = createBenchDashboardModel();
+    onDashboardBenchmarkStarted(model, 4, ['ironqr'], 2);
+    model.positiveAssetCount = 2;
+    model.negativeAssetCount = 2;
+    onDashboardScanStarted(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-cached',
+      relativePath: 'assets/asset-cached.webp',
+      cached: true,
+      cacheable: true,
+    });
+    onDashboardScanStarted(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-fresh',
+      relativePath: 'assets/asset-fresh.webp',
+      cached: false,
+      cacheable: true,
+    });
+    onDashboardScanFinished(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-1',
+      relativePath: 'assets/asset-1.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'qr-positive',
+        outcome: 'pass',
+        durationMs: 2300,
+      }),
+      wroteToCache: true,
+    });
+    onDashboardScanFinished(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-2',
+      relativePath: 'assets/asset-2.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'qr-positive',
+        outcome: 'fail-mismatch',
+        durationMs: 12000,
+      }),
+      wroteToCache: false,
+    });
+    onDashboardScanFinished(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-3',
+      relativePath: 'assets/asset-3.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'non-qr-negative',
+        outcome: 'pass',
+        durationMs: 1700,
+      }),
+      wroteToCache: false,
+    });
+    onDashboardScanFinished(model, {
+      engineId: 'ironqr',
+      assetId: 'asset-4',
+      relativePath: 'assets/asset-4.webp',
+      result: result({
+        engineId: 'ironqr',
+        label: 'non-qr-negative',
+        outcome: 'false-positive',
+        durationMs: 500,
+      }),
+      wroteToCache: false,
+    });
+
+    const output = renderScorecard(model, { width: 140 }).join('\n');
+    expect(output).toContain('scorecard');
+    expect(output).toContain('ironqr');
+    expect(output).toContain('1/2 50.0% avg 2.3s');
+    expect(output).toContain('no_dec 0 mm 1');
+    expect(output).toContain('1/2 50.0% avg 1.7s');
+    expect(output).toContain('fp 1');
+    expect(output).toContain('1/1');
   });
 });
 
