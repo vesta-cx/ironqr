@@ -13,6 +13,14 @@ export interface BenchmarkVerdict {
   readonly description: string;
 }
 
+export interface PartialRunSummary {
+  readonly reason: string;
+  readonly completedAssetCount: number;
+  readonly pendingAssetCount: number;
+  readonly completedJobCount: number;
+  readonly pendingJobCount: number;
+}
+
 export interface EngineRunDescriptor {
   readonly id: string;
   readonly adapterVersion: string;

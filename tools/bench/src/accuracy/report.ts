@@ -156,6 +156,7 @@ export const printAccuracySummary = (
   options: { readonly failuresOnly?: boolean; readonly verbose?: boolean } = {},
 ): void => {
   printScalar('report', result.reportFile);
+  printScalar('status', result.status);
   printScalar('corpusAssets', result.corpusAssetCount);
   printScalar('positives', result.positiveCount);
   printScalar('negatives', result.negativeCount);
@@ -166,6 +167,11 @@ export const printAccuracySummary = (
   printScalar('cacheHits', result.cache.hits);
   printScalar('cacheMisses', result.cache.misses);
   printScalar('cacheWrites', result.cache.writes);
+  if (result.partial) {
+    printScalar('partialReason', result.partial.reason);
+    printScalar('pendingAssets', result.partial.pendingAssetCount);
+    printScalar('pendingJobs', result.partial.pendingJobCount);
+  }
 
   printTable(
     'summaries',
@@ -244,13 +250,24 @@ export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
   if (!ironqr) throw new Error('Missing ironqr accuracy summary');
   const baselines = result.summaries.filter((summary) => summary.engineId !== 'ironqr');
   const gaps = findAccuracyGaps(result);
-  const pass = buildAccuracyPassVerdict(result, gaps);
-  const regression = await buildAccuracyRegressionVerdict(result, ironqr, gaps);
+  const pass = result.partial
+    ? unavailableVerdict(`Accuracy benchmark ended early: ${result.partial.reason}`)
+    : buildAccuracyPassVerdict(result, gaps);
+  const regression = result.partial
+    ? unavailableVerdict('Partial accuracy reports are not comparable for regression checks.')
+    : await buildAccuracyRegressionVerdict(result, ironqr, gaps);
   return {
     kind: 'accuracy-report' as const,
     schemaVersion: REPORT_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    status: hasEngineErrors(result) ? 'errored' : pass.status === 'failed' ? 'failed' : 'passed',
+    status:
+      result.status === 'errored' || result.status === 'interrupted'
+        ? result.status
+        : hasEngineErrors(result)
+          ? 'errored'
+          : pass.status === 'failed'
+            ? 'failed'
+            : 'passed',
     verdicts: { pass, regression },
     benchmark: {
       name: 'Accuracy Benchmark',
@@ -282,11 +299,13 @@ export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
       pass,
       regression,
       cache: result.cache,
+      partial: result.partial ?? null,
     },
     details: {
       engines: result.engines,
       assets: result.assets,
       gaps,
+      partial: result.partial ?? null,
     },
   };
 };

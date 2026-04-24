@@ -304,7 +304,16 @@ const resolveReportFile = (
   return defaultPath;
 };
 
-const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void> => {
+interface RunControl {
+  readonly signal: AbortSignal;
+  readonly requestStop: () => void;
+}
+
+const runAccuracy = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
   const reportFile = resolveReportFile(
     repoRoot,
     options,
@@ -325,7 +334,12 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
       refreshEngineIds: options.refreshCacheEngineId ? [options.refreshCacheEngineId] : [],
     },
     progress: { enabled: options.progressEnabled },
-    execution: options.workers === undefined ? {} : { workers: options.workers },
+    execution: {
+      ...(options.workers === undefined ? {} : { workers: options.workers }),
+      ...(control === undefined
+        ? {}
+        : { signal: control.signal, requestStop: control.requestStop }),
+    },
     selection: {
       assetIds: options.assetIds,
       labels: options.labels,
@@ -335,9 +349,14 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
   });
   printAccuracySummary(result, { failuresOnly: options.failuresOnly });
   await writeAccuracyReport(result);
+  if (result.status === 'errored') process.exitCode = 1;
 };
 
-const runPerformance = async (repoRoot: string, options: CliOptions): Promise<void> => {
+const runPerformance = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
   const reportFile = resolveReportFile(
     repoRoot,
     options,
@@ -374,7 +393,11 @@ const runPerformance = async (repoRoot: string, options: CliOptions): Promise<vo
   await writePerformanceReport(result);
 };
 
-const runStudy = async (repoRoot: string, options: CliOptions): Promise<void> => {
+const runStudy = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
   if (!options.studyId)
     throw new Error('bench study requires a study id, e.g. bench study view-order');
   const reportFile = options.reportFile
@@ -395,19 +418,45 @@ const runStudy = async (repoRoot: string, options: CliOptions): Promise<void> =>
   console.log(`studyReport: ${JSON.stringify(result.reportFile)}`);
 };
 
-const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> => {
+const runSuite = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
   const suiteOptions = { ...options, seed: options.seed ?? crypto.randomUUID() };
   const reportDir = options.reportDir
     ? path.resolve(repoRoot, options.reportDir)
     : path.join(repoRoot, 'tools', 'bench', 'reports');
   const accuracyReportFile = path.join(reportDir, 'accuracy.json');
   const performanceReportFile = path.join(reportDir, 'performance.json');
-  await runAccuracy(repoRoot, { ...suiteOptions, reportFile: accuracyReportFile });
-  await runPerformance(repoRoot, { ...suiteOptions, reportFile: performanceReportFile });
-  const [accuracyReport, performanceReport] = await Promise.all([
-    readReport(accuracyReportFile),
-    readReport(performanceReportFile),
-  ]);
+  await runAccuracy(repoRoot, { ...suiteOptions, reportFile: accuracyReportFile }, control);
+  const accuracyReport = await readReport(accuracyReportFile);
+  if (accuracyReport.status === 'errored' || accuracyReport.status === 'interrupted') {
+    await writePartialSuiteSummary(
+      repoRoot,
+      reportDir,
+      options,
+      suiteOptions,
+      accuracyReport,
+      null,
+    );
+    if (accuracyReport.status === 'errored') process.exitCode = 1;
+    return;
+  }
+  await runPerformance(repoRoot, { ...suiteOptions, reportFile: performanceReportFile }, control);
+  const performanceReport = await readReport(performanceReportFile);
+  if (performanceReport.status === 'errored' || performanceReport.status === 'interrupted') {
+    await writePartialSuiteSummary(
+      repoRoot,
+      reportDir,
+      options,
+      suiteOptions,
+      accuracyReport,
+      performanceReport,
+    );
+    if (performanceReport.status === 'errored') process.exitCode = 1;
+    return;
+  }
   const accuracyPass = readVerdict(accuracyReport, 'pass');
   const accuracyRegression = readVerdict(accuracyReport, 'regression');
   const performancePass = readVerdict(performanceReport, 'pass');
@@ -492,6 +541,79 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
     },
   };
   await writeReportWithSnapshot(summaryFile, finalSummary);
+  console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
+};
+
+const writePartialSuiteSummary = async (
+  repoRoot: string,
+  reportDir: string,
+  options: CliOptions,
+  suiteOptions: CliOptions,
+  accuracyReport: Record<string, unknown>,
+  performanceReport: Record<string, unknown> | null,
+): Promise<void> => {
+  const componentStatus =
+    performanceReport?.status === 'errored' || performanceReport?.status === 'interrupted'
+      ? performanceReport.status
+      : accuracyReport.status === 'errored' || accuracyReport.status === 'interrupted'
+        ? accuracyReport.status
+        : 'errored';
+  const pass: BenchmarkVerdict = {
+    status: 'unavailable',
+    description: `Suite stopped before all component benchmarks completed: ${componentStatus}.`,
+  };
+  const regression: BenchmarkVerdict = {
+    status: 'unavailable',
+    description: 'Partial suite reports are not comparable for regression checks.',
+  };
+  const summaryFile = path.join(reportDir, 'summary.json');
+  const report = {
+    kind: 'suite-report',
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    status: componentStatus,
+    verdicts: { pass, regression },
+    benchmark: {
+      name: 'Bench Full Suite',
+      description:
+        'Runs the standard `ironqr` benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. This report answers whether the current branch regressed on correctness or speed. Start with `summary.verdicts`, then inspect `summary.highlights`, then open the linked accuracy and performance reports for details.',
+    },
+    command: { name: 'suite', argv: process.argv.slice(2) },
+    repo: reportRepo(accuracyReport.repo, repoRoot),
+    corpus: accuracyReport.corpus ?? performanceReport?.corpus,
+    selection: accuracyReport.selection ??
+      performanceReport?.selection ?? { seed: null, filters: {} },
+    engines: mergeEngines(accuracyReport.engines, performanceReport?.engines),
+    options: {
+      cacheEnabled: options.cacheEnabled,
+      refreshCache: options.refreshCache,
+      refreshCacheEngineId: options.refreshCacheEngineId ?? null,
+      workers: options.workers ?? null,
+      iterations: options.iterations ?? null,
+      maxAssets: options.maxAssets ?? null,
+      seed: suiteOptions.seed ?? null,
+    },
+    summary: {
+      verdicts: {
+        accuracyPass: readVerdict(accuracyReport, 'pass'),
+        accuracyRegression: readVerdict(accuracyReport, 'regression'),
+        performancePass: performanceReport ? readVerdict(performanceReport, 'pass') : pass,
+        performanceRegression: performanceReport
+          ? readVerdict(performanceReport, 'regression')
+          : regression,
+      },
+      partial: {
+        reason: `Suite stopped because a component report ended with status ${componentStatus}.`,
+        accuracyStatus: accuracyReport.status ?? null,
+        performanceStatus: performanceReport?.status ?? null,
+      },
+    },
+    details: {
+      accuracyReportFile: path.join(reportDir, 'accuracy.json'),
+      performanceReportFile: performanceReport ? path.join(reportDir, 'performance.json') : null,
+    },
+  };
+  await writeReportWithSnapshot(summaryFile, report);
   console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
 };
 
@@ -660,30 +782,45 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  switch (mode ?? 'suite') {
-    case 'suite':
-      await runSuite(repoRoot, options);
-      return;
-    case 'accuracy':
-      await runAccuracy(repoRoot, options);
-      return;
-    case 'performance':
-      await runPerformance(repoRoot, options);
-      return;
-    case 'study':
-      await runStudy(repoRoot, options);
-      return;
-    case 'engines':
-      printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-      return;
-    case '--help':
-    case '-h':
-    case 'help':
-      printUsage();
-      return;
-    default:
-      printUsage();
-      throw new Error(`Unknown bench mode: ${mode}`);
+  const abortController = new AbortController();
+  const requestStop = (): void => {
+    if (abortController.signal.aborted) return;
+    abortController.abort(new Error('Interrupted by user request.'));
+  };
+  const onSigint = (): void => {
+    requestStop();
+  };
+  process.once('SIGINT', onSigint);
+  const control = { signal: abortController.signal, requestStop };
+
+  try {
+    switch (mode ?? 'suite') {
+      case 'suite':
+        await runSuite(repoRoot, options, control);
+        return;
+      case 'accuracy':
+        await runAccuracy(repoRoot, options, control);
+        return;
+      case 'performance':
+        await runPerformance(repoRoot, options, control);
+        return;
+      case 'study':
+        await runStudy(repoRoot, options, control);
+        return;
+      case 'engines':
+        printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
+        return;
+      case '--help':
+      case '-h':
+      case 'help':
+        printUsage();
+        return;
+      default:
+        printUsage();
+        throw new Error(`Unknown bench mode: ${mode}`);
+    }
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 };
 

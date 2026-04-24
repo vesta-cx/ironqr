@@ -69,7 +69,7 @@ export class BenchOpenTuiDashboard {
 
   constructor(
     private readonly dashboard: BenchDashboardModel,
-    private readonly onQuit: () => never = () => process.exit(130),
+    private readonly onQuit: () => void = () => {},
   ) {}
 
   start(): void {
@@ -256,9 +256,11 @@ export class BenchOpenTuiDashboard {
     process.once('SIGINT', this.sigintHandler);
   }
 
-  private quit(): never {
+  private quit(): void {
+    this.dashboard.stage = 'benchmark';
+    this.dashboard.message = 'stopping after requested interrupt';
     this.cleanup();
-    return this.onQuit();
+    this.onQuit();
   }
 
   private cleanup(): void {

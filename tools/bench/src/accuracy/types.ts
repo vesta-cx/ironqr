@@ -1,5 +1,6 @@
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import type { BenchCorpusAsset, CorpusAssetLabel } from '../core/corpus.js';
+import type { BenchReportStatus, PartialRunSummary } from '../core/reports.js';
 
 export type { CorpusAssetLabel } from '../core/corpus.js';
 export type CorpusBenchAsset = BenchCorpusAsset;
@@ -221,6 +222,8 @@ export interface AccuracyBenchmarkOptions {
   };
   readonly execution?: {
     readonly workers?: number;
+    readonly signal?: AbortSignal;
+    readonly requestStop?: () => void;
   };
   readonly selection?: {
     readonly assetIds?: readonly string[];
@@ -264,4 +267,6 @@ export interface AccuracyBenchmarkResult {
   readonly selection: AccuracyBenchmarkSelectionSummary;
   readonly options: AccuracyBenchmarkRunOptionsSummary;
   readonly cache: AccuracyBenchmarkCacheSummary;
+  readonly status: BenchReportStatus;
+  readonly partial?: PartialRunSummary;
 }
