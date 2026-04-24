@@ -1,6 +1,6 @@
 import { ironqrAccuracyEngine } from '../accuracy/adapters/ironqr.js';
 import { jsqrAccuracyEngine } from '../accuracy/adapters/jsqr.js';
-import { opencvAccuracyEngine } from '../accuracy/adapters/opencv.js';
+import { opencvAccuracyEngine, opencvMultiAccuracyEngine } from '../accuracy/adapters/opencv.js';
 import { quircAccuracyEngine } from '../accuracy/adapters/quirc.js';
 import { zbarAccuracyEngine } from '../accuracy/adapters/zbar.js';
 import { zxingAccuracyEngine } from '../accuracy/adapters/zxing.js';
@@ -15,6 +15,7 @@ const ACCURACY_ENGINES = [
   quircAccuracyEngine,
   zbarAccuracyEngine,
   opencvAccuracyEngine,
+  opencvMultiAccuracyEngine,
 ] as const satisfies readonly AccuracyEngine[];
 
 export const listAccuracyEngines = (): readonly AccuracyEngine[] => ACCURACY_ENGINES;

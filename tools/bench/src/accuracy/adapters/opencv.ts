@@ -24,6 +24,8 @@ interface OpenCvWorkerErrorResult {
   readonly error: string;
 }
 
+type OpenCvMode = 'single' | 'multi';
+
 type OpenCvWorkerResult =
   | OpenCvWorkerDecodedResult
   | OpenCvWorkerNoDecodeResult
@@ -34,26 +36,27 @@ const OPENCV_SCAN_TIMEOUT_MS = 45_000;
 const workerScript = fileURLToPath(new URL('./opencv-node-worker.cjs', import.meta.url));
 let availabilityError: string | null = null;
 
-const scanWithOpenCv = serializeAsync(
-  async (asset: Parameters<AccuracyEngine['scan']>[0]): Promise<AccuracyScanResult> => {
-    try {
-      const { stdout } = await execFileAsync('node', [workerScript, asset.imagePath], {
-        timeout: OPENCV_SCAN_TIMEOUT_MS,
-        maxBuffer: 1024 * 1024,
-      });
-      const result = parseWorkerResult(stdout);
-      if (result.status === 'error') {
-        availabilityError = result.error;
-        return failureResult(new Error(result.error));
+const createOpenCvScan = (mode: OpenCvMode) =>
+  serializeAsync(
+    async (asset: Parameters<AccuracyEngine['scan']>[0]): Promise<AccuracyScanResult> => {
+      try {
+        const { stdout } = await execFileAsync('node', [workerScript, asset.imagePath, mode], {
+          timeout: OPENCV_SCAN_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+        });
+        const result = parseWorkerResult(stdout);
+        if (result.status === 'error') {
+          availabilityError = result.error;
+          return failureResult(new Error(result.error));
+        }
+        if (result.status === 'no-decode') return successResult([], 'no_decode');
+        return successResult(result.texts.map((text) => ({ text })));
+      } catch (error) {
+        availabilityError = error instanceof Error ? error.message : String(error);
+        return failureResult(error);
       }
-      if (result.status === 'no-decode') return successResult([], 'no_decode');
-      return successResult(result.texts.map((text) => ({ text })));
-    } catch (error) {
-      availabilityError = error instanceof Error ? error.message : String(error);
-      return failureResult(error);
-    }
-  },
-);
+    },
+  );
 
 const parseWorkerResult = (stdout: string): OpenCvWorkerResult => {
   const line = stdout
@@ -73,6 +76,11 @@ const parseWorkerResult = (stdout: string): OpenCvWorkerResult => {
   return { status: 'error', error: `Invalid OpenCV worker output: ${line}` };
 };
 
+const availability = () =>
+  availabilityError === null
+    ? createAvailableAvailability()
+    : createUnavailableAvailability(availabilityError);
+
 export const opencvAccuracyEngine: AccuracyEngine = {
   id: 'opencv',
   kind: 'third-party',
@@ -82,11 +90,23 @@ export const opencvAccuracyEngine: AccuracyEngine = {
     rotation: 'native',
     runtime: 'wasm',
   },
-  cache: { enabled: true, version: 'adapter-v2' },
+  cache: { enabled: true, version: 'adapter-v2-single' },
   execution: { workerSafe: false },
-  availability: () =>
-    availabilityError === null
-      ? createAvailableAvailability()
-      : createUnavailableAvailability(availabilityError),
-  scan: scanWithOpenCv,
+  availability,
+  scan: createOpenCvScan('single'),
+};
+
+export const opencvMultiAccuracyEngine: AccuracyEngine = {
+  id: 'opencv-multi',
+  kind: 'third-party',
+  capabilities: {
+    multiCode: true,
+    inversion: 'none',
+    rotation: 'native',
+    runtime: 'wasm',
+  },
+  cache: { enabled: true, version: 'adapter-v1-multi' },
+  execution: { workerSafe: false },
+  availability,
+  scan: createOpenCvScan('multi'),
 };

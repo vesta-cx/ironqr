@@ -3,6 +3,7 @@ const cv = require('@techstark/opencv-js');
 const sharp = require('sharp');
 
 const INIT_TIMEOUT_MS = 30_000;
+const MODES = new Set(['single', 'multi']);
 
 const normalizeDecodedText = (value) => {
   let end = value.length;
@@ -39,10 +40,11 @@ const waitForOpenCv = async () => {
   });
 };
 
-const scan = async (imagePath) => {
+const scan = async (imagePath, mode) => {
   let source = null;
   let grayscale = null;
   let detector = null;
+  let decodedInfo = null;
   try {
     await waitForOpenCv();
     const { data, info } = await sharp(imagePath)
@@ -58,19 +60,40 @@ const scan = async (imagePath) => {
     grayscale = new cv.Mat();
     cv.cvtColor(source, grayscale, cv.COLOR_RGBA2GRAY);
     detector = new cv.QRCodeDetector();
+
+    if (mode === 'multi') {
+      decodedInfo = new cv.StringVector();
+      const decoded = detector.detectAndDecodeMulti(grayscale, decodedInfo) === true;
+      const texts = decoded ? textsFromVector(decodedInfo) : [];
+      return texts.length > 0 ? { status: 'decoded', texts } : { status: 'no-decode' };
+    }
+
     const text = normalizeDecodedText(String(detector.detectAndDecode(grayscale) ?? ''));
     return text.length > 0 ? { status: 'decoded', texts: [text] } : { status: 'no-decode' };
   } finally {
+    decodedInfo?.delete();
     detector?.delete();
     grayscale?.delete();
     source?.delete();
   }
 };
 
+const textsFromVector = (decodedInfo) => {
+  const texts = [];
+  for (let index = 0; index < decodedInfo.size(); index += 1) {
+    const text = normalizeDecodedText(String(decodedInfo.get(index) ?? ''));
+    if (text.length > 0) texts.push(text);
+  }
+  return [...new Set(texts)];
+};
+
 const main = async () => {
   const imagePath = process.argv[2];
-  if (!imagePath) throw new Error('Usage: opencv-node-worker.cjs <image-path>');
-  const result = await scan(imagePath);
+  const mode = process.argv[3] ?? 'single';
+  if (!imagePath || !MODES.has(mode)) {
+    throw new Error('Usage: opencv-node-worker.cjs <image-path> <single|multi>');
+  }
+  const result = await scan(imagePath, mode);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 };
 
