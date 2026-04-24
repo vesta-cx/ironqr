@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openAccuracyCacheStore } from '../../src/accuracy/cache.js';
@@ -177,6 +177,28 @@ describe('accuracy cache', () => {
 
     const enabledStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
     expect(enabledStore.read(cacheableEngine, asset)?.scan.results).toEqual([{ text: 'HELLO' }]);
+  });
+
+  it('opens malformed cache files as empty cache snapshots', async () => {
+    const file = await makeTempFile();
+    await writeFile(file, '{not-json', 'utf8');
+
+    const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
+    expect(store.read(cacheableEngine, asset)).toBeNull();
+    expect(store.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
+  });
+
+  it('opens structurally invalid cache files as empty cache snapshots', async () => {
+    const file = await makeTempFile();
+    await writeFile(
+      file,
+      JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), entries: [] }),
+      'utf8',
+    );
+
+    const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
+    expect(store.read(cacheableEngine, asset)).toBeNull();
+    expect(store.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
 
   it('evicts a cached engine result', async () => {

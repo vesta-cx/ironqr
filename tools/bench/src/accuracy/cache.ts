@@ -55,10 +55,14 @@ const emptyCacheFile = (): CachedScanFile => ({
   entries: {},
 });
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
 const isValidCacheFile = (value: unknown): value is CachedScanFile => {
-  if (!value || typeof value !== 'object') return false;
+  if (!isRecord(value)) return false;
   const candidate = value as Partial<CachedScanFile>;
-  return candidate.version === CACHE_FILE_VERSION && !!candidate.entries;
+  return candidate.version === CACHE_FILE_VERSION && isRecord(candidate.entries);
 };
 
 export const getDefaultAccuracyCachePath = (repoRoot: string): string => {
@@ -105,7 +109,11 @@ export const openAccuracyCacheStore = async (
       snapshot = parsed;
     }
   } catch (error) {
-    if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      // Cache file does not exist yet.
+    } else if (error instanceof SyntaxError) {
+      snapshot = emptyCacheFile();
+    } else {
       throw error;
     }
   }

@@ -14,6 +14,7 @@ import {
 } from './index.js';
 
 interface CliOptions {
+  readonly help: boolean;
   readonly engines: readonly string[];
   readonly failuresOnly: boolean;
   readonly listEngines: boolean;
@@ -33,6 +34,7 @@ export const parseArgs = (
 ): { readonly mode: string | undefined; readonly options: CliOptions } => {
   const [mode, ...rest] = argv;
   const engines: string[] = [];
+  let help = false;
   let failuresOnly = false;
   let listEngines = false;
   let reportFile: string | undefined;
@@ -42,12 +44,16 @@ export const parseArgs = (
   let refreshCache = false;
   let progressEnabled = true;
   let verbose = false;
-  let ironqrTraceMode: 'off' | 'summary' | 'full' = 'summary';
+  let ironqrTraceMode: 'off' | 'summary' | 'full' = 'off';
   let workers: number | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (!arg) continue;
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+      continue;
+    }
     if (arg === '--failures-only') {
       failuresOnly = true;
       continue;
@@ -154,6 +160,7 @@ export const parseArgs = (
   return {
     mode,
     options: {
+      help,
       engines,
       failuresOnly,
       listEngines,
@@ -214,10 +221,14 @@ const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void>
     execution: {
       ...(options.workers === undefined ? {} : { workers: options.workers }),
     },
-    observability: {
-      verbose: options.verbose,
-      ironqrTraceMode: options.ironqrTraceMode,
-    },
+    ...(options.verbose || options.ironqrTraceMode !== 'off'
+      ? {
+          observability: {
+            verbose: options.verbose,
+            ironqrTraceMode: options.ironqrTraceMode,
+          },
+        }
+      : {}),
   });
   printAccuracySummary(result, { failuresOnly: options.failuresOnly, verbose: options.verbose });
   if (options.progressEnabled) {
@@ -234,6 +245,10 @@ const runPerformance = async (): Promise<void> => {
 const main = async (): Promise<void> => {
   const repoRoot = resolveRepoRootFromModuleUrl(import.meta.url);
   const { mode, options } = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printUsage();
+    return;
+  }
   if (!mode) {
     printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
     return;

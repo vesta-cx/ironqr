@@ -19,4 +19,15 @@ describe('bench cli args', () => {
     expect(options.cacheEnabled).toBe(false);
     expect(options.ironqrCacheEnabled).toBe(true);
   });
+
+  it('keeps ironqr trace disabled by default', () => {
+    const { options } = parseArgs(['accuracy']);
+    expect(options.ironqrTraceMode).toBe('off');
+  });
+
+  it('accepts help after a mode', () => {
+    const { mode, options } = parseArgs(['accuracy', '--help']);
+    expect(mode).toBe('accuracy');
+    expect(options.help).toBe(true);
+  });
 });
