@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveRepoRootFromModuleUrl } from '../../corpus-cli/src/repo-root.js';
 import {
@@ -300,16 +301,36 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
   const performanceReportFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
   await runAccuracy(repoRoot, { ...options, reportFile: accuracyReportFile });
   await runPerformance(repoRoot, { ...options, reportFile: performanceReportFile });
-  const pass: BenchmarkVerdict = {
-    status: 'unavailable',
-    description: 'Suite verdict aggregation will compare accuracy and performance summaries in a follow-up slice.',
-  };
+  const [accuracyReport, performanceReport] = await Promise.all([
+    readReport(accuracyReportFile),
+    readReport(performanceReportFile),
+  ]);
+  const accuracyPass = readVerdict(accuracyReport, 'pass');
+  const accuracyRegression = readVerdict(accuracyReport, 'regression');
+  const performancePass = readVerdict(performanceReport, 'pass');
+  const performanceRegression = readVerdict(performanceReport, 'regression');
+  const pass: BenchmarkVerdict =
+    accuracyPass.status === 'failed' || performancePass.status === 'failed'
+      ? {
+          status: 'failed',
+          description: 'Accuracy or performance benchmark reported a failed pass verdict.',
+        }
+      : { status: 'passed', description: 'Accuracy and performance pass verdicts did not fail.' };
+  const regression: BenchmarkVerdict =
+    accuracyRegression.status === 'failed' || performanceRegression.status === 'failed'
+      ? {
+          status: 'failed',
+          description: 'Accuracy or performance benchmark reported a regression.',
+        }
+      : accuracyRegression.status === 'unavailable' || performanceRegression.status === 'unavailable'
+        ? { status: 'unavailable', description: 'At least one component regression verdict is unavailable.' }
+        : { status: 'passed', description: 'No component benchmark reported a regression.' };
   const summary = {
     kind: 'suite-report',
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     status: 'passed',
-    verdicts: { pass, regression: pass },
+    verdicts: { pass, regression },
     benchmark: {
       name: 'Bench Full Suite',
       description:
@@ -330,10 +351,10 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
     options: {},
     summary: {
       verdicts: {
-        accuracyPass: pass,
-        accuracyRegression: pass,
-        performancePass: pass,
-        performanceRegression: pass,
+        accuracyPass,
+        accuracyRegression,
+        performancePass,
+        performanceRegression,
       },
       highlights: {
         ironqrAccuracyRank: null,
@@ -349,6 +370,20 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
   const summaryFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'summary.json');
   await writeReportWithSnapshot(summaryFile, summary);
   console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
+};
+
+const readReport = async (filePath: string): Promise<Record<string, unknown>> => {
+  return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+};
+
+const readVerdict = (report: Record<string, unknown>, key: 'pass' | 'regression'): BenchmarkVerdict => {
+  const verdicts = report.verdicts as { readonly [K in typeof key]?: BenchmarkVerdict } | undefined;
+  return (
+    verdicts?.[key] ?? {
+      status: 'unavailable',
+      description: `Missing ${key} verdict in component report.`,
+    }
+  );
 };
 
 const main = async (): Promise<void> => {
