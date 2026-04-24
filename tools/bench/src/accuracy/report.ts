@@ -1,4 +1,13 @@
-import { writeFile } from 'node:fs/promises';
+import {
+  buildReportCorpus,
+  type BenchmarkVerdict,
+  failedVerdict,
+  passedVerdict,
+  readRepoMetadata,
+  REPORT_SCHEMA_VERSION,
+  unavailableVerdict,
+  writeJsonReport,
+} from '../core/reports.js';
 import { collapseHome } from '../shared/paths.js';
 import { statusCodeForResult } from './scoring.js';
 import type {
@@ -226,5 +235,104 @@ export const printAccuracySummary = (
 };
 
 export const writeAccuracyReport = async (result: AccuracyBenchmarkResult): Promise<void> => {
-  await writeFile(result.reportFile, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  await writeJsonReport(result.reportFile, await buildAccuracyReport(result));
+};
+
+export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
+  const ironqr = result.summaries.find((summary) => summary.engineId === 'ironqr');
+  if (!ironqr) throw new Error('Missing ironqr accuracy summary');
+  const baselines = result.summaries.filter((summary) => summary.engineId !== 'ironqr');
+  const gaps = findAccuracyGaps(result);
+  const pass = buildAccuracyPassVerdict(result, gaps);
+  const regression = unavailableVerdict('No previous summary comparison implemented yet.');
+  return {
+    kind: 'accuracy-report' as const,
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    status: pass.status === 'failed' ? 'failed' : 'passed',
+    verdicts: { pass, regression },
+    benchmark: {
+      name: 'Accuracy Benchmark',
+      description:
+        'Compares ironqr correctness against every target baseline engine on the selected corpus. Start with summary.ironqr, then inspect summary.gaps for baseline passes that ironqr missed and ironqr wins that baselines missed.',
+    },
+    command: { name: 'accuracy' as const, argv: process.argv.slice(2) },
+    repo: await readRepoMetadata(result.repoRoot),
+    corpus: await buildReportCorpus({
+      repoRoot: result.repoRoot,
+      assets: result.assets,
+    }),
+    selection: { seed: null, filters: {} },
+    engines: result.engines.map((engine) => ({
+      id: engine.id,
+      adapterVersion: '1',
+      runtimeVersion: engine.capabilities.runtime,
+    })),
+    options: {},
+    summary: {
+      ironqr,
+      baselines,
+      gaps: {
+        ironqrMissedBaselineHitCount: gaps.ironqrMissedBaselineHit.length,
+        ironqrHitBaselineMissedCount: gaps.ironqrHitBaselineMissed.length,
+        topIronqrMissedBaselineHits: gaps.ironqrMissedBaselineHit.slice(0, 20),
+        topIronqrHitBaselineMisses: gaps.ironqrHitBaselineMissed.slice(0, 20),
+      },
+      pass,
+      regression,
+      cache: result.cache,
+    },
+    details: {
+      engines: result.engines,
+      assets: result.assets,
+      gaps,
+    },
+  };
+};
+
+const buildAccuracyPassVerdict = (
+  result: AccuracyBenchmarkResult,
+  gaps: ReturnType<typeof findAccuracyGaps>,
+): BenchmarkVerdict => {
+  const ironqr = result.summaries.find((summary) => summary.engineId === 'ironqr');
+  if (!ironqr) return failedVerdict('ironqr did not produce a summary.');
+  if (ironqr.falsePositives > 0) {
+    return failedVerdict(`ironqr produced ${ironqr.falsePositives} false positive(s).`);
+  }
+  if (gaps.ironqrMissedBaselineHit.length > 0) {
+    return failedVerdict(
+      `ironqr missed ${gaps.ironqrMissedBaselineHit.length} asset/engine pass(es) achieved by baselines.`,
+    );
+  }
+  return passedVerdict('ironqr includes all baseline passes and has zero false positives.');
+};
+
+const findAccuracyGaps = (result: AccuracyBenchmarkResult) => {
+  const ironqrMissedBaselineHit: Array<Record<string, unknown>> = [];
+  const ironqrHitBaselineMissed: Array<Record<string, unknown>> = [];
+  for (const asset of result.assets) {
+    const ironqr = asset.results.find((entry) => entry.engineId === 'ironqr');
+    if (!ironqr) continue;
+    const ironqrPassed = ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass';
+    for (const baseline of asset.results.filter((entry) => entry.engineId !== 'ironqr')) {
+      const baselinePassed = baseline.outcome === 'pass' || baseline.outcome === 'partial-pass';
+      if (baselinePassed && !ironqrPassed) {
+        ironqrMissedBaselineHit.push({
+          assetId: asset.assetId,
+          baselineEngineId: baseline.engineId,
+          ironqrOutcome: ironqr.outcome,
+          baselineOutcome: baseline.outcome,
+        });
+      }
+      if (ironqrPassed && !baselinePassed) {
+        ironqrHitBaselineMissed.push({
+          assetId: asset.assetId,
+          baselineEngineId: baseline.engineId,
+          ironqrOutcome: ironqr.outcome,
+          baselineOutcome: baseline.outcome,
+        });
+      }
+    }
+  }
+  return { ironqrMissedBaselineHit, ironqrHitBaselineMissed };
 };

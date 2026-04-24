@@ -234,6 +234,7 @@ export interface AccuracyBenchmarkOptions {
 }
 
 export interface AccuracyBenchmarkResult {
+  readonly repoRoot: string;
   readonly reportFile: string;
   readonly corpusAssetCount: number;
   readonly positiveCount: number;

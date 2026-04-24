@@ -39,18 +39,16 @@ const result = (
 });
 
 describe('bench dashboard progress renderer', () => {
-  it('renders dashboard widgets instead of the legacy engines/recent UI', async () => {
+  it('does not fall back to legacy plain progress logs', async () => {
     let output = '';
     const stderr = {
-      isTTY: true,
-      columns: 120,
-      rows: 40,
+      isTTY: false,
       write: (chunk: string) => {
         output += chunk;
         return true;
       },
     } as unknown as NodeJS.WriteStream;
-    const reporter = createAccuracyProgressReporter({ enabled: true, mode: 'dashboard', stderr });
+    const reporter = createAccuracyProgressReporter({ enabled: true, stderr });
     reporter.onManifestStarted();
     reporter.onManifestLoaded(2, ['ironqr'], true, { positiveCount: 1, negativeCount: 1 });
     reporter.onBenchmarkStarted(2, ['ironqr'], 1);
@@ -68,14 +66,8 @@ describe('bench dashboard progress renderer', () => {
     });
     await Promise.resolve();
 
-    expect(output).toContain('avg fresh ms / asset');
-    expect(output).toContain('scorecard');
-    expect(output).toContain('active workers');
-    expect(output).toContain('recent scans');
-    expect(output).not.toContain('\nengines:\n');
-    expect(output).not.toContain('\nrecent:\n');
+    expect(output).toBe('');
     reporter.stop();
-    expect(output).toContain('stage=done');
   });
 });
 

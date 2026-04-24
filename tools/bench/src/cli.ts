@@ -6,10 +6,14 @@ import {
   inspectAccuracyEngines,
   printAccuracyHome,
   printAccuracySummary,
-  printPerformancePlaceholder,
+  printPerformanceSummary,
   resolveAccuracyEngines,
   runAccuracyBenchmark,
+  runPerformanceBenchmark,
   writeAccuracyReport,
+  writeJsonReport,
+  writePerformanceReport,
+  type BenchmarkVerdict,
 } from './index.js';
 
 const parsePositiveInteger = (value: string, flag: string): number => {
@@ -21,37 +25,31 @@ const parsePositiveInteger = (value: string, flag: string): number => {
 
 interface CliOptions {
   readonly help: boolean;
-  readonly engines: readonly string[];
   readonly failuresOnly: boolean;
-  readonly listEngines: boolean;
   readonly reportFile?: string;
   readonly cacheFile?: string;
   readonly cacheEnabled: boolean;
-  readonly ironqrCacheEnabled: boolean;
   readonly refreshCache: boolean;
+  readonly refreshCacheEngineId?: string;
   readonly progressEnabled: boolean;
-  readonly verbose: boolean;
-  readonly ironqrTraceMode: 'off' | 'summary' | 'full';
   readonly workers?: number;
+  readonly iterations?: number;
 }
 
 export const parseArgs = (
   argv: readonly string[],
 ): { readonly mode: string | undefined; readonly options: CliOptions } => {
   const [mode, ...rest] = argv;
-  const engines: string[] = [];
   let help = false;
   let failuresOnly = false;
-  let listEngines = false;
   let reportFile: string | undefined;
   let cacheFile: string | undefined;
   let cacheEnabled = true;
-  let ironqrCacheEnabled = true;
   let refreshCache = false;
+  let refreshCacheEngineId: string | undefined;
   let progressEnabled = true;
-  let verbose = false;
-  let ironqrTraceMode: 'off' | 'summary' | 'full' = 'off';
   let workers: number | undefined;
+  let iterations: number | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -64,20 +62,22 @@ export const parseArgs = (
       failuresOnly = true;
       continue;
     }
-    if (arg === '--list-engines') {
-      listEngines = true;
-      continue;
-    }
     if (arg === '--no-cache') {
       cacheEnabled = false;
       continue;
     }
-    if (arg === '--no-ironqr-cache') {
-      ironqrCacheEnabled = false;
-      continue;
-    }
     if (arg === '--refresh-cache') {
       refreshCache = true;
+      const next = rest[index + 1];
+      if (next && !next.startsWith('-')) {
+        refreshCacheEngineId = next;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg.startsWith('--refresh-cache=')) {
+      refreshCache = true;
+      refreshCacheEngineId = arg.slice('--refresh-cache='.length);
       continue;
     }
     if (arg === '--no-progress' || arg === '--quiet') {
@@ -87,27 +87,11 @@ export const parseArgs = (
     if (arg === '--progress' || arg.startsWith('--progress=')) {
       throw new Error('Use --no-progress to disable OpenTUI progress');
     }
-    if (arg === '--verbose') {
-      verbose = true;
-      continue;
+    if (arg === '--engine' || arg.startsWith('--engine=')) {
+      throw new Error('Benchmarks always run the full target engine set; --engine is not supported');
     }
-    if (arg === '--ironqr-trace') {
-      const next = rest[index + 1];
-      if (!next) throw new Error('--ironqr-trace requires a value');
-      if (next !== 'off' && next !== 'summary' && next !== 'full') {
-        throw new Error(`--ironqr-trace must be one of off|summary|full, got: ${next}`);
-      }
-      ironqrTraceMode = next;
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith('--ironqr-trace=')) {
-      const value = arg.slice('--ironqr-trace='.length);
-      if (value !== 'off' && value !== 'summary' && value !== 'full') {
-        throw new Error(`--ironqr-trace must be one of off|summary|full, got: ${value}`);
-      }
-      ironqrTraceMode = value;
-      continue;
+    if (arg === '--ironqr-trace' || arg.startsWith('--ironqr-trace=')) {
+      throw new Error('Focused accuracy does not support full trace collection; use bench performance');
     }
     if (arg === '--workers') {
       const next = rest[index + 1];
@@ -120,15 +104,15 @@ export const parseArgs = (
       workers = parsePositiveInteger(arg.slice('--workers='.length), '--workers');
       continue;
     }
-    if (arg === '--engine') {
+    if (arg === '--iterations') {
       const next = rest[index + 1];
-      if (!next) throw new Error('--engine requires a value');
-      engines.push(next);
+      if (!next) throw new Error('--iterations requires a value');
+      iterations = parsePositiveInteger(next, '--iterations');
       index += 1;
       continue;
     }
-    if (arg.startsWith('--engine=')) {
-      engines.push(arg.slice('--engine='.length));
+    if (arg.startsWith('--iterations=')) {
+      iterations = parsePositiveInteger(arg.slice('--iterations='.length), '--iterations');
       continue;
     }
     if (arg === '--report-file') {
@@ -160,16 +144,13 @@ export const parseArgs = (
     mode,
     options: {
       help,
-      engines,
       failuresOnly,
-      listEngines,
       cacheEnabled,
-      ironqrCacheEnabled,
       refreshCache,
       progressEnabled,
-      verbose,
-      ironqrTraceMode,
+      ...(refreshCacheEngineId === undefined ? {} : { refreshCacheEngineId }),
       ...(workers === undefined ? {} : { workers }),
+      ...(iterations === undefined ? {} : { iterations }),
       ...(reportFile === undefined ? {} : { reportFile }),
       ...(cacheFile === undefined ? {} : { cacheFile }),
     },
@@ -178,67 +159,115 @@ export const parseArgs = (
 
 const printUsage = (): void => {
   console.log('bin: bun run bench');
-  console.log('description: Benchmark QR decoders against the approved corpus manifest');
+  console.log('description: Full benchmark suite for ironqr accuracy and performance');
   console.log('commands:');
+  console.log('  "bun run bench"');
   console.log('  "bun run bench accuracy"');
-  console.log('  "bun run bench accuracy --list-engines"');
-  console.log('  "bun run bench accuracy --engine ironqr --engine zxing-cpp"');
-  console.log('  "bun run bench accuracy --refresh-cache"');
-  console.log('  "bun run bench accuracy --no-cache"');
-  console.log('  "bun run bench accuracy --no-ironqr-cache"');
-  console.log('  "bun run bench accuracy --no-progress"');
-  console.log('  "bun run bench accuracy --workers 8"');
-  console.log('  "bun run bench accuracy --verbose"');
-  console.log('  "bun run bench accuracy --ironqr-trace off|summary|full"');
   console.log('  "bun run bench performance"');
+  console.log('  "bun run bench engines"');
+  console.log('  "bun run bench accuracy --refresh-cache"');
+  console.log('  "bun run bench performance --iterations 8"');
+  console.log('  "bun run bench --no-progress"');
 };
 
 const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void> => {
-  if (options.listEngines) {
-    printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-    return;
-  }
-
   const reportFile = options.reportFile
     ? path.resolve(repoRoot, options.reportFile)
     : getDefaultAccuracyReportPath(repoRoot);
   const cacheFile = options.cacheFile
     ? path.resolve(repoRoot, options.cacheFile)
     : getDefaultAccuracyCachePath(repoRoot);
-  const engines = resolveAccuracyEngines(options.engines);
+  const engines = resolveAccuracyEngines();
   const result = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
     cache: {
       enabled: options.cacheEnabled,
       refresh: options.refreshCache,
       file: cacheFile,
-      disabledEngineIds: options.ironqrCacheEnabled ? [] : ['ironqr'],
+      disabledEngineIds: [],
     },
-    progress: {
-      enabled: options.progressEnabled,
-    },
-    execution: {
-      ...(options.workers === undefined ? {} : { workers: options.workers }),
-    },
-    ...(options.verbose || options.ironqrTraceMode !== 'off'
-      ? {
-          observability: {
-            verbose: options.verbose,
-            ironqrTraceMode: options.ironqrTraceMode,
-          },
-        }
-      : {}),
+    progress: { enabled: options.progressEnabled },
+    execution: options.workers === undefined ? {} : { workers: options.workers },
   });
-  printAccuracySummary(result, { failuresOnly: options.failuresOnly, verbose: options.verbose });
-  if (options.progressEnabled) {
-    console.error(`[bench] stage report: writing ${result.reportFile}`);
-  }
+  printAccuracySummary(result, { failuresOnly: options.failuresOnly });
   await writeAccuracyReport(result);
 };
 
-const runPerformance = (): void => {
-  printPerformancePlaceholder(process.argv[1] ?? 'bun run bench', {
-    message: 'performance benchmark is not implemented yet; use `bench accuracy` for now',
+const runPerformance = async (repoRoot: string, options: CliOptions): Promise<void> => {
+  const reportFile = options.reportFile
+    ? path.resolve(repoRoot, options.reportFile)
+    : path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
+  const cacheFile = options.cacheFile
+    ? path.resolve(repoRoot, options.cacheFile)
+    : getDefaultAccuracyCachePath(repoRoot);
+  const result = await runPerformanceBenchmark(repoRoot, reportFile, {
+    ...(options.iterations === undefined ? {} : { iterations: options.iterations }),
+    ...(options.workers === undefined ? {} : { workers: options.workers }),
+    cache: {
+      enabled: options.cacheEnabled,
+      refresh: options.refreshCache,
+      file: cacheFile,
+      ...(options.refreshCacheEngineId ? { refreshEngineId: options.refreshCacheEngineId } : {}),
+    },
+    progress: { enabled: options.progressEnabled },
   });
+  printPerformanceSummary(result);
+  await writePerformanceReport(result);
+};
+
+const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> => {
+  const accuracyReportFile = getDefaultAccuracyReportPath(repoRoot);
+  const performanceReportFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
+  await runAccuracy(repoRoot, { ...options, reportFile: accuracyReportFile });
+  await runPerformance(repoRoot, { ...options, reportFile: performanceReportFile });
+  const pass: BenchmarkVerdict = {
+    status: 'unavailable',
+    description: 'Suite verdict aggregation will compare accuracy and performance summaries in a follow-up slice.',
+  };
+  const summary = {
+    kind: 'suite-report',
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    status: 'passed',
+    verdicts: { pass, regression: pass },
+    benchmark: {
+      name: 'Bench Full Suite',
+      description:
+        'Runs the standard ironqr benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. Start with summary.verdicts, then inspect linked reports.',
+    },
+    command: { name: 'suite', argv: process.argv.slice(2) },
+    repo: { root: repoRoot, commit: null, dirty: null },
+    corpus: {
+      manifestPath: path.join(repoRoot, 'corpus', 'data', 'manifest.json'),
+      assetCount: 0,
+      positiveCount: 0,
+      negativeCount: 0,
+      manifestHash: '',
+      assetIds: [],
+    },
+    selection: { seed: null, filters: {} },
+    engines: [],
+    options: {},
+    summary: {
+      verdicts: {
+        accuracyPass: pass,
+        accuracyRegression: pass,
+        performancePass: pass,
+        performanceRegression: pass,
+      },
+      highlights: {
+        ironqrAccuracyRank: null,
+        ironqrSpeedRank: null,
+        ironqrPassRate: 0,
+        ironqrP95DurationMs: 0,
+        biggestAccuracyGaps: [],
+        slowestIronqrAssets: [],
+      },
+    },
+    details: { accuracyReportFile, performanceReportFile },
+  };
+  const summaryFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'summary.json');
+  await writeJsonReport(summaryFile, summary);
+  console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
 };
 
 const main = async (): Promise<void> => {
@@ -248,17 +277,16 @@ const main = async (): Promise<void> => {
     printUsage();
     return;
   }
-  if (!mode) {
-    printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-    return;
-  }
 
-  switch (mode) {
+  switch (mode ?? 'suite') {
+    case 'suite':
+      await runSuite(repoRoot, options);
+      return;
     case 'accuracy':
       await runAccuracy(repoRoot, options);
       return;
     case 'performance':
-      runPerformance();
+      await runPerformance(repoRoot, options);
       return;
     case 'engines':
       printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());

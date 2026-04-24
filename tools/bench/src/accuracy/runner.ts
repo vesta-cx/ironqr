@@ -125,32 +125,17 @@ export const inspectAccuracyEngines = (): readonly AccuracyEngineDescriptor[] =>
   return listAccuracyEngines().map(describeAccuracyEngine);
 };
 
-export const resolveAccuracyEngines = (
-  engineIds: readonly string[] = [],
-): readonly AccuracyEngine[] => {
+export const resolveAccuracyEngines = (): readonly AccuracyEngine[] => {
   const engines = listAccuracyEngines();
-  if (engineIds.length === 0) {
-    return engines.filter((engine) => engine.availability().available);
-  }
-
-  const requested = new Set(engineIds);
-  const selected = engines.filter((engine) => requested.has(engine.id));
-  if (selected.length !== requested.size) {
-    const found = new Set(selected.map((engine) => engine.id));
-    const missing = engineIds.filter((engineId) => !found.has(engineId));
-    throw new Error(`Unknown accuracy engine(s): ${missing.join(', ')}`);
-  }
-
-  const unavailable = selected.filter((engine) => !engine.availability().available);
+  const unavailable = engines.filter((engine) => !engine.availability().available);
   if (unavailable.length > 0) {
     throw new Error(
-      `Unavailable accuracy engine(s): ${unavailable
+      `Unavailable benchmark engine(s): ${unavailable
         .map((engine) => `${engine.id}: ${engine.availability().reason ?? 'unavailable'}`)
         .join('; ')}`,
     );
   }
-
-  return selected;
+  return engines;
 };
 
 const summarizeEngine = (
@@ -439,6 +424,7 @@ export const runAccuracyBenchmark = async (
     );
 
     result = {
+      repoRoot,
       reportFile,
       corpusAssetCount: assets.length,
       positiveCount,
