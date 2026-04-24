@@ -215,7 +215,7 @@ const printUsage = (): void => {
   console.log('  "bun run bench accuracy --refresh-cache"');
   console.log('  "bun run bench accuracy --no-cache"');
   console.log('  "bun run bench accuracy --no-ironqr-cache"');
-  console.log('  "bun run bench accuracy --progress auto|plain|dashboard|tui|off"');
+  console.log('  "bun run bench accuracy --progress auto|tui|dashboard|plain|off"');
   console.log('  "bun run bench accuracy --no-progress"');
   console.log('  "bun run bench accuracy --workers 8"');
   console.log('  "bun run bench accuracy --verbose"');
