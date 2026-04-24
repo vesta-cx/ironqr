@@ -240,6 +240,30 @@ describe('accuracy cache', () => {
     expect(store.summary()).toMatchObject({ hits: 0, misses: 1, writes: 0 });
   });
 
+  it('evicts a queued write using the latest serialized cache snapshot', async () => {
+    const file = await makeTempFile();
+    const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
+
+    await Promise.all([
+      store.write(
+        cacheableEngine,
+        asset,
+        {
+          status: 'decoded',
+          attempted: true,
+          succeeded: true,
+          results: [{ text: 'HELLO' }],
+          failureReason: null,
+          error: null,
+        },
+        42.75,
+      ),
+      store.evict(cacheableEngine, asset),
+    ]);
+
+    expect(store.read(cacheableEngine, asset)).toBeNull();
+  });
+
   it('evicts a cached engine result', async () => {
     const file = await makeTempFile();
     const store = await openAccuracyCacheStore(file, { enabled: true, refresh: false });

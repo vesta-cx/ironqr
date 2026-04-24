@@ -23,6 +23,7 @@ const CHART_PANEL_ROWS = 15;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
 const PANEL_TITLE_ROWS = 1;
+const PANEL_BODY_BOTTOM_GUTTER_ROWS = 1;
 const LEFT_COLUMN_RATIO = 0.42;
 const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
@@ -30,7 +31,7 @@ const RECENT_LAYOUT_RESERVED_ROWS = 24;
 const PROGRESS_BAR_WIDTH = 24;
 
 const panelBodyRows = (panelRows: number): number =>
-  Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS);
+  Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS - PANEL_BODY_BOTTOM_GUTTER_ROWS);
 
 const THEME = {
   background: '#07111f',
@@ -166,6 +167,7 @@ export class BenchOpenTuiDashboard {
         title: 'Active workers',
         accent: THEME.blue,
         flexGrow: 1,
+        marginBottom: 1,
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
@@ -271,8 +273,17 @@ export class BenchOpenTuiDashboard {
     const contentWidth = Math.max(36, width - ROOT_HORIZONTAL_PADDING);
     const leftWidth = Math.max(34, Math.floor(contentWidth * LEFT_COLUMN_RATIO) - 4);
     const recentWidth = Math.max(40, contentWidth - leftWidth - 8);
-    const tableRows = Math.max(4, Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2));
-    const recentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
+    const fallbackTableRows = Math.max(4, Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2));
+    const fallbackRecentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
+    const tableRows = Math.min(
+      fallbackTableRows,
+      measuredPanelDataRows(panels.active.box.height, fallbackTableRows),
+      measuredPanelDataRows(panels.slowest.box.height, fallbackTableRows),
+    );
+    const recentRows = Math.min(
+      fallbackRecentRows,
+      measuredPanelDataRows(panels.recent.box.height, fallbackRecentRows),
+    );
 
     panels.header.content = headerText(this.dashboard);
     panels.chart.body.content = panelBody(
@@ -316,6 +327,7 @@ const createPanel = (
     readonly accent: string;
     readonly height?: number;
     readonly flexGrow?: number;
+    readonly marginBottom?: number;
   },
 ): OpenTuiPanel => {
   const boxOptions = {
@@ -334,6 +346,7 @@ const createPanel = (
     ...boxOptions,
     ...(options.height === undefined ? {} : { height: options.height }),
     ...(options.flexGrow === undefined ? {} : { flexGrow: options.flexGrow }),
+    ...(options.marginBottom === undefined ? {} : { marginBottom: options.marginBottom }),
   });
   const title = new TextRenderable(renderer, {
     id: `bench-dashboard-${options.id}-title`,
@@ -355,10 +368,18 @@ const createPanel = (
     width: '100%',
     flexGrow: 1,
     flexShrink: 1,
+    wrapMode: 'none',
+    truncate: true,
   });
   box.add(title);
   box.add(body);
   return { box, body };
+};
+
+const panelDataRows = (panelRows: number): number => Math.max(0, panelBodyRows(panelRows) - 1);
+
+const measuredPanelDataRows = (panelRows: number, fallback: number): number => {
+  return panelRows > 0 ? panelDataRows(panelRows) : fallback;
 };
 
 const panelBody = (lines: readonly string[], maxRows: number): string => {

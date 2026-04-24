@@ -59,6 +59,7 @@ export const cloneRgbaBuffer = (data: Uint8ClampedArray): Uint8ClampedArray<Arra
 
 const readImage = async (imagePath: string): Promise<BenchImageData> => {
   const { data, info } = await sharp(imagePath)
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
