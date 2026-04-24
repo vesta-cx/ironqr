@@ -3,7 +3,9 @@ import { createAvailableAvailability, failureResult } from './shared.js';
 
 const scanWithOpenCv = async (): Promise<AccuracyScanResult> => {
   return failureResult(
-    new Error('OpenCV QR detector adapter is wired but the runtime integration is not implemented yet.'),
+    new Error(
+      'OpenCV QR detector adapter is wired but the runtime integration is not implemented yet.',
+    ),
   );
 };
 

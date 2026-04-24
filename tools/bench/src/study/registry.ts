@@ -17,7 +17,8 @@ export class StudyPluginRegistry {
 
   register(plugin: StudyPlugin): void {
     if (!plugin.id.trim()) throw new Error('Study plugin id must not be empty');
-    if (!plugin.version.trim()) throw new Error(`Study plugin ${plugin.id} version must not be empty`);
+    if (!plugin.version.trim())
+      throw new Error(`Study plugin ${plugin.id} version must not be empty`);
     const existing = this.#plugins.get(plugin.id);
     if (existing) throw new Error(`Duplicate study plugin id: ${plugin.id}`);
     this.#plugins.set(plugin.id, plugin);

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { CorpusAssetLabel } from '../accuracy/types.js';
 

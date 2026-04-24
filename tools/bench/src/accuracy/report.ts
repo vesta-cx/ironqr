@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import {
-  buildReportCorpus,
   type BenchmarkVerdict,
+  buildReportCorpus,
   failedVerdict,
   passedVerdict,
-  readRepoMetadata,
   REPORT_SCHEMA_VERSION,
+  readRepoMetadata,
   unavailableVerdict,
   writeReportWithSnapshot,
 } from '../core/reports.js';
@@ -307,20 +307,27 @@ const buildAccuracyRegressionVerdict = async (
       };
     };
     const previousIronqr = previous.summary?.ironqr;
-    if (!previousIronqr) return unavailableVerdict('Previous accuracy summary is missing ironqr data.');
+    if (!previousIronqr)
+      return unavailableVerdict('Previous accuracy summary is missing ironqr data.');
     const previousGapCount = previous.summary?.gaps?.ironqrMissedBaselineHitCount ?? 0;
     if (ironqr.falsePositiveRate > (previousIronqr.falsePositiveRate ?? 0)) {
-      return failedVerdict('ironqr false-positive rate regressed versus previous accuracy summary.');
+      return failedVerdict(
+        'ironqr false-positive rate regressed versus previous accuracy summary.',
+      );
     }
     if (ironqr.fullPassRate < (previousIronqr.fullPassRate ?? 0)) {
       return failedVerdict('ironqr full-pass rate regressed versus previous accuracy summary.');
     }
     if (gaps.ironqrMissedBaselineHit.length > previousGapCount) {
-      return failedVerdict('ironqr baseline-miss gap count regressed versus previous accuracy summary.');
+      return failedVerdict(
+        'ironqr baseline-miss gap count regressed versus previous accuracy summary.',
+      );
     }
     return passedVerdict('Accuracy summary did not regress versus previous report.');
   } catch {
-    return unavailableVerdict('No previous accuracy summary is available for regression comparison.');
+    return unavailableVerdict(
+      'No previous accuracy summary is available for regression comparison.',
+    );
   }
 };
 

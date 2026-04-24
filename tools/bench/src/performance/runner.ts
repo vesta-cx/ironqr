@@ -1,22 +1,25 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { scanFrame } from '../../../../packages/ironqr/src/index.js';
-import type { ScanTimingDetails, ScanTimingSummary } from '../../../../packages/ironqr/src/pipeline/scan.js';
-import { bucketForOutcome, emptyBucketCounts, type BenchOutcomeBucket } from '../core/outcome.js';
-import {
-  buildReportCorpus,
-  type BenchReportEnvelope,
-  type BenchmarkVerdict,
-  failedVerdict,
-  passedVerdict,
-  readRepoMetadata,
-  REPORT_SCHEMA_VERSION,
-  unavailableVerdict,
-} from '../core/reports.js';
-import { readBenchImage } from '../shared/image.js';
+import type {
+  ScanTimingDetails,
+  ScanTimingSummary,
+} from '../../../../packages/ironqr/src/pipeline/scan.js';
 import { describeAccuracyEngine } from '../accuracy/engines.js';
 import { resolveAccuracyEngines, runAccuracyBenchmark } from '../accuracy/runner.js';
 import type { AccuracyAssetResult, EngineAssetResult } from '../accuracy/types.js';
+import { type BenchOutcomeBucket, bucketForOutcome, emptyBucketCounts } from '../core/outcome.js';
+import {
+  type BenchmarkVerdict,
+  type BenchReportEnvelope,
+  buildReportCorpus,
+  failedVerdict,
+  passedVerdict,
+  REPORT_SCHEMA_VERSION,
+  readRepoMetadata,
+  unavailableVerdict,
+} from '../core/reports.js';
+import { readBenchImage } from '../shared/image.js';
 
 const REPORTS_DIRECTORY = path.join('tools', 'bench', 'reports');
 const DEFAULT_REPORT_FILE = path.join(REPORTS_DIRECTORY, 'performance.json');
@@ -140,7 +143,13 @@ export const runPerformanceBenchmark = async (
   const engines = resolveAccuracyEngines();
   const iterationResults: PerformanceIterationResult[] = [];
   let lastAssets: readonly AccuracyAssetResult[] = [];
-  let cacheSummary = { enabled: options.cache?.enabled ?? true, file: null as string | null, hits: 0, misses: 0, writes: 0 };
+  let cacheSummary = {
+    enabled: options.cache?.enabled ?? true,
+    file: null as string | null,
+    hits: 0,
+    misses: 0,
+    writes: 0,
+  };
 
   for (let iteration = 1; iteration <= iterations; iteration += 1) {
     const accuracy = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
@@ -156,7 +165,9 @@ export const runPerformanceBenchmark = async (
       selection: {
         assetIds: options.selection?.assetIds ?? [],
         labels: options.selection?.labels ?? [],
-        ...(options.selection?.maxAssets === undefined ? {} : { maxAssets: options.selection.maxAssets }),
+        ...(options.selection?.maxAssets === undefined
+          ? {}
+          : { maxAssets: options.selection.maxAssets }),
         ...(options.selection?.seed === null || options.selection?.seed === undefined
           ? {}
           : { seed: options.selection.seed }),
@@ -180,7 +191,9 @@ export const runPerformanceBenchmark = async (
     }
   }
 
-  const summaries = engines.map((engine) => summarizePerformanceEngine(engine.id, iterationResults));
+  const summaries = engines.map((engine) =>
+    summarizePerformanceEngine(engine.id, iterationResults),
+  );
   const ironqr = summaries.find((summary) => summary.engineId === 'ironqr');
   if (!ironqr) throw new Error('Missing ironqr performance summary');
   const baselines = summaries.filter((summary) => summary.engineId !== 'ironqr');
@@ -214,7 +227,12 @@ export const runPerformanceBenchmark = async (
       ironqr,
       baselines,
       ranking: {
-        ironqrP95Rank: rankBy(summaries, ironqr.engineId, (summary) => summary.p95DurationMs, 'asc'),
+        ironqrP95Rank: rankBy(
+          summaries,
+          ironqr.engineId,
+          (summary) => summary.p95DurationMs,
+          'asc',
+        ),
         ironqrThroughputRank: rankBy(
           summaries,
           ironqr.engineId,
@@ -271,7 +289,9 @@ const buildIronqrProfile = async (
     if (hasAttemptTimings(timings)) {
       for (const attempt of timings.attempts) {
         const key = `${attempt.decodeBinaryViewId}/${attempt.sampler}/${attempt.refinement}`;
-        (attemptTimings[key] ??= []).push(attempt.durationMs);
+        const durations = attemptTimings[key] ?? [];
+        durations.push(attempt.durationMs);
+        attemptTimings[key] = durations;
       }
     }
   }
@@ -310,7 +330,9 @@ const summarizePerformanceEngine = (
   results: readonly PerformanceIterationResult[],
 ): PerformanceEngineSummary => {
   const engineResults = results.filter((result) => result.engineId === engineId);
-  const durations = engineResults.map((result) => result.engineScanDurationMs).sort((a, b) => a - b);
+  const durations = engineResults
+    .map((result) => result.engineScanDurationMs)
+    .sort((a, b) => a - b);
   const buckets = emptyBucketCounts();
   for (const result of engineResults) buckets[result.bucket] += 1;
   const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
@@ -342,7 +364,8 @@ const buildPerformanceRegressionVerdict = async (
       };
     };
     const previousIronqr = previous.summary?.ironqr;
-    if (!previousIronqr) return unavailableVerdict('Previous performance summary is missing ironqr data.');
+    if (!previousIronqr)
+      return unavailableVerdict('Previous performance summary is missing ironqr data.');
     if (ironqr.p95DurationMs > (previousIronqr.p95DurationMs ?? Number.POSITIVE_INFINITY)) {
       return failedVerdict('ironqr p95 duration regressed versus previous performance summary.');
     }
@@ -351,7 +374,9 @@ const buildPerformanceRegressionVerdict = async (
     }
     return passedVerdict('Performance summary did not regress versus previous report.');
   } catch {
-    return unavailableVerdict('No previous performance summary is available for regression comparison.');
+    return unavailableVerdict(
+      'No previous performance summary is available for regression comparison.',
+    );
   }
 };
 
@@ -360,10 +385,14 @@ const buildPerformancePassVerdict = (
   baselines: readonly PerformanceEngineSummary[],
 ): BenchmarkVerdict => {
   const slower = baselines.filter(
-    (baseline) => ironqr.p95DurationMs > baseline.p95DurationMs || ironqr.throughputAssetsPerSecond < baseline.throughputAssetsPerSecond,
+    (baseline) =>
+      ironqr.p95DurationMs > baseline.p95DurationMs ||
+      ironqr.throughputAssetsPerSecond < baseline.throughputAssetsPerSecond,
   );
   if (slower.length === 0) {
-    return passedVerdict('ironqr is competitive with or faster than all baseline engines on p95 and throughput.');
+    return passedVerdict(
+      'ironqr is competitive with or faster than all baseline engines on p95 and throughput.',
+    );
   }
   return failedVerdict(
     `ironqr trails baseline engine(s) on p95 or throughput: ${slower.map((engine) => engine.engineId).join(', ')}`,

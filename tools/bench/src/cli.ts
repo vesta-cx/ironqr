@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveRepoRootFromModuleUrl } from '../../corpus-cli/src/repo-root.js';
 import {
+  type BenchmarkVerdict,
   getDefaultAccuracyCachePath,
   getDefaultAccuracyReportPath,
   inspectAccuracyEngines,
@@ -15,7 +16,6 @@ import {
   writeAccuracyReport,
   writePerformanceReport,
   writeReportWithSnapshot,
-  type BenchmarkVerdict,
 } from './index.js';
 
 const parseLabel = (value: string): 'qr-pos' | 'qr-neg' => {
@@ -103,10 +103,14 @@ export const parseArgs = (
       throw new Error('Use --no-progress to disable OpenTUI progress');
     }
     if (arg === '--engine' || arg.startsWith('--engine=')) {
-      throw new Error('Benchmarks always run the full target engine set; --engine is not supported');
+      throw new Error(
+        'Benchmarks always run the full target engine set; --engine is not supported',
+      );
     }
     if (arg === '--ironqr-trace' || arg.startsWith('--ironqr-trace=')) {
-      throw new Error('Focused accuracy does not support full trace collection; use bench performance');
+      throw new Error(
+        'Focused accuracy does not support full trace collection; use bench performance',
+      );
     }
     if (arg === '--asset') {
       const next = rest[index + 1];
@@ -299,7 +303,13 @@ const runPerformance = async (repoRoot: string, options: CliOptions): Promise<vo
 
 const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> => {
   const accuracyReportFile = getDefaultAccuracyReportPath(repoRoot);
-  const performanceReportFile = path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json');
+  const performanceReportFile = path.join(
+    repoRoot,
+    'tools',
+    'bench',
+    'reports',
+    'performance.json',
+  );
   await runAccuracy(repoRoot, { ...options, reportFile: accuracyReportFile });
   await runPerformance(repoRoot, { ...options, reportFile: performanceReportFile });
   const [accuracyReport, performanceReport] = await Promise.all([
@@ -323,8 +333,12 @@ const runSuite = async (repoRoot: string, options: CliOptions): Promise<void> =>
           status: 'failed',
           description: 'Accuracy or performance benchmark reported a regression.',
         }
-      : accuracyRegression.status === 'unavailable' || performanceRegression.status === 'unavailable'
-        ? { status: 'unavailable', description: 'At least one component regression verdict is unavailable.' }
+      : accuracyRegression.status === 'unavailable' ||
+          performanceRegression.status === 'unavailable'
+        ? {
+            status: 'unavailable',
+            description: 'At least one component regression verdict is unavailable.',
+          }
         : { status: 'passed', description: 'No component benchmark reported a regression.' };
   const summary = {
     kind: 'suite-report',
@@ -377,7 +391,10 @@ const readReport = async (filePath: string): Promise<Record<string, unknown>> =>
   return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
 };
 
-const readVerdict = (report: Record<string, unknown>, key: 'pass' | 'regression'): BenchmarkVerdict => {
+const readVerdict = (
+  report: Record<string, unknown>,
+  key: 'pass' | 'regression',
+): BenchmarkVerdict => {
   const verdicts = report.verdicts as { readonly [K in typeof key]?: BenchmarkVerdict } | undefined;
   return (
     verdicts?.[key] ?? {

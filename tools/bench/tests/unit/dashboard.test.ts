@@ -85,31 +85,23 @@ describe('dashboard formatting', () => {
 
 describe('bench dashboard model', () => {
   it('classifies scan outcomes into timing buckets', () => {
+    expect(classifyTimingBucket(result({ label: 'qr-pos', outcome: 'pass', durationMs: 1 }))).toBe(
+      'positive-pass',
+    );
     expect(
-      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'pass', durationMs: 1 })),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'partial-pass', durationMs: 1 })),
     ).toBe('positive-pass');
     expect(
-      classifyTimingBucket(
-        result({ label: 'qr-pos', outcome: 'partial-pass', durationMs: 1 }),
-      ),
-    ).toBe('positive-pass');
-    expect(
-      classifyTimingBucket(
-        result({ label: 'qr-pos', outcome: 'fail-no-decode', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'fail-no-decode', durationMs: 1 })),
     ).toBe('positive-fail');
     expect(
-      classifyTimingBucket(
-        result({ label: 'qr-pos', outcome: 'fail-mismatch', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'fail-mismatch', durationMs: 1 })),
     ).toBe('positive-fail');
+    expect(classifyTimingBucket(result({ label: 'qr-neg', outcome: 'pass', durationMs: 1 }))).toBe(
+      'negative-pass',
+    );
     expect(
-      classifyTimingBucket(result({ label: 'qr-neg', outcome: 'pass', durationMs: 1 })),
-    ).toBe('negative-pass');
-    expect(
-      classifyTimingBucket(
-        result({ label: 'qr-neg', outcome: 'false-positive', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-neg', outcome: 'false-positive', durationMs: 1 })),
     ).toBe('negative-fail');
   });
 

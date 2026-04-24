@@ -1,5 +1,5 @@
-import { collapseHome } from '../shared/paths.js';
 import { writeReportWithSnapshot } from '../core/reports.js';
+import { collapseHome } from '../shared/paths.js';
 import type { PerformanceBenchmarkResult, PerformanceEngineSummary } from './runner.js';
 
 const ms = (value: number): string => `${value.toFixed(2)}ms`;
@@ -42,9 +42,7 @@ export const printPerformancePlaceholder = (
   console.log(`status: ${JSON.stringify(result.message)}`);
 };
 
-export const writePerformanceReport = async (
-  result: PerformanceBenchmarkResult,
-): Promise<void> => {
+export const writePerformanceReport = async (result: PerformanceBenchmarkResult): Promise<void> => {
   await writeReportWithSnapshot(result.reportFile, result.report);
 };
 

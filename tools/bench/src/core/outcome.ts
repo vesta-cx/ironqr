@@ -2,10 +2,7 @@ import type { CorpusAssetLabel } from '../accuracy/types.js';
 
 export type BenchOutcomeBucket = 'pos-pass' | 'pos-partial' | 'pos-fail' | 'neg-pass' | 'neg-fail';
 
-export const bucketForOutcome = (
-  label: CorpusAssetLabel,
-  outcome: string,
-): BenchOutcomeBucket => {
+export const bucketForOutcome = (label: CorpusAssetLabel, outcome: string): BenchOutcomeBucket => {
   if (label === 'qr-pos') {
     if (outcome === 'pass') return 'pos-pass';
     if (outcome === 'partial-pass') return 'pos-partial';

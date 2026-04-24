@@ -14,12 +14,5 @@ export default defineConfig({
   splitting: false,
   target: 'es2022',
   outDir: 'dist',
-  external: [
-    'sharp',
-    '@undecaf/zbar-wasm',
-    '@zxing/library',
-    'jsqr',
-    'quirc',
-    'zxing-wasm/reader',
-  ],
+  external: ['sharp', '@undecaf/zbar-wasm', '@zxing/library', 'jsqr', 'quirc', 'zxing-wasm/reader'],
 });
