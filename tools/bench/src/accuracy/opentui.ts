@@ -29,7 +29,7 @@ const LEFT_COLUMN_RATIO = 0.42;
 const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
 const RECENT_LAYOUT_RESERVED_ROWS = 24;
-const PROGRESS_BAR_WIDTH = 24;
+const PROGRESS_BAR_WIDTH = 56;
 const DASHBOARD_REFRESH_INTERVAL_MS = 250;
 
 const panelBodyRows = (panelRows: number): number =>
@@ -188,7 +188,7 @@ export class BenchOpenTuiDashboard {
         id: 'scorecard',
         title: isStudy ? 'Study events' : 'Accuracy scorecard',
         accent: THEME.green,
-        height: SCORECARD_PANEL_ROWS,
+        ...(isStudy ? { flexGrow: 1 } : { height: SCORECARD_PANEL_ROWS }),
       });
 
       const tablesRow = new BoxRenderable(renderer, {
@@ -221,7 +221,7 @@ export class BenchOpenTuiDashboard {
 
       const recent = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'recent',
-        title: isStudy ? 'Recent study assets' : 'Recent scans',
+        title: isStudy ? 'Study events' : 'Recent scans',
         accent: THEME.purple,
         flexGrow: 1,
       });
@@ -275,7 +275,7 @@ export class BenchOpenTuiDashboard {
       } else {
         root.add(chart.box);
       }
-      root.add(scorecard.box);
+      if (!isStudy) root.add(scorecard.box);
       root.add(tablesRow);
       root.add(footerBox);
       root.add(filterModal.box);
@@ -494,6 +494,7 @@ export class BenchOpenTuiDashboard {
     const fallbackRecentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
     const tableRows = fallbackTableRows;
     const recentRows = fallbackRecentRows;
+    const eventRows = fallbackRecentRows;
 
     panels.header.content = headerText(this.dashboard);
     if (this.dashboard.commandName === 'study' && panels.detectorChart) {
@@ -534,9 +535,9 @@ export class BenchOpenTuiDashboard {
     }
     panels.scorecard.body.content = panelBody(
       this.dashboard.commandName === 'study'
-        ? renderStudyEvents(this.dashboard, { width: contentWidth })
+        ? renderStudyEvents(this.dashboard, { width: recentWidth })
         : renderScorecard(this.dashboard, { width: contentWidth }),
-      panelBodyRows(SCORECARD_PANEL_ROWS),
+      this.dashboard.commandName === 'study' ? eventRows + 1 : panelBodyRows(SCORECARD_PANEL_ROWS),
     );
     panels.filterModal.box.visible = this.dashboard.commandName === 'study' && this.filterModalOpen;
     panels.filterModal.body.content = this.filterModalOpen
@@ -563,7 +564,9 @@ export class BenchOpenTuiDashboard {
       tableRows + 1,
     );
     panels.recent.body.content = panelBody(
-      renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
+      this.dashboard.commandName === 'study'
+        ? renderStudyEvents(this.dashboard, { width: recentWidth })
+        : renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
       recentRows + 1,
     );
     const footerStatus =
@@ -972,7 +975,8 @@ const headerText = (dashboard: BenchDashboardModel): string => {
   const percent = clamp01(total > 0 ? completed / total : 0);
   const completeWidth = Math.round(percent * PROGRESS_BAR_WIDTH);
   const progress = `${'█'.repeat(completeWidth)}${'░'.repeat(PROGRESS_BAR_WIDTH - completeWidth)}`;
-  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${completed}/${total} jobs  ${dashboard.message}`;
+  const suffix = dashboard.commandName === 'study' ? '' : `  ${dashboard.message}`;
+  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${completed}/${total} jobs${suffix}`;
 };
 
 const studyJobProgress = (dashboard: BenchDashboardModel): string =>
