@@ -211,7 +211,7 @@ export class BenchOpenTuiDashboard {
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
-        title: isStudy ? 'Slowest study units' : 'Slowest fresh scans',
+        title: isStudy ? 'Slowest fresh study assets' : 'Slowest fresh scans',
         accent: THEME.amber,
         flexGrow: 1,
       });
@@ -220,7 +220,7 @@ export class BenchOpenTuiDashboard {
 
       const recent = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'recent',
-        title: isStudy ? 'Recent study units' : 'Recent scans',
+        title: isStudy ? 'Recent study assets' : 'Recent scans',
         accent: THEME.purple,
         flexGrow: 1,
       });
@@ -668,7 +668,7 @@ const renderStudyViewTimings = (
       options.width,
     ),
     truncateLine(
-      `assets ${dashboard.preparedAssets}/${dashboard.assetCount} units ${dashboard.completedJobs}/${dashboard.totalJobs} active=${dashboard.activeScans.size}`,
+      `assets prepared=${dashboard.preparedAssets}/${dashboard.assetCount} done=${dashboard.completedJobs}/${dashboard.totalJobs} active=${dashboard.activeScans.size}`,
       options.width,
     ),
     truncateLine(
@@ -872,7 +872,7 @@ const formatStudyTiming = (
   count: number,
   outputCount: number,
   cachedCount: number,
-): string => `${formatCompactDuration(averageMs)} p=${outputCount} n=${count} c=${cachedCount}`;
+): string => `${formatCompactDuration(averageMs)} p=${outputCount} rows=${count} c=${cachedCount}`;
 
 const renderStudyEvents = (
   dashboard: BenchDashboardModel,
@@ -893,8 +893,8 @@ const renderStudyFooterStatus = (dashboard: BenchDashboardModel): string => {
   return [
     'bench study',
     `stage=${dashboard.stage}`,
-    `jobs=${dashboard.completedJobs}/${dashboard.totalJobs}`,
-    `assets=${dashboard.preparedAssets}/${dashboard.assetCount}`,
+    `assets=${dashboard.completedJobs}/${dashboard.totalJobs}`,
+    `prepared=${dashboard.preparedAssets}/${dashboard.assetCount}`,
     `workers=${dashboard.workerCount || '-'}`,
     `cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
   ].join(' | ');
@@ -921,7 +921,8 @@ const headerText = (dashboard: BenchDashboardModel): string => {
   );
   const completeWidth = Math.round(percent * PROGRESS_BAR_WIDTH);
   const progress = `${'█'.repeat(completeWidth)}${'░'.repeat(PROGRESS_BAR_WIDTH - completeWidth)}`;
-  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${dashboard.completedJobs}/${dashboard.totalJobs} jobs  ${dashboard.message}`;
+  const unitLabel = dashboard.commandName === 'study' ? 'assets' : 'jobs';
+  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${dashboard.completedJobs}/${dashboard.totalJobs} ${unitLabel}  ${dashboard.message}`;
 };
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));

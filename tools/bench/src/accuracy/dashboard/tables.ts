@@ -45,14 +45,14 @@ export const renderSlowestFreshScans = (
   const width = options.width;
   const rows = model.slowestFreshScans.slice(0, normalizeMaxRows(options.maxRows, 8));
   const lines = [
-    'slowest fresh scans',
+    model.commandName === 'study' ? 'slowest fresh study assets' : 'slowest fresh scans',
     truncate('#  engine     time      outcome      asset', width),
   ];
   if (rows.length === 0) {
     const cachedRecent = model.recentScans.filter((scan) => scan.result.cached).length;
     lines.push(
       truncate(
-        cachedRecent > 0 ? `no fresh units yet; ${cachedRecent} recent cache hits` : 'none yet',
+        cachedRecent > 0 ? `no fresh assets yet; ${cachedRecent} recent cache hits` : 'none yet',
         width,
       ),
     );
@@ -73,7 +73,7 @@ export const renderRecentScans = (
   const maxRows = normalizeMaxRows(options.maxRows, 8);
   const rows = maxRows === 0 ? [] : model.recentScans.slice(-maxRows);
   const lines = [
-    'recent scans',
+    model.commandName === 'study' ? 'recent study assets' : 'recent scans',
     truncate(
       'time      engine      asset             label  outcome       dur     cache   detail',
       width,
