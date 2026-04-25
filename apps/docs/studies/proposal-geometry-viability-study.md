@@ -76,7 +76,7 @@ Do not canonize semantic filtering from proposal-only evidence if proposal signa
 
 ## Results
 
-Full proposal-only geometry run generated `2026-04-25T22:32:17.278Z` from commit `e49f2d09e6ead5ccc0e051300e6d23e6273f073c` with dirty working tree state. Reports:
+Full timing-corridor geometry run generated `2026-04-25T23:30:29.584Z` from commit `0eaf53a296eb7017544f7faf8d4ac3583f342309` with dirty working tree state. Reports:
 
 ```text
 tools/bench/reports/full/study/study-proposal-geometry-viability.json
@@ -93,32 +93,42 @@ cache hits=0 misses=406 writes=203
 
 | Variant | Pos assets with proposals | Neg assets with proposals | Proposals | Triples | Signature-mismatch assets | Count-mismatch assets | Triple assembly ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `baseline` | 60 | 143 | 168,366 | 540,894 | 0 | 0 | 404.17 |
-| `aspect-penalty` | 60 | 143 | 168,366 | 540,894 | 144 | 0 | 461.36 |
-| `aspect-reject-conservative` | 60 | 143 | 160,996 | 497,005 | 186 | 149 | 488.11 |
-| `scale-consistency-penalty` | 60 | 143 | 168,366 | 540,894 | 127 | 0 | 469.53 |
-| `aspect-scale-penalty` | 60 | 143 | 168,366 | 540,894 | 158 | 0 | 445.54 |
+| `baseline` | 60 | 143 | 168,366 | 540,894 | 0 | 0 | 554.07 |
+| `aspect-penalty` | 60 | 143 | 168,366 | 540,894 | 144 | 0 | 1,018.63 |
+| `aspect-reject-conservative` | 60 | 143 | 160,996 | 497,005 | 186 | 149 | 1,054.05 |
+| `scale-consistency-penalty` | 60 | 143 | 168,366 | 540,894 | 127 | 0 | 1,026.08 |
+| `aspect-scale-penalty` | 60 | 143 | 168,366 | 540,894 | 158 | 0 | 975.85 |
+| `timing-corridor-penalty` | 60 | 143 | 168,366 | 540,894 | 140 | 0 | 999.74 |
+| `timing-corridor-reject-conservative` | 60 | 141 | 136,220 | 367,323 | 203 | 181 | 948.88 |
+| `aspect-timing-penalty` | 60 | 143 | 168,366 | 540,894 | 166 | 0 | 1,017.52 |
 
-All variants preserved asset-level positive proposal coverage (`60/60`) and negative proposal-asset behavior (`143/143`). The soft penalties changed proposal ordering/signatures without changing proposal counts. `aspect-reject-conservative` reduced the frontier by `7,370` proposals (`4.38%`) and `43,889` triples (`8.11%`) while preserving asset-level proposal coverage.
+All variants preserved positive proposal-asset coverage (`60/60`). Soft penalties changed proposal signatures without reducing proposal counts. `aspect-reject-conservative` reduced the frontier by `7,370` proposals (`4.38%`) and `43,889` triples (`8.11%`). `timing-corridor-reject-conservative` reduced the frontier much more aggressively: `32,146` proposals (`19.09%`) and `173,571` triples (`32.09%`) while preserving positive proposal-asset coverage and removing all proposals from two negative assets.
 
-Largest `aspect-reject-conservative` proposal reductions included:
+The two negative assets removed entirely by timing-corridor rejection were:
 
 ```text
-asset-66fd3d030cd7b6f6 -NEG: -215 proposals, -707 triples
-asset-43d79ea0fc29f9e1 -NEG: -161 proposals, -365 triples
-asset-bd1e51041cfe8d77 +QR:  -160 proposals, -433 triples
-asset-a443559fe831be16 -NEG: -154 proposals, -266 triples
-asset-53cd380c4515b85b -NEG: -149 proposals, -347 triples
+asset-3a7ee8a00c65d65e: 12 -> 0 proposals, 12 -> 0 triples
+asset-a63ebea2df94c77a: 4 -> 0 proposals, 4 -> 0 triples
+```
+
+Largest `timing-corridor-reject-conservative` proposal reductions included:
+
+```text
+asset-c66cb59e2729aa1e -NEG: -640 proposals, -1,679 triples
+asset-1184fc75626fdbe9 +QR:  -580 proposals, -1,128 triples
+asset-e29543dbddb7e837 -NEG: -580 proposals, -777 triples
+asset-6333b4abcbc3d63f -NEG: -552 proposals, -920 triples
+asset-3d40d63fdf14e61b -NEG: -531 proposals, -873 triples
 ```
 
 ## Interpretation plan
 
-First compare asset-level proposal coverage against `baseline`. Any variant that loses a positive asset is binned. Then inspect proposal and triple count deltas to distinguish useful frontier reduction from harmless reshuffling. Timing-corridor variants are the strongest proposal-level rejection evidence because they sample the expected alternating timing structure between aligned finders. Soft penalties with zero positive loss should move to decode confirmation; conservative hard rejection needs stronger evidence because it removes triples.
+First compare asset-level proposal coverage against `baseline`. No variant lost a positive asset, so all remain viable for decode-confirmation follow-up. Soft penalties are frontier-ordering candidates: they changed signatures but not counts. The hard-reject variants are the actual frontier reducers. Timing-corridor rejection is the strongest proposal-level rejection evidence because it samples alternating structure between aligned finders, and it removes about one-third of triples while retaining positive proposal presence.
 
-The timing data should not drive promotion: semantic penalties add triple-scoring work (`+41ms` to `+84ms` triple assembly), while scan-time decreases are dominated by detector/view timing variance from rerunning each variant.
+The timing data should not drive promotion: semantic penalties add triple-scoring work (`+394ms` to `+500ms` triple assembly), while scan-time decreases are dominated by detector/view timing variance from rerunning each variant. The value of these variants is frontier realism and later decode-cost reduction, not proposal assembly speed.
 
 ## Conclusion / evidence-backed decision
 
-Advance `aspect-reject-conservative` to decode confirmation as the geometry realism filter candidate: it preserved proposal asset coverage and removed `43,889` triples / `7,370` proposals. Do not canonize it from proposal-only data.
+Advance `timing-corridor-reject-conservative` to decode confirmation as the lead realism filter: it preserved positive proposal coverage and removed `173,571` triples / `32,146` proposals. Do not canonize it from proposal-only data because it changes proposal signatures and removes proposals.
 
-Keep `aspect-scale-penalty` as the soft scoring backup because it combines both signals and had lower added assembly cost than the individual soft penalties in this run. Bin standalone `aspect-penalty` and `scale-consistency-penalty` unless later decode evidence specifically needs them.
+Keep `aspect-reject-conservative` as the gentler hard-reject fallback. Keep `aspect-timing-penalty` as the soft-scoring backup if decode confirmation shows hard rejection is too aggressive. Bin standalone `aspect-penalty`, `scale-consistency-penalty`, and `timing-corridor-penalty` unless later decode evidence specifically needs them.
