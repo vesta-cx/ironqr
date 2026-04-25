@@ -475,7 +475,7 @@ const renderStudyTimingBars = (
   options: { readonly width: number; readonly maxRows: number; readonly offset: number },
 ): readonly string[] => {
   const rows = [...dashboard.studyTimings.values()].sort(
-    (left, right) => right.totalMs - left.totalMs,
+    (left, right) => averageStudyTimingMs(right) - averageStudyTimingMs(left),
   );
   if (rows.length === 0)
     return [truncateLine('views 0/0 — waiting for view timing samples…', options.width)];
@@ -488,16 +488,16 @@ const renderStudyTimingBars = (
   const labelWidth = Math.min(26, Math.max(12, Math.floor(options.width * 0.34)));
   const valueWidth = 20;
   const barWidth = Math.max(8, options.width - labelWidth - valueWidth - 4);
-  const maxTotal = Math.max(1, ...rows.map((row) => row.totalMs));
+  const maxAverage = Math.max(1, ...rows.map(averageStudyTimingMs));
   return [
     truncateLine(
       `views ${first}-${last}/${rows.length}  scroll=${offset + 1}/${rows.length}  ↑/↓ j/k`,
       options.width,
     ),
     ...visibleRows.map((row) => {
-      const filled = Math.max(1, Math.round((row.totalMs / maxTotal) * barWidth));
+      const average = averageStudyTimingMs(row);
+      const filled = Math.max(1, Math.round((average / maxAverage) * barWidth));
       const bar = `${'█'.repeat(filled)}${'░'.repeat(Math.max(0, barWidth - filled))}`;
-      const average = row.totalMs / Math.max(1, row.count);
       return truncateLine(
         `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(row.totalMs, average, row.count)}`,
         options.width,
@@ -511,8 +511,11 @@ const padStudyCell = (value: string, width: number): string => {
   return `${truncated}${' '.repeat(Math.max(0, width - truncated.length))}`;
 };
 
+const averageStudyTimingMs = (row: { readonly totalMs: number; readonly count: number }): number =>
+  row.totalMs / Math.max(1, row.count);
+
 const formatStudyTiming = (totalMs: number, averageMs: number, count: number): string =>
-  `${formatCompactDuration(totalMs)} avg=${formatCompactDuration(averageMs)} n=${count}`;
+  `avg=${formatCompactDuration(averageMs)} n=${count} total=${formatCompactDuration(totalMs)}`;
 
 const renderStudyEvents = (
   dashboard: BenchDashboardModel,
