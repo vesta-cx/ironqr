@@ -45,6 +45,39 @@ The report should include:
 - per-view cluster representative counts and decode/module sampling timings;
 - summary cluster-budget evidence including p50/p90/p95/max first decoded cluster rank.
 
+## Metrics table
+
+| Metric | Unit | Source | Decision use |
+| --- | --- | --- | --- |
+| Positive decoded assets | assets | study summary | Primary recall metric. |
+| False-positive assets | assets | study summary | Must remain zero or be explicitly accepted. |
+| Exclusive successful views | view ids | per-view success evidence | Mandatory production inclusion. |
+| Marginal successful positives | assets | greedy coverage summary | Orders overlapping views. |
+| Detector duration by view | ms | `proposal-view` spans | Cost tie-breaker and hotspot evidence. |
+| Scalar/binary materialization duration | ms | materialization spans | Identifies view-construction optimization targets. |
+| Proposal and ranked proposal count | count | proposal trace/report | Explains detector workload and ranking effects. |
+| Cluster count and representative count | count | scan summary/trace | Explains decode frontier size. |
+| First decoded cluster rank | rank | cluster trace | Derives any future cluster budget. |
+| Decode attempts and module samples | count/ms | decode/module spans | Shows downstream cost caused by view/proposal paths. |
+| Cluster outcomes | count | cluster trace | Separates decoded, duplicate, killed, and exhausted paths. |
+
+## Decision rule
+
+- Include every view that uniquely decodes at least one QR-positive asset.
+- Order remaining candidate views by marginal positive coverage per measured cost, with confidence and false-positive behavior as tie-breakers.
+- Do not introduce a default cluster budget unless the first-success cluster-rank distribution shows the chosen budget retains the agreed recall target.
+- If the p95 or max successful cluster rank is high, document the budget as a product tradeoff rather than an algorithmic invariant.
+- Treat timing hotspots as optimization candidates only after separating nested decode timings from independent wall-clock timings.
+
+## Implementation checklist
+
+- [x] Run all 54 binary view identities instead of the production shortlist.
+- [x] Disable the old arbitrary cluster cap for the study.
+- [x] Continue probing cluster representatives after successful decode in study mode.
+- [x] Record materialization, proposal, clustering, structure, module-sampling, decode, and cluster-rank evidence.
+- [ ] Rerun the full study after clustering/representative changes.
+- [ ] Record final results and evidence-backed production decisions in this document.
+
 ## Results
 
 Use the latest generated report as source of truth. Do not copy stale numbers into production decisions without rerunning the study after scanner changes.
