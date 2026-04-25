@@ -36,6 +36,7 @@ import type {
   StudyPluginResult,
 } from './types.js';
 import { viewOrderStudyPlugin, viewProposalsStudyPlugin } from './view-order.js';
+import { applyStudyCacheWrites, createStudyWorkerPool } from './worker-pool.js';
 
 const REPORTS_DIRECTORY = path.join('tools', 'bench', 'reports');
 const FULL_REPORTS_DIRECTORY = path.join(REPORTS_DIRECTORY, 'full');
@@ -575,7 +576,6 @@ const runPlugin = async (input: {
     ...(input.studyFlags ?? {}),
   };
   if (isGenericStudyPlugin(input.plugin)) {
-    const runAsset = input.plugin.runAsset;
     const summarize = input.plugin.summarize;
     const renderReport = input.plugin.renderReport;
     const config = input.plugin.parseConfig?.({ flags, assets: input.assets }) ?? {};
@@ -631,104 +631,115 @@ const runPlugin = async (input: {
       assetsToRun.push(...input.assets);
     }
 
-    const run = await mapConcurrentPartial(
-      assetsToRun,
-      input.workerCount,
-      async (asset, index) => {
-        if (!readCachedAsset)
-          input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
-        const cacheKey = JSON.stringify({
-          studyId: input.plugin.id,
-          studyVersion: input.plugin.version,
-          configKey: baseCacheKey,
-          assetId: asset.id,
-          assetSha256: asset.sha256,
-          engines: engines.map((engine) => ({ id: engine.id, version: engine.adapterVersion })),
-          observability,
-        });
-        const cached = input.plugin.usesInternalCache
-          ? null
-          : await input.cache.read(asset, cacheKey);
-        if (cached !== null) {
+    const studyWorkerPool = createStudyWorkerPool(input.workerCount, {
+      log: input.log,
+      cache: input.cache,
+    });
+    const assetsById = new Map(input.assets.map((asset) => [asset.id, asset] as const));
+    try {
+      const run = await mapConcurrentPartial(
+        assetsToRun,
+        input.workerCount,
+        async (asset, index) => {
+          if (!readCachedAsset)
+            input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
+          const cacheKey = JSON.stringify({
+            studyId: input.plugin.id,
+            studyVersion: input.plugin.version,
+            configKey: baseCacheKey,
+            assetId: asset.id,
+            assetSha256: asset.sha256,
+            engines: engines.map((engine) => ({ id: engine.id, version: engine.adapterVersion })),
+            observability,
+          });
+          const cached = input.plugin.usesInternalCache
+            ? null
+            : await input.cache.read(asset, cacheKey);
+          if (cached !== null) {
+            input.progress.onScanStarted({
+              engineId: input.plugin.id,
+              assetId: asset.id,
+              relativePath: asset.relativePath,
+              label: asset.label,
+              cached: true,
+              cacheable: true,
+            });
+            input.progress.onScanFinished({
+              engineId: input.plugin.id,
+              assetId: asset.id,
+              relativePath: asset.relativePath,
+              result: studyUnitResult(input.plugin.id, asset, cached, true),
+              wroteToCache: false,
+            });
+            input.progress.onMessage(`study cache hit ${asset.id}`);
+            return cached;
+          }
           input.progress.onScanStarted({
             engineId: input.plugin.id,
             assetId: asset.id,
             relativePath: asset.relativePath,
             label: asset.label,
-            cached: true,
-            cacheable: true,
+            cached: false,
+            cacheable: input.cache.summary().enabled,
           });
+          input.progress.onMessage(`study asset started ${asset.id}`);
+          await yieldToProgressRenderer();
+          const execution = await studyWorkerPool.run({
+            repoRoot: input.repoRoot,
+            plugin: input.plugin,
+            config,
+            asset,
+            cacheFile: input.cacheFile,
+            cacheEnabled: input.cache.summary().enabled,
+            refreshCache: false,
+          });
+          await applyStudyCacheWrites(input.cache, assetsById, execution.cacheWrites);
+          const result = execution.result;
+          if (!input.plugin.usesInternalCache) await input.cache.write(asset, cacheKey, result);
+          const resultWasCached =
+            result !== null &&
+            typeof result === 'object' &&
+            (result as { cacheHit?: unknown }).cacheHit === true;
           input.progress.onScanFinished({
             engineId: input.plugin.id,
             assetId: asset.id,
             relativePath: asset.relativePath,
-            result: studyUnitResult(input.plugin.id, asset, cached, true),
-            wroteToCache: false,
+            result: studyUnitResult(input.plugin.id, asset, result, resultWasCached),
+            wroteToCache: !resultWasCached && input.cache.summary().enabled,
           });
-          input.progress.onMessage(`study cache hit ${asset.id}`);
-          return cached;
-        }
-        input.progress.onScanStarted({
-          engineId: input.plugin.id,
-          assetId: asset.id,
-          relativePath: asset.relativePath,
-          label: asset.label,
-          cached: false,
-          cacheable: input.cache.summary().enabled,
-        });
-        input.progress.onMessage(`study asset started ${asset.id}`);
-        await yieldToProgressRenderer();
-        const result = await runAsset({
-          repoRoot: input.repoRoot,
-          asset,
-          config,
-          reports: input.reports,
-          cache: input.cache,
-          ...(input.signal === undefined ? {} : { signal: input.signal }),
-          log: input.log,
-        });
-        if (!input.plugin.usesInternalCache) await input.cache.write(asset, cacheKey, result);
-        const resultWasCached =
-          result !== null &&
-          typeof result === 'object' &&
-          (result as { cacheHit?: unknown }).cacheHit === true;
-        input.progress.onScanFinished({
-          engineId: input.plugin.id,
-          assetId: asset.id,
-          relativePath: asset.relativePath,
-          result: studyUnitResult(input.plugin.id, asset, result, resultWasCached),
-          wroteToCache: !resultWasCached && input.cache.summary().enabled,
-        });
-        input.progress.onMessage(`study asset finished ${asset.id}`);
-        return result;
-      },
-      input.signal === undefined ? {} : { signal: input.signal },
-    );
-    if (run.error !== null) throw run.error;
-    const interrupted = run.interrupted;
-    if (interrupted) input.log('study interrupted; writing partial report from completed assets');
-    const assetResults = [...preloadedResults, ...run.completed];
+          input.progress.onMessage(`study asset finished ${asset.id}`);
+          return result;
+        },
+        input.signal === undefined ? {} : { signal: input.signal },
+      );
+      if (run.error !== null) throw run.error;
+      const interrupted = run.interrupted;
+      if (interrupted) input.log('study interrupted; writing partial report from completed assets');
+      const assetResults = [...preloadedResults, ...run.completed];
 
-    const summaryInput = {
-      config,
-      assets: input.assets,
-      results: assetResults,
-      cache: input.cache.summary(),
-    };
-    const summary = summarize(summaryInput);
-    const report = renderReport({ ...summaryInput, summary });
-    return {
-      result: {
-        pluginId: input.plugin.id,
-        assetCount: input.assets.length,
-        summary,
-        report,
-      },
-      config,
-      engines,
-      observability,
-      interrupted,
-    };
+      const summaryInput = {
+        config,
+        assets: input.assets,
+        results: assetResults,
+        cache: input.cache.summary(),
+      };
+      const summary = summarize(summaryInput);
+      const report = renderReport({ ...summaryInput, summary });
+      return {
+        result: {
+          pluginId: input.plugin.id,
+          assetCount: input.assets.length,
+          summary,
+          report,
+        },
+        config,
+        engines,
+        observability,
+        interrupted,
+      };
+    } finally {
+      await studyWorkerPool.close();
+    }
   }
 
   if (!input.plugin.run) throw new Error(`Study plugin ${input.plugin.id} has no runner hooks.`);
