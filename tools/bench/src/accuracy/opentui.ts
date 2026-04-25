@@ -477,17 +477,19 @@ const renderSideBySideStudyCharts = (
   options: { readonly width: number; readonly maxRows: number; readonly offset: number },
 ): readonly string[] => {
   const gap = 3;
-  const leftWidth = Math.floor((options.width - gap) / 2);
+  const leftWidth = Math.floor((options.width - gap) * 0.42);
   const rightWidth = options.width - gap - leftWidth;
   const left = renderStudyTimingBars('views', [...dashboard.studyTimings.values()], {
     width: leftWidth,
     maxRows: options.maxRows,
     offset: options.offset,
+    maxLabelWidth: 30,
   });
   const right = renderStudyTimingBars('detectors', [...dashboard.studyDetectorTimings.values()], {
     width: rightWidth,
     maxRows: options.maxRows,
     offset: options.offset,
+    maxLabelWidth: 44,
   });
   const height = Math.max(left.length, right.length);
   return Array.from({ length: height }, (_, index) => {
@@ -500,7 +502,12 @@ const renderSideBySideStudyCharts = (
 const renderStudyTimingBars = (
   title: string,
   inputRows: readonly { readonly id: string; readonly totalMs: number; readonly count: number }[],
-  options: { readonly width: number; readonly maxRows: number; readonly offset: number },
+  options: {
+    readonly width: number;
+    readonly maxRows: number;
+    readonly offset: number;
+    readonly maxLabelWidth: number;
+  },
 ): readonly string[] => {
   const rows = [...inputRows].sort(
     (left, right) => averageStudyTimingMs(right) - averageStudyTimingMs(left),
@@ -512,9 +519,13 @@ const renderStudyTimingBars = (
   const visibleRows = rows.slice(offset, offset + maxBars);
   const first = offset + 1;
   const last = Math.min(rows.length, offset + visibleRows.length);
-  const labelWidth = Math.min(18, Math.max(10, Math.floor(options.width * 0.38)));
   const valueWidth = 14;
-  const barWidth = Math.max(5, options.width - labelWidth - valueWidth - 4);
+  const minBarWidth = 5;
+  const labelWidth = Math.max(
+    10,
+    Math.min(options.maxLabelWidth, options.width - valueWidth - minBarWidth - 4),
+  );
+  const barWidth = Math.max(minBarWidth, options.width - labelWidth - valueWidth - 4);
   const maxAverage = Math.max(1, ...rows.map(averageStudyTimingMs));
   return [
     truncateLine(
