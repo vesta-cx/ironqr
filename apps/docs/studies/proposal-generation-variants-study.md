@@ -104,4 +104,4 @@ The best full-run exact candidate is `no-allocation-score`, reducing triple asse
 
 ## Conclusion / evidence-backed decision
 
-Promote `no-allocation-score` as the proposal assembly implementation candidate: it is exact on proposal signatures and is fastest on the primary isolated assembly metric. Keep `distance-matrix-streaming` as the backup candidate. Bin `min-heap-topk` for now: it is exact after the fix but does not win the primary metric.
+`no-allocation-score` is canonical for proposal assembly. It is exact on proposal signatures and fastest on the primary isolated assembly metric. Keep `distance-matrix-streaming` as the backup candidate. Bin `min-heap-topk` for now: it is exact after the fix but does not win the primary metric.

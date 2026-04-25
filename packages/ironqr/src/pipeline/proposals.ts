@@ -12,6 +12,7 @@ import { type BinaryView, type BinaryViewId, readBinaryPixel, type ViewBank } fr
 const MAX_FINDER_EVIDENCE_TOTAL = 12;
 const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
 const MAX_TRIPLE_COMBINATIONS = 120;
+const DEFAULT_PROPOSAL_ASSEMBLY_VARIANT: ProposalAssemblyVariant = 'no-allocation-score';
 const FINDER_RATIO_TOLERANCE = 0.9;
 const QUIET_ZONE_DISTANCE_MODULES = 5.25;
 
@@ -243,7 +244,7 @@ export interface ProposalViewGenerationOptions {
   readonly maxProposalsPerView?: number;
   /** Detector-family policy for proposal studies. Defaults to the production stack. */
   readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
-  /** Proposal assembly variant for performance studies. Defaults to current exhaustive sorting. */
+  /** Proposal assembly variant for performance studies. Defaults to the canonical production variant. */
   readonly assemblyVariant?: ProposalAssemblyVariant;
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
@@ -426,7 +427,7 @@ const generateProposalsForView = (
   binaryView: BinaryView,
   maxPerView: number,
   detectorPolicy?: FinderEvidenceDetectionPolicy,
-  assemblyVariant: ProposalAssemblyVariant = 'sort-all',
+  assemblyVariant: ProposalAssemblyVariant = DEFAULT_PROPOSAL_ASSEMBLY_VARIANT,
 ): ProposalViewBatch => {
   const startedAt = nowMs();
 
@@ -761,7 +762,7 @@ const computePenalties = (binaryView: BinaryView, geometry: GridResolution | nul
 const buildFinderTriples = (
   evidence: readonly FinderEvidence[],
   maxCombinations: number,
-  variant: ProposalAssemblyVariant = 'sort-all',
+  variant: ProposalAssemblyVariant = DEFAULT_PROPOSAL_ASSEMBLY_VARIANT,
 ): readonly FinderTripleCandidate[] => {
   if (variant === 'streaming-topk') {
     return buildFinderTriplesStreamingTopK(evidence, maxCombinations);

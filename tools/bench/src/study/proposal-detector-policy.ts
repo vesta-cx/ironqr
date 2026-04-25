@@ -10,7 +10,7 @@ import { normalizeDecodedText } from '../shared/text.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
-const STUDY_VERSION = 'study-v1';
+const STUDY_VERSION = 'study-v2';
 const STUDY_TIMING_ROWS_PER_POLICY = 6;
 
 type PolicyId =
