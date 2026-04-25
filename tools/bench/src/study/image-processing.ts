@@ -1134,7 +1134,7 @@ const measureVariant = async (
   variantId: string,
   viewId: BinaryViewId,
   preloadedRows: ReadonlySet<string>,
-  run: () => FinderEvidence[],
+  run: () => FinderEvidence[] | Promise<FinderEvidence[]>,
 ): Promise<{
   readonly output: FinderEvidence[];
   readonly measurement: VariantCacheMeasurement;
@@ -1151,7 +1151,7 @@ const measureVariant = async (
     };
   const cacheKey = detectorVariantCacheKey(variantId, viewId);
   const startedAt = performance.now();
-  const output = run();
+  const output = await run();
   const measurement = {
     durationMs: round(performance.now() - startedAt),
     outputCount: output.length,
@@ -1227,12 +1227,16 @@ const isVariantCacheMeasurement = (value: unknown): value is VariantCacheMeasure
   typeof (value as { outputCount?: unknown }).outputCount === 'number' &&
   Array.isArray((value as { signature?: unknown }).signature);
 
-const floodCandidateOutput = (variantId: string, view: BinaryView): FinderEvidence[] => {
+const floodCandidateOutput = async (
+  variantId: string,
+  view: BinaryView,
+): Promise<FinderEvidence[]> => {
   const options = floodVariantOptions(variantId);
+  const yieldIfDue = createCooperativeYield();
   if (options.useScanline) {
-    return floodFromComponentsWithOptions(labelScanlineComponents(view), options);
+    return floodFromComponentsWithOptions(await labelScanlineComponents(view, yieldIfDue), options);
   }
-  return floodFromComponentsWithOptions(labelDenseComponents(view), options);
+  return floodFromComponentsWithOptions(await labelDenseComponents(view, yieldIfDue), options);
 };
 
 const floodVariantOptions = (
@@ -1247,7 +1251,10 @@ const floodVariantOptions = (
   squaredDistance: variantId.includes('squared'),
 });
 
-const labelScanlineComponents = (binary: BinaryView): readonly BenchComponentStats[] => {
+const labelScanlineComponents = async (
+  binary: BinaryView,
+  yieldIfDue: () => Promise<void> = async () => {},
+): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
   const labels = new Int32Array(width * height);
@@ -1257,6 +1264,7 @@ const labelScanlineComponents = (binary: BinaryView): readonly BenchComponentSta
   let nextLabel = 1;
 
   for (let start = 0; start < labels.length; start += 1) {
+    await yieldIfDue();
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1272,6 +1280,7 @@ const labelScanlineComponents = (binary: BinaryView): readonly BenchComponentSta
     seedY[0] = minY;
 
     while (head < tail) {
+      await yieldIfDue();
       const x = seedX[head] ?? 0;
       const y = seedY[head] ?? 0;
       head += 1;
@@ -1477,7 +1486,10 @@ const centersNear = (
     : Math.hypot(dx, dy) < tolerance;
 };
 
-const labelDenseComponents = (binary: BinaryView): readonly BenchComponentStats[] => {
+const labelDenseComponents = async (
+  binary: BinaryView,
+  yieldIfDue: () => Promise<void> = async () => {},
+): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
   const labels = new Int32Array(width * height);
@@ -1485,6 +1497,7 @@ const labelDenseComponents = (binary: BinaryView): readonly BenchComponentStats[
   const stats: BenchComponentStats[] = [];
   let nextLabel = 1;
   for (let start = 0; start < labels.length; start += 1) {
+    await yieldIfDue();
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1499,6 +1512,7 @@ const labelDenseComponents = (binary: BinaryView): readonly BenchComponentStats[
     queue[0] = start;
     labels[start] = nextLabel;
     while (head < tail) {
+      await yieldIfDue();
       const index = queue[head] ?? 0;
       head += 1;
       const x = index % width;
@@ -1801,7 +1815,7 @@ const measureFloodCandidateVariants = async (
       FLOOD_CONTROL_ID,
       viewId,
       preloadedRows,
-      () => floodFromComponents(labelDenseComponents(view)),
+      async () => floodFromComponents(await labelDenseComponents(view, createCooperativeYield())),
     );
     controlMs += control.measurement.durationMs;
     const controlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
@@ -3100,6 +3114,17 @@ const otsuThresholdFromHistogram = (histogram: Uint32Array, total: number): numb
     }
   }
   return bestThreshold;
+};
+
+const COOPERATIVE_YIELD_INTERVAL_MS = 25;
+
+const createCooperativeYield = (): (() => Promise<void>) => {
+  let nextYieldAt = performance.now() + COOPERATIVE_YIELD_INTERVAL_MS;
+  return async () => {
+    if (performance.now() < nextYieldAt) return;
+    await yieldToDashboard();
+    nextYieldAt = performance.now() + COOPERATIVE_YIELD_INTERVAL_MS;
+  };
 };
 
 const yieldToDashboard = async (): Promise<void> => {
