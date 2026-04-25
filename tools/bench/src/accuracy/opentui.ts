@@ -452,15 +452,8 @@ export class BenchOpenTuiDashboard {
     const recentWidth = Math.max(40, contentWidth - leftWidth - 8);
     const fallbackTableRows = Math.max(4, Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2));
     const fallbackRecentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
-    const tableRows = Math.min(
-      fallbackTableRows,
-      measuredPanelDataRows(panels.active.box.height, fallbackTableRows),
-      measuredPanelDataRows(panels.slowest.box.height, fallbackTableRows),
-    );
-    const recentRows = Math.min(
-      fallbackRecentRows,
-      measuredPanelDataRows(panels.recent.box.height, fallbackRecentRows),
-    );
+    const tableRows = fallbackTableRows;
+    const recentRows = fallbackRecentRows;
 
     panels.header.content = headerText(this.dashboard);
     this.updateStudyFocusBorders(panels);
@@ -638,12 +631,6 @@ const createPanel = (
   box.add(title);
   box.add(body);
   return { box, body };
-};
-
-const panelDataRows = (panelRows: number): number => Math.max(0, panelBodyRows(panelRows) - 1);
-
-const measuredPanelDataRows = (panelRows: number, fallback: number): number => {
-  return panelRows > 0 ? panelDataRows(panelRows) : fallback;
 };
 
 const panelBody = (lines: readonly string[], maxRows: number): string => {
