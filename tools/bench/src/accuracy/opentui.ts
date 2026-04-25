@@ -374,6 +374,7 @@ export class BenchOpenTuiDashboard {
       recentRows + 1,
     );
     panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? ' | ↑/↓ j/k=scroll timings' : ''}`;
+    this.renderer?.requestRender();
   }
 }
 
