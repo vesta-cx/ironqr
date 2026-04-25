@@ -296,22 +296,25 @@ scanline-squared wait avg / p98: 1.53 / 6.29 ms
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
-| `run-map` | Matcher | — | Canonical matcher lead; active control for the reopened matcher phase. |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
-| `dense-stats` | Flood | `scanline-squared` | Binned after corrected head-to-head confirmation; retained only as historical evidence. |
-| `dense-index` | Flood | `scanline-squared` | Binned: faster than old dense control but `17` mismatched views. |
-| `dense-squared` | Flood | `scanline-squared` | Binned: safe but weaker than scanline candidates. |
-| `dense-index-squared` | Flood | `scanline-squared` | Binned: faster than old dense control but `17` mismatched views. |
-| `scanline-stats` | Flood | `scanline-squared` | Binned: safe but slower than `scanline-squared` in the corrected confirmation. |
-| `scanline-index` | Flood | `scanline-squared` | Binned: faster than old dense control but `17` mismatched views. |
-| `scanline-index-squared` | Flood | `scanline-squared` | Binned: fastest old candidate but `17` mismatched views. |
+| `run-map` | Matcher | — | Canonical matcher lead; active control for the reopened matcher phase. |
+| `run-pattern` | Matcher | `run-map` | Active matcher candidate: center enumeration from horizontal `1:1:3:1:1` run patterns. |
+| `axis-intersect` | Matcher | `run-map` | Active matcher candidate: intersected horizontal/vertical run-pattern centers. |
+| `shared-runs` | Flood+Matcher | `scanline-squared` + `run-map` | Active combined-artifact candidate: tests whether shared run-pattern artifacts can recover matcher performance. |
 
-## Disabled and binned variants
+## Inactive and binned variants
 
-Active means included in the default detector-study run and summary matrices. Disabled means implemented/cache-retained but not currently queued. Binned means empirically exhausted and should not be re-added without a new hypothesis.
+Active variants are listed above and are included in the default detector-study run and summary matrices. Disabled means implemented/cache-retained but not currently queued. Binned means empirically exhausted and should not be re-added without a new hypothesis.
 
 | Variant | Area | Evidence | Decision |
 | --- | --- | --- | --- |
+| `dense-stats` | Flood | Replaced by `scanline-squared` after corrected head-to-head confirmation. | Binned; retained only as historical evidence. |
+| `dense-index` | Flood | Faster than old dense control but `17` mismatched views. | Binned. |
+| `dense-squared` | Flood | Safe but weaker than scanline candidates. | Binned. |
+| `dense-index-squared` | Flood | Faster than old dense control but `17` mismatched views. | Binned. |
+| `scanline-stats` | Flood | Safe but slower than `scanline-squared` in the corrected confirmation. | Binned. |
+| `scanline-index` | Flood | Faster than old dense control but `17` mismatched views. | Binned. |
+| `scanline-index-squared` | Flood | Fastest old candidate but `17` mismatched views. | Binned. |
 | Legacy matcher pixel-walk cross-checks | Matcher | Run-map preserved output over `10,962` comparisons and was `88.93%` faster. | Retired reference. |
 | Center-signal / center-pruned matcher hard gate | Matcher | 25-asset post-run-map run had `1,097` mismatched views. | Binned; do not re-add as hard filtering. |
 | Row/flood seeded matcher replacement | Matcher | Latest run had `1,104` mismatched views. | Binned as replacement; may only return as prioritization with fallback accounting. |
@@ -322,9 +325,6 @@ Active means included in the default detector-study run and summary matrices. Di
 | `inline-flood` | Flood | Superseded by `dense-stats`; targeted `gray:h:i` check showed inline emitted fewer finders than legacy/dense. | Binned; not retained in active detector-pattern cache. |
 | `spatial-bin` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
 | `run-length-ccl` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
-| `run-pattern` | Matcher | Reopened after flood canonization to test center enumeration from horizontal `1:1:3:1:1` run patterns against `run-map`. | Active matcher candidate. |
-| `axis-intersect` | Matcher | Reopened after flood canonization to test intersected horizontal/vertical run-pattern centers against `run-map`. | Active matcher candidate. |
-| `shared-runs` | Flood+Matcher | Reopened after flood canonization to test whether shared run-pattern artifacts can recover matcher performance. | Active matcher candidate. |
 
 ## Candidate rationale
 
