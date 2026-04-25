@@ -447,7 +447,11 @@ export class BenchOpenTuiDashboard {
       renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
       recentRows + 1,
     );
-    panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? ` | tab=focus ${this.focusedStudyWidget} | ↑/↓=page | opt+↑/↓ or j/k=line` : ''}`;
+    const footerStatus =
+      this.dashboard.commandName === 'study'
+        ? renderStudyFooterStatus(this.dashboard)
+        : renderRunFooter(this.dashboard);
+    panels.footer.content = `${footerStatus} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? ` | tab=focus ${this.focusedStudyWidget} | ↑/↓=page | opt+↑/↓ or j/k=line` : ''}`;
     this.renderer?.requestRender();
   }
 }
@@ -667,6 +671,18 @@ const renderStudyEvents = (
   }
   for (const row of rows) lines.push(truncateLine(row, options.width));
   return lines;
+};
+
+const renderStudyFooterStatus = (dashboard: BenchDashboardModel): string => {
+  const cache = cacheTotals(dashboard);
+  return [
+    'bench study',
+    `stage=${dashboard.stage}`,
+    `jobs=${dashboard.completedJobs}/${dashboard.totalJobs}`,
+    `assets=${dashboard.preparedAssets}/${dashboard.assetCount}`,
+    `workers=${dashboard.workerCount || '-'}`,
+    `cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
+  ].join(' | ');
 };
 
 const cacheTotals = (dashboard: BenchDashboardModel) => {
