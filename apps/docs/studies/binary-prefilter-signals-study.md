@@ -1,329 +1,163 @@
-# Binary Prefilter Signals Study
+# Legacy vs Run-Map Matcher Accuracy Study
 
 ## Problem / question
 
-Several cheap whole-view signals may explain expensive detector behavior: black/white ratio, transition density, approximate finder-run count, component counts, and noisy-view run density. The immediate question is not whether to skip views, but whether these signals identify image-processing hotspots and reusable mask features.
+The matcher cross-check implementation changed from repeated pixel walking to row/column run-map-backed cross-checks. The 25-asset smoke study showed a large matcher speedup with equal matcher finder signatures, but that sample is not enough to close regression risk for a default detector-path change.
 
-> Which whole-view binary signals predict detector cost, proposal quality, and decode success strongly enough to guide later optimization or safe production gating?
+> Does the run-map matcher produce the same matcher `FinderEvidence[]` as the legacy pixel-walk matcher across the full corpus and all binary view identities?
 
-The unit of decision is a per-binary-view signal set. A clear result would add durable observability and may later justify detector parameter changes or explicit prefilters.
+This study is now intentionally narrow. It is not a prefilter-gating study, not a decode-capability study, and not a broad detector-optimization shootout. Center pruning, row/flood-seeded rescue, and fused-polarity traversal are turned off until we intentionally return to those detector patterns.
 
 ## Hypothesis / thesis
 
-Views with extreme dark ratio, too few transitions, too many transitions, or pathological component counts are likely expensive and low-yield. Measuring these signals should explain which threshold/scalar/polarity paths create detector work without successful decodes.
+Run-map-backed cross-checks should be output-equivalent to the legacy pixel-walk matcher because they answer the same horizontal/vertical dark-light run-length queries from precomputed axis runs. If output signatures match across every asset/view, the run-map matcher can remain the production matcher control and matcher work can be considered settled for this PR.
 
-Null hypothesis: cheap whole-view signals do not correlate with detector cost, proposal count, or decode success enough to justify maintaining them.
+Null hypothesis: run-map-backed cross-checks change matcher finder output on at least one corpus asset/view and need targeted investigation before the matcher promotion is treated as validated.
 
 ## Designed experiment / study
 
-Run the existing `view-proposals` study with additional per-view signal collection. Do not use the signals to skip work in this study.
+Run `binary-prefilter-signals` over all 54 binary view identities. For each asset/view:
 
-Collect signals after binary-plane materialization and before proposal generation:
+1. Generate the normal proposal-view summary using the current production detector path, whose matcher uses run-map-backed cross-checks.
+2. Independently run `detectMatcherFindersLegacy(...)` on the same `BinaryView`.
+3. Compare sorted matcher finder signatures:
+   - `source`
+   - center x/y
+   - module sizes
+   - score
+4. Record timing for the run-map matcher control and the legacy matcher control.
+5. Report only the legacy-vs-run-map control comparison in the processed summary.
 
-- dark ratio and light ratio;
-- horizontal and vertical transition density;
-- approximate finder-run hit count from a cheap row-run pass;
-- connected-component count and size percentiles if component labels are already built;
-- run count percentiles if run maps are available;
-- duplicate/redundant similarity to sibling views if cheap to compute.
+Detector variants intentionally disabled for this run:
 
-Analyze correlation against detector time, proposal count, ranked proposal count, structure pass count, decode success, and false positives.
+- center-pruned matcher;
+- row/flood-seeded matcher rescue;
+- fused normal+inverted polarity traversal;
+- production prefilter threshold sweeps.
+
+Those are optimization questions. This study is only an accuracy/equivalence validation for the matcher cross-check promotion.
 
 ## Metrics table
 
 | Metric | Unit | Source | Decision use |
 | --- | --- | --- | --- |
-| Dark ratio | fraction | new view signal | Candidate explanatory feature. |
-| Horizontal/vertical transition density | transitions/pixel | new view signal | Predicts run/detector cost. |
-| Approx finder-run count | count | new signal | Predicts proposal yield. |
-| Component count/percentiles | count/pixels | optional component artifact | Predicts flood cost/noise. |
-| Signal collection duration | ms | new timing span | Must be cheap enough to keep. |
-| Detector duration | ms | proposal-view spans | Correlation target. |
-| Proposal/ranked proposal count | count | per-view report | Correlation target. |
-| Structure pass count | count | trace metrics | Correlation target. |
-| Decode success / false positive | count | study summary | Safety target for future gating. |
+| Run-map matcher duration | ms | production proposal-view matcher timing | Confirms production matcher cost. |
+| Legacy matcher duration | ms | study-side legacy matcher timing | Measures old control cost. |
+| Legacy vs run-map output equality | boolean | finder signature comparison | Primary pass/fail criterion. |
+| Legacy vs run-map mismatch count | view rows | finder signature comparison | Must be zero for promotion validation. |
+| Detector duration | ms | proposal-view spans | Context; not a decision metric for matcher equivalence. |
+| Row/flood/dedupe duration | ms | proposal-view detector spans | Context for next bottleneck after matcher. |
+| Signal collection duration | ms | passive signal timing | Kept as context only. |
 
 ## Decision rule
 
-Adopt signals as observability if:
+Treat the run-map matcher promotion as validated if a full-corpus run reports:
 
-- signal collection costs less than 3% of detector duration on p95 assets, or less than an agreed absolute threshold;
-- at least one signal meaningfully explains detector cost, proposal yield, or decode success;
-- the signal definitions are stable across corpus buckets.
+- `matcherMatrix.controlComparison.legacyVsRunMapOutputsEqual === true`
+- `matcherMatrix.controlComparison.legacyVsRunMapMismatchCount === 0`
 
-Do not adopt production skipping from this study alone. A follow-up gating study must prove zero positive-regression on the current corpus or document an explicit product tradeoff.
+If mismatches are nonzero:
+
+1. inspect the mismatched asset/view rows in the full report;
+2. classify whether differences are benign scoring/order noise or real finder geometry changes;
+3. add targeted unit/corpus coverage before relying on run-map as the production control.
+
+Do not make production decisions about decode accuracy, false positives, prefilter thresholds, center pruning, seeded rescue, or fused polarity from this study. Those need separate study designs.
 
 ## Implementation checklist
 
-- [x] Add per-view signal collection behind study/report plumbing.
-- [x] Emit signal collection timing separately from detector timing.
-- [x] Add correlation summaries by scalar, threshold, polarity, and asset label in analysis output.
-- [x] Keep signals passive: no skipping, budget changes, or detector parameter changes.
-- [ ] If signals are useful, design a separate gating or detector-parameter study.
+- [x] Keep all 54 binary view identities available with `--view-set all`.
+- [x] Keep run-map matcher as the production control path.
+- [x] Re-run the legacy pixel-walk matcher per asset/view.
+- [x] Compare matcher finder signatures against the run-map control.
+- [x] Emit processed summary fields for the legacy-vs-run-map control comparison.
+- [x] Disable center-prune, row/flood-seeded, and fused-polarity matcher variants for this study direction.
+- [ ] Run the full 203-asset corpus.
 
-## Results
+## Reports
 
-Source report:
+Raw full reports are ignored and live under:
 
 ```text
 tools/bench/reports/full/study/study-binary-prefilter-signals.json
+```
+
+The durable processed summary lives under:
+
+```text
+tools/bench/reports/study/study-binary-prefilter-signals.summary.json
+```
+
+The processed summary should be the first artifact to read. It includes:
+
+- `headline`: detector, flood, run-map matcher, legacy matcher, equality, mismatch count;
+- `variants`: only `legacy-matcher-control` and `run-map-matcher-control`;
+- `matcherMatrix.controlComparison`: run-map/legacy timings, equality, mismatch count, saved ms, improvement %;
+- `detectorBreakdown`: row-scan/flood/matcher/dedupe totals for bottleneck context;
+- `questionCoverage`: states that matcher equivalence is answered and decode/false-positive questions are out of scope.
+
+## 25-asset smoke checkpoint
+
+Source processed report:
+
+```text
 tools/bench/reports/study/study-binary-prefilter-signals.summary.json
 ```
 
 Run metadata:
 
-- generated: `2026-04-25T01:38:33.753Z`
-- commit: `e6338e8b9810419c5091e8faedf5a08976bb88fb`
-- dirty state: `false`
+- generated: `2026-04-25T03:24:17.542Z`
+- commit: `519b62e02ab161891de6d2e40360a26903f7f06e`
 - command: `bench study binary-prefilter-signals --view-set all --refresh-cache --max-assets 25`
 - corpus sample: 25 assets, 8 positive, 17 negative
-- seed: `binary-prefilter-signals-879a5d3409df97f8`
-- workers: 5
-- config: `{ focus: "binary-prefilter-signals", viewSet: "all", decode: false }`
 - cache: 0 hits, 25 misses, 25 writes
+- config: `{ focus: "binary-prefilter-signals", viewSet: "all", decode: false }`
 
-Report fitness notes:
-
-- The run is suitable as a smoke-test checkpoint for detector timing, passive signal overhead, and the retired materialized-inverted/shared-run performance variants because cache hits were zero.
-- The run covered all 54 binary view identities on a seeded 25-asset sample, not the full 203-asset corpus.
-- The run is not a decode-capability or prefilter-safety proof because `decode=false`; it cannot report lost positives or false positives for a future gating policy.
-- The run still does not fully match the original designed experiment because signal rows are not joined to exhaustive `view-proposals` trace outcomes. It lacks ranked proposal score, structure pass/fail, decode success, and false-positive outcomes per signal row.
-- Inverted entries are polarity paths/signals over shared threshold planes, not separately materialized inverted planes.
-- The current study revision removed the old materialized-inverted (`a`) and shared-run-artifact (`b`) candidates; those answered the XOR/polarity-read question. The active candidate set now targets matcher speedups directly and expands to legacy/run-map controls plus legacy/run-map versions of center pruning, row/flood seeding, and fused-polarity traversal.
-
-Question coverage:
-
-| Study-doc question / metric | Status | Report evidence | Interpretation |
-| --- | --- | --- | --- |
-| Do cheap signals identify detector hotspots? | Answered for this sample | signal rows + detector durations | Yes. Dark ratio, matcher count, and deduped finder count correlate with detector time; hottest paths are inverted Sauvola. |
-| Do signals predict proposal quality? | Partially answered | proposal counts only | Proposal count exists, but ranked proposal count, score, and structure pass/fail count are missing. Count alone is not quality. |
-| Do signals predict decode success? | Unanswered | `decode=false` | No decode success or unique-positive evidence was collected. |
-| Do signals predict false-positive risk? | Unanswered | `decode=false` | No false-positive evidence was collected. |
-| Is signal collection cheap enough for study observability? | Answered for this sample | signalMs vs detectorMs | Yes. Total signal overhead was ~1.15% of detector time; p95 per-asset overhead was ~2.41%, under the 3% rule. |
-| Does materializing inverted buffers beat polarity-proxy reads? | Answered for this smoke sample | retired `materialized-inverted-detector` variant | The old candidate improved total inverted detector+materialization time by 3.5% with equal finder/proposal counts, below the 5% checkpoint threshold; polarity-read/XOR overhead is not the main target. |
-| Is shared polarity-neutral detector structure promising? | Partially answered | retired `shared-run-artifact-prototype` variant plus active fused-polarity variants | The old candidate showed headroom but was too broad. The active study now decomposes matcher-specific legacy/run-map controls, center pruning, seeded rescue, and fused polarity traversal. |
-| Are component counts/percentiles useful? | Unanswered | not collected | Component stats were optional and not present. |
-| Are duplicate/redundant sibling-view signals useful? | Unanswered | not collected | Similarity to sibling views was not present. |
-
-Headline totals:
+Headline evidence:
 
 | Metric | Value |
 | --- | ---: |
-| Pixel observations | 15,192,640 |
-| Proposal generation wall time | 1,038,960.91 ms |
-| Detector time | 204,322.80 ms |
-| Scalar view materialization | 1,812.48 ms |
-| Binary plane materialization | 4,458.60 ms |
-| Binary view wrapper materialization | 10.74 ms |
-| Passive signal collection | 2,344.00 ms |
-| Histogram measurement | 1,588.29 ms |
-| Integral measurement | 489.68 ms |
-| Study-side RGB fusion prototype | 231.98 ms |
-| Study-side OKLab fusion prototype | 1,112.98 ms |
-| Estimated shared polarity artifact saving | 1,192.43 ms |
-
-Retired variant results:
-
-| Variant | Control | Candidate | Delta | Improvement | Behavior evidence | Interpretation |
-| --- | ---: | ---: | ---: | ---: | --- | --- |
-| materialized inverted detector | 118,662.49 ms | 114,504.65 ms | 4,157.84 ms | 3.5% | proposal/finder counts equal | Below the <5% checkpoint threshold; polarity-read/XOR overhead is unlikely to be the main inverted cost. |
-| shared run artifact prototype | 204,322.80 ms | 1,143.55 ms | 203,179.25 ms | 99.44% | not behavior-equivalent | Strong headroom signal, but too broad to identify the matcher implementation shape. Replaced by matcher-specific candidates. |
-
-Current processed report contract:
-
-The final/processed report is written to `tools/bench/reports/study/study-binary-prefilter-signals.summary.json`. It must preserve enough evidence to answer the current matcher question without requiring readers to open the ignored full report:
-
-- `headline`: detector/flood/run-map matcher/legacy matcher timing plus legacy-vs-run-map output equality.
-- `variants`: the eight legacy/run-map control and candidate rows.
-- `matcherMatrix`: compact control comparison and legacy/run-map candidate matrix with timings, saved ms, improvement %, output equality, and mismatch counts.
-- `detectorBreakdown`: row-scan/flood/matcher/dedupe totals.
-- `questionCoverage`: explicitly calls out run-map promotion regression evidence, matcher candidate preservation, and the still-unanswered decode/false-positive gating questions.
-
-Active matcher-candidate study revision:
-
-| Variant id | Purpose | Behavior-equivalent? | Notes |
-| --- | --- | --- | --- |
-| `legacy-matcher-control` | Legacy pixel-walk cross-check matcher control measured against the current run-map control. | Yes, study-enforced | Reintroduced for full-corpus regression checks after run-map promotion. |
-| `run-map-matcher-control` | Default production matcher control: row/column run-map-backed cross-checks replace repeated pixel walking. | Yes | Promoted after 25-asset equality evidence (`0` mismatched views). |
-| `legacy-center-pruned-matcher-prototype` | Legacy matcher with cheap local center-signal filtering. | Yes, study-enforced | Confirms whether pruning behavior changes independently of run-map cross-checks. |
-| `legacy-row-flood-seeded-matcher-prototype` | Legacy matcher run around row-scan/flood finder centers. | Yes, study-enforced | Output-producing rescue-order candidate. |
-| `legacy-fused-polarity-matcher-prototype` | Legacy matcher in one shared-plane normal+inverted traversal. | Yes, study-enforced | Checks fused traversal without run-map cross-check behavior. |
-| `run-map-center-pruned-matcher-prototype` | Run-map matcher with cheap local center-signal filtering. | Yes, study-enforced | Reports sampled centers, survivors, output equality, and mismatch counts. |
-| `run-map-row-flood-seeded-matcher-prototype` | Run-map matcher run around row-scan/flood finder centers. | Yes, study-enforced | Output-producing rescue-order candidate. |
-| `run-map-fused-polarity-matcher-prototype` | Run-map matcher in one shared-plane normal+inverted traversal. | Yes, study-enforced | Answers whether normal+inverted fusion is worth deeper work under the production matcher. |
-
-## Matcher refinement checkpoint
-
-The matcher-specific iteration added per-detector timing and then promoted one candidate to production:
-
-1. Per-view proposal summaries now split detector time into row-scan, flood, matcher, and dedupe buckets.
-2. `binary-prefilter-signals` emits those buckets to the study report and the live detector timing chart. Live timing bars include `p=<count>`: proposal count for view bars and finder-evidence count for detector/candidate bars.
-3. The first matcher candidate made row/column run maps and used them for matcher cross-checks instead of repeatedly walking pixels.
-4. The study compares candidate `FinderEvidence` signatures against the control matcher: source, center, module sizes, and score rounded to three decimals.
-5. After the 25-asset equality run, the run-map matcher became the production/default matcher control in `packages/ironqr/src/pipeline/proposals.ts`.
-
-Durable 25-asset checkpoint evidence from the run generated at `2026-04-25T02:22:24.459Z` on commit `fb8c1508d86f1d21fdeee384ec8cf8d54c62639a`:
-
-| Measurement | Value |
-| --- | ---: |
-| Assets | 25 (`8` positive, `17` negative) |
-| View rows | 1,350 (`25 × 54`) |
-| Detector time | 205,798.40 ms |
-| Matcher control time | 151,921.40 ms |
-| Run-map matcher candidate time | 24,769.57 ms |
-| Run-map matcher improvement | 83.7% |
-| Run-map matcher output equality | `true` |
-| Run-map mismatched views | 0 |
-| Center-pruned matcher candidate time | 3,042.27 ms |
-| Center-pruned matcher output equality | `false` |
-| Center-pruned mismatched views | 1,104 |
+| Detector time | 75,698.18 ms |
+| Flood time | 44,299.29 ms |
+| Run-map matcher time | 22,477.26 ms |
+| Legacy matcher time | 239,995.51 ms |
+| Run-map saved time | 217,518.25 ms |
+| Run-map improvement vs legacy | 90.63% |
+| Legacy vs run-map output equality | `true` |
+| Legacy vs run-map mismatched views | 0 |
 
 Interpretation:
 
-- Run-map cross-checks are the right default: they preserve matcher output while removing most of the matcher cost.
-- Center pruning is too aggressive as a hard gate. It rejected enough candidate centers to change outputs in most views. If revisited, it should likely become prioritization plus fallback, not an exclusion filter.
-- Fused polarity traversal and row/flood seeded rescue stayed non-output-producing in this checkpoint because they only counted/classified possible work. Later study code made both output-producing so they can be checked against the default matcher.
-- Future study runs are expected to be faster because the production matcher control now uses run maps by default.
+- The smoke run strongly supports the run-map matcher promotion: `0` mismatched matcher view rows across `25 × 54 = 1,350` asset/view rows.
+- The legacy matcher is roughly an order of magnitude slower than the run-map matcher on this sample.
+- Flood-fill is now the main detector bottleneck, not matcher: `44.3s / 75.7s = 58.5%` of detector time.
+- This run does not validate decode accuracy or false-positive behavior because `decode=false`.
 
-## Post-run-map matcher checkpoint
+## Full-run plan
 
-A later 25-asset run after promoting run-map cross-checks to the default matcher was generated at `2026-04-25T02:45:45.044Z` on commit `0fe421beeddb7a05be1a86854b573e4ebaa96748`:
+Run the full corpus with no `--max-assets`:
 
-| Measurement | Value |
-| --- | ---: |
-| Assets | 25 (`8` positive, `17` negative) |
-| View rows | 1,350 (`25 × 54`) |
-| Detector time | 75,513.75 ms |
-| Flood-fill time | 43,885.96 ms |
-| Matcher control time | 22,973.80 ms |
-| Row-scan time | 8,643.08 ms |
-| Center-pruned run-map matcher time | 30,889.20 ms |
-| Center-pruned output equality | `false` (`1,097` mismatched views) |
-| Row/flood seeded matcher time | 8,084.02 ms |
-| Row/flood seeded output equality | `false` (`1,104` mismatched views) |
-| Fused normal+inverted matcher time | 24,184.30 ms |
-| Fused normal+inverted output equality | `true` (`0` mismatched polarity views) |
+```bash
+bun run --cwd tools/bench bench study binary-prefilter-signals \
+  --view-set all \
+  --refresh-cache
+```
 
-Interpretation:
+Expected full-run decision:
 
-- The bottleneck moved from matcher to flood-fill. Flood is now ~58% of detector time in this sample (`43.9s / 75.5s`).
-- The run-map matcher remains the right control: center pruning is slower than control and still wrong, while seeded rescue is faster but misses control output.
-- Fused normal+inverted traversal is behavior-equivalent in this run, but slightly slower than separate run-map matcher passes (`24.2s` vs `23.0s`). It is not worth production adoption without further implementation changes that actually reuse more shared work.
-- Hybrid and Otsu now dominate aggregate detector time, while the hottest individual views are still mostly normal gray/Otsu and inverted Sauvola/hybrid paths.
-- Next detector optimization should target flood/component labeling and component matching rather than matcher pruning.
+- If mismatch count is zero, keep run-map matcher as the production/default matcher and stop matcher work for this PR.
+- If mismatch count is nonzero, inspect mismatched assets/views before shipping the matcher promotion as validated.
+- Regardless of matcher result, treat flood/component labeling as the next detector-optimization area once matcher equivalence is settled.
 
-Detector hotspots by view:
+## Out of scope / future studies
 
-| View | Detector time | Proposals | Row finders | Matcher finders | Avg dark ratio | Avg H transitions | Avg V transitions |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `oklab-l:sauvola:inverted` | 8.0s | 1,064 | 242 | 288 | 0.786 | 0.0273 | 0.0241 |
-| `gray:sauvola:inverted` | 7.1s | 1,259 | 263 | 293 | 0.721 | 0.0305 | 0.0271 |
-| `r:sauvola:inverted` | 7.1s | 1,361 | 281 | 300 | 0.718 | 0.0351 | 0.0304 |
-| `g:sauvola:inverted` | 7.0s | 1,288 | 263 | 296 | 0.720 | 0.0304 | 0.0273 |
-| `b:sauvola:inverted` | 6.6s | 1,265 | 282 | 300 | 0.699 | 0.0342 | 0.0312 |
+The following remain intentionally out of scope for the full-blast matcher-equivalence run:
 
-Detector cost by family:
+- center-pruned matcher gating or prioritization;
+- row/flood-seeded matcher rescue;
+- fused normal+inverted matcher traversal;
+- binary prefilter threshold sweeps;
+- decode success / false-positive proof;
+- component-label reuse and flood-fill optimization.
 
-| Family | Detector time | Proposals | Notes |
-| --- | ---: | ---: | --- |
-| `oklab-l` | 28.5s | 8,218 | Most expensive scalar family in this sample. |
-| `gray` | 28.3s | 8,979 | Similar cost/yield to OKLab-L. |
-| `r` | 28.0s | 8,060 | RGB channels remain high-cost. |
-| `b` | 27.7s | 7,467 | RGB channels remain high-cost. |
-| `g` | 27.3s | 8,878 | RGB channels remain high-cost. |
-| OKLab chroma families | 15.5s–16.8s each | ~4k–4.9k each | Lower detector load in this sample. |
-
-Detector cost by threshold:
-
-| Threshold | Detector time | Proposals | Notes |
-| --- | ---: | ---: | --- |
-| `otsu` | 80.4s | 21,581 | Highest detector time. |
-| `hybrid` | 75.3s | 23,378 | Highest proposal count. |
-| `sauvola` | 48.6s | 14,504 | Lower aggregate detector time, but inverted Sauvola contains the top five hottest individual paths. |
-
-Detector cost by polarity:
-
-| Polarity | Detector time | Proposals | Flood finders | Notes |
-| --- | ---: | ---: | ---: | --- |
-| `inverted` | 118.7s | 27,056 | 78 | Higher detector time despite fewer proposals. |
-| `normal` | 85.7s | 32,407 | 423 | More flood evidence, lower detector time. |
-
-Signal correlations with detector duration across per-asset/per-view rows:
-
-| Signal | Correlation with detector duration |
-| --- | ---: |
-| Deduped finder count | 0.536 |
-| Matcher finder count | 0.532 |
-| Dark ratio | 0.491 |
-| Row-scan finder count | 0.386 |
-| Vertical transition density | 0.196 |
-| Vertical run count | 0.168 |
-| Horizontal transition density | 0.172 |
-| Horizontal run count | 0.149 |
-| Proposal count | 0.099 |
-| Flood finder count | -0.008 |
-
-## Interpretation plan
-
-Treat signals as explanatory first. A signal that identifies low-yield views is not automatically a production prefilter; it must be validated against unique successes and hard positives. Signals that identify high-cost views may still be useful for optimizing masks or detector paths without skipping those views.
-
-This smoke run supports keeping passive signal collection as study observability. Signal collection was ~2.34s versus ~204.32s of detector work, or ~1.15% overall. The p95 per-asset signal overhead was ~2.41%, under the study's 3% adoption threshold for observability.
-
-The strongest predictors in this run were deduped finder count, matcher finder count, and dark ratio. Raw transition density and run counts had weaker correlation. The hottest paths again concentrated in inverted Sauvola views with high dark ratios.
-
-The retired materialized-inverted candidate answered the immediate XOR-vs-interaction question for the smoke sample: materializing inverted buffers reduced inverted detector+materialization time by only 3.5% while preserving finder/proposal counts. That suggests polarity-read/XOR overhead is not the main cause of inverted cost. Most of the cost appears to come from matcher interaction with inverted semantics and repeated detector traversal.
-
-The active candidate set now focuses on matcher-specific implementation shapes across both cross-check implementations: legacy and run-map controls, plus center pruning, row/flood seeded rescue, and fused normal+inverted traversal for each control family. Run-map-backed cross-checks are now the default matcher control after output-equality evidence, but the legacy control remains in the study so a full run can catch proposal/cluster detection regressions caused by the matcher promotion. All active matcher candidates emit finder lists and compare signatures against the current run-map control.
-
-`binaryViewMs` remains effectively zero compared with detector time, confirming that inverted view identities are cheap proxies. Optimization should target detector traversal/artifact reuse, not binary-view wrapper construction.
-
-## Conclusion / evidence-backed decision
-
-Keep passive binary signals in study reports. They are cheap enough for study use and explain detector hotspots well enough to guide follow-up work.
-
-This run does **not** answer the full problem statement. It answers the detector-hotspot and signal-overhead questions for the 25-asset sample, partially answers proposal-yield behavior, answers the materialized-inverted smoke question, and does not answer decode success or safe production gating.
-
-Checkpoint decisions:
-
-- Do not prioritize cached materialized inverted views yet; the retired materialized-inverted candidate improved only 3.5%, below the predeclared <5% threshold for deprioritization.
-- Treat run-map-backed matcher cross-checks as the default control. Cheap center pruning needs mismatch analysis before it can gate matcher work, and should probably become prioritization/fallback rather than a hard filter.
-- Keep the fused normal+inverted traversal candidate as a secondary question: useful if it falls out of shared-plane matcher artifacts, but unlikely to beat pruning/cross-check reuse alone.
-- Do not ship production prefilter gating from this run.
-
-Full refined experiment still needed for prefilter gating:
-
-1. Integrate binary signal collection into the exhaustive `view-proposals` path instead of running it as a detached proposal-only study.
-2. For each `proposal-view-generated` row, attach:
-   - dark ratio and light ratio;
-   - horizontal/vertical transition density;
-   - horizontal/vertical run counts;
-   - approximate finder-run candidate count from the cheap signal pass;
-   - optional connected-component count and size percentiles;
-   - optional sibling similarity for normal/inverted and scalar-family pairs.
-3. Preserve exhaustive study behavior:
-   - all 54 view identities;
-   - 10k proposal/cluster/representative ceiling;
-   - `allowMultiple: true`;
-   - `continueAfterDecode: true`;
-   - no signal-based skipping.
-4. Reuse the `view-proposals` trace outputs to correlate signals against:
-   - ranked proposal count;
-   - proposal scores;
-   - structure pass/fail count;
-   - cluster representative count;
-   - decode success and unique positive contribution;
-   - false-positive count on negatives.
-5. Add a candidate-threshold sweep as analysis-only rows, not production behavior:
-   - compute which views/assets would be skipped by candidate signal thresholds;
-   - report detector time avoided;
-   - report unique positive assets lost;
-   - report false positives avoided;
-   - require zero unique-positive loss before considering a production prefilter.
-
-Do not ship production prefilter gating from this run. Required next evidence:
-
-- rerun `binary-prefilter-signals` after the matcher variant expansion to compare legacy and run-map controls across the full corpus;
-- rerun `view-proposals` so proposal ranking, structure, cluster, and decode outcomes are measured against the faster matcher default;
-- if center pruning is revisited, report both a fast-first candidate and a fallback-to-full-matcher candidate so speed and output equivalence are evaluated together;
-- keep fused polarity traversal output-producing and compare both legacy and run-map fused outputs against the default matcher before using it for a production decision;
-- verify any candidate prefilter thresholds against unique positive successes and false-positive risk.
+When we return to detector optimization, create separate study designs for flood/component labeling and any matcher rescue strategy. Do not overload this equivalence run with those questions.

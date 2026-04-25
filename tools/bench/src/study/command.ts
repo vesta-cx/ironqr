@@ -286,8 +286,8 @@ const buildStudyHeadline = (
   const matcherMs = numberField(totals, 'matcherControlMs');
   const legacyMs = numberField(totals, 'matcherLegacyControlMs');
   const legacyEqual = Boolean(totals.matcherLegacyControlOutputsEqual);
-  const fusedEqual = Boolean(totals.matcherFusedPolarityOutputsEqual);
-  return `Detector=${formatMs(detectorMs)}; flood=${formatMs(floodMs)}; run-map matcher=${formatMs(matcherMs)}; legacy matcher=${formatMs(legacyMs)}; legacyEqual=${legacyEqual}; runMapFusedEqual=${fusedEqual}.`;
+  const mismatchCount = numberField(totals, 'matcherLegacyControlMismatchCount');
+  return `Detector=${formatMs(detectorMs)}; flood=${formatMs(floodMs)}; run-map matcher=${formatMs(matcherMs)}; legacy matcher=${formatMs(legacyMs)}; legacyEqual=${legacyEqual}; mismatchedViews=${mismatchCount}.`;
 };
 
 const buildDetectorBreakdown = (summary: Record<string, unknown>): Record<string, number> => {
@@ -325,54 +325,6 @@ const buildMatcherVariantMatrix = (
         numberField(totals, 'matcherLegacyControlMs'),
       ),
     },
-    variants: {
-      legacy: {
-        centerPruned: matcherVariantFields(
-          totals,
-          'matcherLegacyControlMs',
-          'matcherLegacyPrunedCenterMs',
-          'matcherLegacyPrunedCenterOutputsEqual',
-          'matcherLegacyPrunedCenterMismatchCount',
-        ),
-        rowFloodSeeded: matcherVariantFields(
-          totals,
-          'matcherLegacyControlMs',
-          'matcherLegacySeededMs',
-          'matcherLegacySeededOutputsEqual',
-          'matcherLegacySeededMismatchCount',
-        ),
-        fusedPolarity: matcherVariantFields(
-          totals,
-          'matcherLegacyControlMs',
-          'matcherLegacyFusedPolarityMs',
-          'matcherLegacyFusedPolarityOutputsEqual',
-          'matcherLegacyFusedPolarityMismatchCount',
-        ),
-      },
-      runMap: {
-        centerPruned: matcherVariantFields(
-          totals,
-          'matcherControlMs',
-          'matcherPrunedCenterMs',
-          'matcherPrunedCenterOutputsEqual',
-          'matcherPrunedCenterMismatchCount',
-        ),
-        rowFloodSeeded: matcherVariantFields(
-          totals,
-          'matcherControlMs',
-          'matcherSeededMs',
-          'matcherSeededOutputsEqual',
-          'matcherSeededMismatchCount',
-        ),
-        fusedPolarity: matcherVariantFields(
-          totals,
-          'matcherControlMs',
-          'matcherFusedPolarityMs',
-          'matcherFusedPolarityOutputsEqual',
-          'matcherFusedPolarityMismatchCount',
-        ),
-      },
-    },
     sharedCounters: {
       sampledCenterCount: numberField(totals, 'matcherSampledCenterCount'),
       prunedCenterCount: numberField(totals, 'matcherPrunedCenterCount'),
@@ -381,26 +333,6 @@ const buildMatcherVariantMatrix = (
       fusedLightCenterCount: numberField(totals, 'matcherFusedLightCenterCount'),
       sharedPlaneCount: numberField(totals, 'matcherSharedPlaneCount'),
     },
-  };
-};
-
-const matcherVariantFields = (
-  totals: Record<string, unknown>,
-  controlMsKey: string,
-  candidateMsKey: string,
-  outputsEqualKey: string,
-  mismatchCountKey: string,
-): Record<string, unknown> => {
-  const controlMs = numberField(totals, controlMsKey);
-  const candidateMs = numberField(totals, candidateMsKey);
-  const savedMs = roundReportNumber(controlMs - candidateMs);
-  return {
-    controlMs,
-    candidateMs,
-    savedMs,
-    improvementPct: percentReportNumber(savedMs, controlMs),
-    outputsEqual: Boolean(totals[outputsEqualKey]),
-    mismatchCount: numberField(totals, mismatchCountKey),
   };
 };
 
@@ -414,17 +346,12 @@ const buildQuestionCoverage = (
     {
       question: 'Do cheap signals identify detector hotspots?',
       status: 'answered-for-sample',
-      evidence: `detector=${formatMs(numberField(totals, 'detectorMs'))}; flood=${formatMs(numberField(totals, 'floodMs'))}; runMapMatcher=${formatMs(numberField(totals, 'matcherControlMs'))}`,
+      evidence: `detector=${formatMs(numberField(totals, 'detectorMs'))}; runMapMatcher=${formatMs(numberField(totals, 'matcherControlMs'))}`,
     },
     {
       question: 'Did run-map cross-check promotion preserve matcher finder evidence?',
       status: 'answered-for-candidates',
       evidence: `legacyEqual=${String(totals.matcherLegacyControlOutputsEqual)} legacyMismatchViews=${String(totals.matcherLegacyControlMismatchCount)}`,
-    },
-    {
-      question: 'Which legacy/run-map matcher variants preserve finder evidence?',
-      status: 'answered-for-candidates',
-      evidence: `legacyPruned=${String(totals.matcherLegacyPrunedCenterOutputsEqual)} legacySeeded=${String(totals.matcherLegacySeededOutputsEqual)} legacyFused=${String(totals.matcherLegacyFusedPolarityOutputsEqual)} runMapPruned=${String(totals.matcherPrunedCenterOutputsEqual)} runMapSeeded=${String(totals.matcherSeededOutputsEqual)} runMapFused=${String(totals.matcherFusedPolarityOutputsEqual)}`,
     },
     {
       question: 'Do signals predict decode success or false positives?',

@@ -9,16 +9,8 @@ import {
   getOklabPlanes,
 } from '../../../../packages/ironqr/src/pipeline/frame.js';
 import {
-  detectFloodFinders,
   detectMatcherFinders,
-  detectMatcherFindersForSharedPolarities,
-  detectMatcherFindersFromSeeds,
   detectMatcherFindersLegacy,
-  detectMatcherFindersLegacyForSharedPolarities,
-  detectMatcherFindersLegacyFromSeeds,
-  detectMatcherFindersLegacyWithCenterSignal,
-  detectMatcherFindersWithCenterSignal,
-  detectRowScanFinders,
   type FinderEvidence,
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import {
@@ -341,9 +333,9 @@ export const sharedBinaryDetectorArtifactsStudyPlugin = makeImageProcessingStudy
 
 export const binaryPrefilterSignalsStudyPlugin = makeImageProcessingStudyPlugin({
   id: 'binary-prefilter-signals',
-  title: 'IronQR binary prefilter signals study',
+  title: 'IronQR legacy vs run-map matcher study',
   description:
-    'Collects passive whole-view binary signals and correlates them with detector cost and proposal yield.',
+    'Compares legacy pixel-walk matcher cross-check output against the run-map matcher control across binary views.',
   focus: 'binary-prefilter-signals',
   decodeDefault: false,
 });
@@ -631,40 +623,9 @@ const measureMatcherCandidateVariants = async (
     (sum, summary) => sum + summary.finderEvidence.matcherDurationMs,
     0,
   );
-  const runMapMs = 0;
   let legacyControlMs = 0;
-  let prunedCenterMs = 0;
-  let legacyPrunedCenterMs = 0;
-  let seededMatcherMs = 0;
-  let legacySeededMatcherMs = 0;
-  let fusedPolarityMs = 0;
-  let legacyFusedPolarityMs = 0;
-  let seededMatcherEstimatedCenters = 0;
-  let sampledCenterCount = 0;
-  let prunedCenterCount = 0;
-  let fusedDarkCenterCount = 0;
-  let fusedLightCenterCount = 0;
-  const runMapOutputsEqual = true;
   let legacyControlOutputsEqual = true;
-  let prunedCenterOutputsEqual = true;
-  let legacyPrunedCenterOutputsEqual = true;
-  let seededMatcherOutputsEqual = true;
-  let legacySeededMatcherOutputsEqual = true;
-  let fusedPolarityOutputsEqual = true;
-  let legacyFusedPolarityOutputsEqual = true;
-  const runMapMismatchCount = 0;
   let legacyControlMismatchCount = 0;
-  let prunedCenterMismatchCount = 0;
-  let legacyPrunedCenterMismatchCount = 0;
-  let seededMatcherMismatchCount = 0;
-  let legacySeededMatcherMismatchCount = 0;
-  let fusedPolarityMismatchCount = 0;
-  let legacyFusedPolarityMismatchCount = 0;
-
-  for (const summary of controlSummaries) {
-    seededMatcherEstimatedCenters +=
-      summary.finderEvidence.rowScanCount + summary.finderEvidence.floodCount;
-  }
 
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
@@ -673,154 +634,20 @@ const measureMatcherCandidateVariants = async (
     const legacyOutput = detectMatcherFindersLegacy(view, view.width, view.height);
     const legacyElapsed = performance.now() - legacyStartedAt;
     legacyControlMs += legacyElapsed;
+
     const legacyEqual = finderOutputsEqual(controlOutput, legacyOutput);
     legacyControlOutputsEqual &&= legacyEqual;
     if (!legacyEqual) legacyControlMismatchCount += 1;
+
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'lc', 'legacy-control'),
+      detectorTimingId(viewId, 'legacy', 'matcher'),
       legacyElapsed,
       'detector',
       legacyOutput.length,
     );
-
-    const seeds = [
-      ...detectRowScanFinders(view, view.width, view.height),
-      ...detectFloodFinders(view, view.width, view.height),
-    ];
-    const legacySeededStartedAt = performance.now();
-    const legacySeededOutput = detectMatcherFindersLegacyFromSeeds(
-      view,
-      view.width,
-      view.height,
-      seeds,
-    );
-    const legacySeededElapsed = performance.now() - legacySeededStartedAt;
-    legacySeededMatcherMs += legacySeededElapsed;
-    const legacySeededEqual = finderOutputsEqual(controlOutput, legacySeededOutput);
-    legacySeededMatcherOutputsEqual &&= legacySeededEqual;
-    if (!legacySeededEqual) legacySeededMatcherMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'le', 'seeded-matcher'),
-      legacySeededElapsed,
-      'detector',
-      legacySeededOutput.length,
-    );
-
-    const seededStartedAt = performance.now();
-    const seededOutput = detectMatcherFindersFromSeeds(view, view.width, view.height, seeds);
-    const seededElapsed = performance.now() - seededStartedAt;
-    seededMatcherMs += seededElapsed;
-    const seededEqual = finderOutputsEqual(controlOutput, seededOutput);
-    seededMatcherOutputsEqual &&= seededEqual;
-    if (!seededEqual) seededMatcherMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'e', 'seeded-matcher'),
-      seededElapsed,
-      'detector',
-      seededOutput.length,
-    );
-
-    const legacyPrunedStartedAt = performance.now();
-    const legacyPrunedOutput = detectMatcherFindersLegacyWithCenterSignal(
-      view,
-      view.width,
-      view.height,
-    );
-    const legacyPrunedElapsed = performance.now() - legacyPrunedStartedAt;
-    legacyPrunedCenterMs += legacyPrunedElapsed;
-    const legacyPrunedEqual = finderOutputsEqual(controlOutput, legacyPrunedOutput);
-    legacyPrunedCenterOutputsEqual &&= legacyPrunedEqual;
-    if (!legacyPrunedEqual) legacyPrunedCenterMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'lb', 'pruned-matcher'),
-      legacyPrunedElapsed,
-      'detector',
-      legacyPrunedOutput.length,
-    );
-
-    const prunedStartedAt = performance.now();
-    const prunedOutput = detectMatcherFindersWithCenterSignal(view, view.width, view.height);
-    const prunedElapsed = performance.now() - prunedStartedAt;
-    prunedCenterMs += prunedElapsed;
-    const pruned = measurePrunedMatcherCenters(view);
-    sampledCenterCount += pruned.sampledCenterCount;
-    prunedCenterCount += pruned.prunedCenterCount;
-    const prunedEqual = finderOutputsEqual(controlOutput, prunedOutput);
-    prunedCenterOutputsEqual &&= prunedEqual;
-    if (!prunedEqual) prunedCenterMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'b', 'pruned-matcher'),
-      prunedElapsed,
-      'detector',
-      prunedOutput.length,
-    );
     log(
-      `${assetId}: matcher output candidates ${viewId} legacyEqual=${legacyEqual} legacySeededEqual=${legacySeededEqual} seededEqual=${seededEqual} legacyPrunedEqual=${legacyPrunedEqual} prunedEqual=${prunedEqual}`,
-    );
-    await yieldToDashboard();
-  }
-
-  const planeViewIds = uniquePlaneRepresentativeIds(viewIds);
-  for (const viewId of planeViewIds) {
-    const [scalar = '', threshold = ''] = viewId.split(':');
-    const normalViewId = `${scalar}:${threshold}:normal` as BinaryViewId;
-    const invertedViewId = `${scalar}:${threshold}:inverted` as BinaryViewId;
-    if (!viewIds.includes(normalViewId) || !viewIds.includes(invertedViewId)) continue;
-    const normalView = viewBank.getBinaryView(normalViewId);
-    const invertedView = viewBank.getBinaryView(invertedViewId);
-    const normalControl = detectMatcherFinders(normalView, normalView.width, normalView.height);
-    const invertedControl = detectMatcherFinders(
-      invertedView,
-      invertedView.width,
-      invertedView.height,
-    );
-
-    const legacyFusedStartedAt = performance.now();
-    const legacyFusedOutput = detectMatcherFindersLegacyForSharedPolarities(
-      normalView,
-      invertedView,
-    );
-    const legacyFusedElapsed = performance.now() - legacyFusedStartedAt;
-    legacyFusedPolarityMs += legacyFusedElapsed;
-    const legacyNormalEqual = finderOutputsEqual(normalControl, legacyFusedOutput.normal);
-    const legacyInvertedEqual = finderOutputsEqual(invertedControl, legacyFusedOutput.inverted);
-    legacyFusedPolarityOutputsEqual &&= legacyNormalEqual && legacyInvertedEqual;
-    if (!legacyNormalEqual) legacyFusedPolarityMismatchCount += 1;
-    if (!legacyInvertedEqual) legacyFusedPolarityMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'ld', 'fused-polarity'),
-      legacyFusedElapsed,
-      'detector',
-      legacyFusedOutput.normal.length + legacyFusedOutput.inverted.length,
-    );
-
-    const fusedStartedAt = performance.now();
-    const fusedOutput = detectMatcherFindersForSharedPolarities(normalView, invertedView);
-    const fusedElapsed = performance.now() - fusedStartedAt;
-    fusedPolarityMs += fusedElapsed;
-    const fused = measureFusedPolarityMatcherCenters(normalView);
-    fusedDarkCenterCount += fused.darkCenterCount;
-    fusedLightCenterCount += fused.lightCenterCount;
-    const normalEqual = finderOutputsEqual(normalControl, fusedOutput.normal);
-    const invertedEqual = finderOutputsEqual(invertedControl, fusedOutput.inverted);
-    fusedPolarityOutputsEqual &&= normalEqual && invertedEqual;
-    if (!normalEqual) fusedPolarityMismatchCount += 1;
-    if (!invertedEqual) fusedPolarityMismatchCount += 1;
-    logStudyTiming(
-      log,
-      detectorTimingId(viewId, 'd', 'fused-polarity'),
-      fusedElapsed,
-      'detector',
-      fusedOutput.normal.length + fusedOutput.inverted.length,
-    );
-    log(
-      `${assetId}: matcher fused-polarity candidates ${viewId} legacyNormalEqual=${legacyNormalEqual} legacyInvertedEqual=${legacyInvertedEqual} normalEqual=${normalEqual} invertedEqual=${invertedEqual}`,
+      `${assetId}: matcher legacy-vs-run-map ${viewId} equal=${legacyEqual} runMap=${controlOutput.length} legacy=${legacyOutput.length}`,
     );
     await yieldToDashboard();
   }
@@ -828,35 +655,35 @@ const measureMatcherCandidateVariants = async (
   return {
     controlMatcherMs: round(controlMatcherMs),
     legacyControlMs: round(legacyControlMs),
-    runMapMs: round(runMapMs),
-    prunedCenterMs: round(prunedCenterMs),
-    legacyPrunedCenterMs: round(legacyPrunedCenterMs),
-    seededMatcherMs: round(seededMatcherMs),
-    legacySeededMatcherMs: round(legacySeededMatcherMs),
-    fusedPolarityMs: round(fusedPolarityMs),
-    legacyFusedPolarityMs: round(legacyFusedPolarityMs),
-    seededMatcherEstimatedCenters,
-    sampledCenterCount,
-    prunedCenterCount,
-    fusedDarkCenterCount,
-    fusedLightCenterCount,
-    runMapOutputsEqual,
     legacyControlOutputsEqual,
-    prunedCenterOutputsEqual,
-    legacyPrunedCenterOutputsEqual,
-    seededMatcherOutputsEqual,
-    legacySeededMatcherOutputsEqual,
-    fusedPolarityOutputsEqual,
-    legacyFusedPolarityOutputsEqual,
-    runMapMismatchCount,
     legacyControlMismatchCount,
-    prunedCenterMismatchCount,
-    legacyPrunedCenterMismatchCount,
-    seededMatcherMismatchCount,
-    legacySeededMatcherMismatchCount,
-    fusedPolarityMismatchCount,
-    legacyFusedPolarityMismatchCount,
-    sharedPlaneCount: planeViewIds.length,
+    runMapMs: 0,
+    runMapOutputsEqual: true,
+    runMapMismatchCount: 0,
+    prunedCenterMs: 0,
+    legacyPrunedCenterMs: 0,
+    prunedCenterOutputsEqual: false,
+    legacyPrunedCenterOutputsEqual: false,
+    prunedCenterMismatchCount: 0,
+    legacyPrunedCenterMismatchCount: 0,
+    seededMatcherMs: 0,
+    legacySeededMatcherMs: 0,
+    seededMatcherOutputsEqual: false,
+    legacySeededMatcherOutputsEqual: false,
+    seededMatcherMismatchCount: 0,
+    legacySeededMatcherMismatchCount: 0,
+    seededMatcherEstimatedCenters: 0,
+    fusedPolarityMs: 0,
+    legacyFusedPolarityMs: 0,
+    fusedPolarityOutputsEqual: false,
+    legacyFusedPolarityOutputsEqual: false,
+    fusedPolarityMismatchCount: 0,
+    legacyFusedPolarityMismatchCount: 0,
+    sampledCenterCount: 0,
+    prunedCenterCount: 0,
+    fusedDarkCenterCount: 0,
+    fusedLightCenterCount: 0,
+    sharedPlaneCount: sharedPlaneCount(viewIds),
   };
 };
 
@@ -880,85 +707,6 @@ const finderSignature = (finder: FinderEvidence): string =>
   ].join(':');
 
 const roundForSignature = (value: number): string => value.toFixed(3);
-
-const measurePrunedMatcherCenters = (
-  view: BinaryView,
-): {
-  readonly durationMs: number;
-  readonly sampledCenterCount: number;
-  readonly prunedCenterCount: number;
-} => {
-  const startedAt = performance.now();
-  const step = matcherStep(view.width, view.height);
-  let sampledCenterCount = 0;
-  let prunedCenterCount = 0;
-  for (let y = 2; y < view.height - 2; y += step) {
-    for (let x = 2; x < view.width - 2; x += step) {
-      sampledCenterCount += 1;
-      if (!hasCheapMatcherCenterSignal(view, x, y)) continue;
-      prunedCenterCount += 1;
-    }
-  }
-  return { durationMs: performance.now() - startedAt, sampledCenterCount, prunedCenterCount };
-};
-
-const measureFusedPolarityMatcherCenters = (
-  view: BinaryView,
-): { readonly darkCenterCount: number; readonly lightCenterCount: number } => {
-  const step = matcherStep(view.width, view.height);
-  let darkCenterCount = 0;
-  let lightCenterCount = 0;
-  for (let y = 2; y < view.height - 2; y += step) {
-    const row = y * view.width;
-    for (let x = 2; x < view.width - 2; x += step) {
-      if ((view.plane.data[row + x] ?? 0) === 1) darkCenterCount += 1;
-      else lightCenterCount += 1;
-    }
-  }
-  return { darkCenterCount, lightCenterCount };
-};
-
-const hasCheapMatcherCenterSignal = (view: BinaryView, x: number, y: number): boolean => {
-  const centerDark = readBinaryPixel(view, y * view.width + x) === 0;
-  if (!centerDark) return false;
-  const horizontalTransitions = countLocalTransitions(view, x, y, 1, 0);
-  if (horizontalTransitions < 2) return false;
-  return countLocalTransitions(view, x, y, 0, 1) >= 2;
-};
-
-const countLocalTransitions = (
-  view: BinaryView,
-  x: number,
-  y: number,
-  dx: number,
-  dy: number,
-): number => {
-  let transitions = 0;
-  let previous = readBinaryPixel(view, (y - dy * 2) * view.width + x - dx * 2);
-  for (let offset = -1; offset <= 2; offset += 1) {
-    const value = readBinaryPixel(view, (y + dy * offset) * view.width + x + dx * offset);
-    if (value !== previous) transitions += 1;
-    previous = value;
-  }
-  return transitions;
-};
-
-const matcherStep = (width: number, height: number): number =>
-  Math.max(1, Math.floor(Math.min(width, height) / 180));
-
-const uniquePlaneRepresentativeIds = (
-  viewIds: readonly BinaryViewId[],
-): readonly BinaryViewId[] => {
-  const seen = new Set<string>();
-  const representatives: BinaryViewId[] = [];
-  for (const viewId of viewIds) {
-    const key = viewId.split(':').slice(0, 2).join(':');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    representatives.push(viewId);
-  }
-  return representatives;
-};
 
 const measureBinaryReadVariants = async (
   viewBank: ReturnType<typeof createViewBank>,
@@ -1605,86 +1353,6 @@ const buildVariantSummaries = (
       improvementPct: 0,
       evidence: `production control; finder outputs equal=true; mismatched views=0.`,
     });
-    const pushMatcherVariant = (
-      id: string,
-      title: string,
-      controlMs: number,
-      candidateMs: number,
-      outputsEqual: boolean,
-      mismatchCount: number,
-      detail: string,
-    ) => {
-      variants.push({
-        id,
-        title,
-        controlMetric: title.startsWith('Legacy')
-          ? 'legacy matcher detector duration'
-          : 'current run-map matcher detector duration',
-        candidateMetric: 'output-producing matcher variant duration',
-        controlMs,
-        candidateMs,
-        deltaMs: round(controlMs - candidateMs),
-        improvementPct: percent(controlMs - candidateMs, controlMs),
-        evidence: `finder outputs equal=${outputsEqual}; mismatched views=${mismatchCount}; ${detail}`,
-      });
-    };
-    const pruneDetail = `${totals.matcherPrunedCenterCount}/${totals.matcherSampledCenterCount} sampled centers survived the cheap signal filter.`;
-    const seededDetail = `${totals.matcherSeededEstimatedCenters} row/flood finder centers seeded matcher refinement.`;
-    const fusedDetail = `${totals.matcherFusedDarkCenterCount} normal-dark and ${totals.matcherFusedLightCenterCount} inverted-dark sampled centers classified in one shared traversal.`;
-    pushMatcherVariant(
-      'legacy-center-pruned-matcher-prototype',
-      'Legacy center-pruned matcher prototype',
-      totals.matcherLegacyControlMs,
-      totals.matcherLegacyPrunedCenterMs,
-      totals.matcherLegacyPrunedCenterOutputsEqual,
-      totals.matcherLegacyPrunedCenterMismatchCount,
-      pruneDetail,
-    );
-    pushMatcherVariant(
-      'legacy-row-flood-seeded-matcher-prototype',
-      'Legacy row/flood seeded matcher prototype',
-      totals.matcherLegacyControlMs,
-      totals.matcherLegacySeededMs,
-      totals.matcherLegacySeededOutputsEqual,
-      totals.matcherLegacySeededMismatchCount,
-      seededDetail,
-    );
-    pushMatcherVariant(
-      'legacy-fused-polarity-matcher-prototype',
-      'Legacy fused-polarity matcher prototype',
-      totals.matcherLegacyControlMs,
-      totals.matcherLegacyFusedPolarityMs,
-      totals.matcherLegacyFusedPolarityOutputsEqual,
-      totals.matcherLegacyFusedPolarityMismatchCount,
-      fusedDetail,
-    );
-    pushMatcherVariant(
-      'run-map-center-pruned-matcher-prototype',
-      'Run-map center-pruned matcher prototype',
-      totals.matcherControlMs,
-      totals.matcherPrunedCenterMs,
-      totals.matcherPrunedCenterOutputsEqual,
-      totals.matcherPrunedCenterMismatchCount,
-      pruneDetail,
-    );
-    pushMatcherVariant(
-      'run-map-row-flood-seeded-matcher-prototype',
-      'Run-map row/flood seeded matcher prototype',
-      totals.matcherControlMs,
-      totals.matcherSeededMs,
-      totals.matcherSeededOutputsEqual,
-      totals.matcherSeededMismatchCount,
-      seededDetail,
-    );
-    pushMatcherVariant(
-      'run-map-fused-polarity-matcher-prototype',
-      'Run-map fused-polarity matcher prototype',
-      totals.matcherControlMs,
-      totals.matcherFusedPolarityMs,
-      totals.matcherFusedPolarityOutputsEqual,
-      totals.matcherFusedPolarityMismatchCount,
-      fusedDetail,
-    );
   }
   if (config.focus === 'binary-bit-hot-path' && totals.binaryReadPixels > 0) {
     variants.push({
