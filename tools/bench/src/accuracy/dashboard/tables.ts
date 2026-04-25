@@ -45,7 +45,7 @@ export const renderSlowestFreshScans = (
   const width = options.width;
   const rows = model.slowestFreshScans.slice(0, normalizeMaxRows(options.maxRows, 8));
   const lines = [
-    model.commandName === 'study' ? 'slowest study jobs' : 'slowest fresh scans',
+    model.commandName === 'study' ? 'slowest study units' : 'slowest fresh scans',
     truncate(
       model.commandName === 'study'
         ? '#  detector/view                         avg     jobs'

@@ -212,7 +212,7 @@ export class BenchOpenTuiDashboard {
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
-        title: isStudy ? 'Slowest fresh study assets' : 'Slowest fresh scans',
+        title: isStudy ? 'Slowest study units' : 'Slowest fresh scans',
         accent: THEME.amber,
         flexGrow: 1,
       });
