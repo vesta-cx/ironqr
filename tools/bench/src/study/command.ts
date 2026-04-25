@@ -648,6 +648,10 @@ const runPlugin = async (input: {
       void studyWorkerPool?.close();
     };
     input.signal?.addEventListener('abort', abortStudyWorkers, { once: true });
+    const previousCooperativeYieldDisabled = Reflect.get(
+      globalThis,
+      '__BENCH_STUDY_DISABLE_COOPERATIVE_YIELD__',
+    );
     if (studyWorkerPool) {
       input.progress.onMessage(`study workers starting: ${input.workerCount}`);
       await yieldToProgressRenderer();
@@ -655,6 +659,7 @@ const runPlugin = async (input: {
       if (input.signal?.aborted) throw input.signal.reason ?? new Error('Study interrupted.');
       input.progress.onMessage(`study workers ready: ${input.workerCount}`);
     } else {
+      Reflect.set(globalThis, '__BENCH_STUDY_DISABLE_COOPERATIVE_YIELD__', true);
       input.progress.onMessage('study workers disabled: running assets on main thread');
     }
     try {
@@ -771,6 +776,15 @@ const runPlugin = async (input: {
         interrupted,
       };
     } finally {
+      if (previousCooperativeYieldDisabled === undefined) {
+        Reflect.deleteProperty(globalThis, '__BENCH_STUDY_DISABLE_COOPERATIVE_YIELD__');
+      } else {
+        Reflect.set(
+          globalThis,
+          '__BENCH_STUDY_DISABLE_COOPERATIVE_YIELD__',
+          previousCooperativeYieldDisabled,
+        );
+      }
       input.signal?.removeEventListener('abort', abortStudyWorkers);
       await studyWorkerPool?.close();
     }

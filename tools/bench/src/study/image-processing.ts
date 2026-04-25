@@ -1255,7 +1255,7 @@ const floodVariantOptions = (
 
 const labelScanlineComponents = async (
   binary: BinaryView,
-  yieldIfDue?: () => Promise<void>,
+  yieldIfDue?: () => Promise<void> | undefined,
 ): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
@@ -1266,7 +1266,8 @@ const labelScanlineComponents = async (
   let nextLabel = 1;
 
   for (let start = 0; start < labels.length; start += 1) {
-    if (yieldIfDue) await yieldIfDue();
+    const yielded = yieldIfDue?.();
+    if (yielded) await yielded;
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1282,7 +1283,8 @@ const labelScanlineComponents = async (
     seedY[0] = minY;
 
     while (head < tail) {
-      if (yieldIfDue) await yieldIfDue();
+      const yielded = yieldIfDue?.();
+      if (yielded) await yielded;
       const x = seedX[head] ?? 0;
       const y = seedY[head] ?? 0;
       head += 1;
@@ -1490,7 +1492,7 @@ const centersNear = (
 
 const labelDenseComponents = async (
   binary: BinaryView,
-  yieldIfDue?: () => Promise<void>,
+  yieldIfDue?: () => Promise<void> | undefined,
 ): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
@@ -1499,7 +1501,8 @@ const labelDenseComponents = async (
   const stats: BenchComponentStats[] = [];
   let nextLabel = 1;
   for (let start = 0; start < labels.length; start += 1) {
-    if (yieldIfDue) await yieldIfDue();
+    const yielded = yieldIfDue?.();
+    if (yielded) await yielded;
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1514,7 +1517,8 @@ const labelDenseComponents = async (
     queue[0] = start;
     labels[start] = nextLabel;
     while (head < tail) {
-      if (yieldIfDue) await yieldIfDue();
+      const yielded = yieldIfDue?.();
+      if (yielded) await yielded;
       const index = queue[head] ?? 0;
       head += 1;
       const x = index % width;
@@ -3135,13 +3139,17 @@ export const warmImageProcessingStudyWorker = async (): Promise<void> => {
 
 const COOPERATIVE_YIELD_INTERVAL_MS = 25;
 
-const createCooperativeYield = (): (() => Promise<void>) | undefined => {
-  if (Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true) return undefined;
+const createCooperativeYield = (): (() => Promise<void> | undefined) | undefined => {
+  if (
+    Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true ||
+    Reflect.get(globalThis, '__BENCH_STUDY_DISABLE_COOPERATIVE_YIELD__') === true
+  )
+    return undefined;
   let nextYieldAt = performance.now() + COOPERATIVE_YIELD_INTERVAL_MS;
-  return async () => {
-    if (performance.now() < nextYieldAt) return;
-    await yieldToDashboard();
+  return () => {
+    if (performance.now() < nextYieldAt) return undefined;
     nextYieldAt = performance.now() + COOPERATIVE_YIELD_INTERVAL_MS;
+    return yieldToDashboard();
   };
 };
 
