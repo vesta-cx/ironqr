@@ -1083,10 +1083,8 @@ const renderStudyTimingBars = (
   const allRows = inputRows.length;
   const rows = inputRows
     .filter((row) => matchesStudyFilters(row, options.filters))
-    .sort(
-      (left, right) =>
-        studyTimingMetricMs(right, options.metric) - studyTimingMetricMs(left, options.metric),
-    );
+    .map((row) => ({ row, value: studyTimingMetricMs(row, options.metric) }))
+    .sort((left, right) => right.value - left.value);
   if (rows.length === 0) {
     const suffix =
       activeFilterCount(options.filters) > 0
@@ -1107,14 +1105,13 @@ const renderStudyTimingBars = (
     Math.min(options.maxLabelWidth, options.width - valueWidth - minBarWidth - 4),
   );
   const barWidth = Math.max(minBarWidth, options.width - labelWidth - valueWidth - 4);
-  const maxMetric = Math.max(1, ...rows.map((row) => studyTimingMetricMs(row, options.metric)));
+  const maxMetric = Math.max(1, ...rows.map((entry) => entry.value));
   return [
     truncateLine(
       `${title} ${options.metric} ${first}-${last}/${rows.length}${rows.length === allRows ? '' : ` of ${allRows}`} pos=${offset + 1}/${rows.length}${activeFilterCount(options.filters) > 0 ? ` filters=${activeFilterCount(options.filters)}` : ''}`,
       options.width,
     ),
-    ...visibleRows.map((row) => {
-      const value = studyTimingMetricMs(row, options.metric);
+    ...visibleRows.map(({ row, value }) => {
       const bar = fractionalBar(value / maxMetric, barWidth, { minVisible: value > 0 });
       return truncateLine(
         `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(value, options.metric, row.count, row.outputCount, row.cachedCount)}`,

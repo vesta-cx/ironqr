@@ -84,17 +84,17 @@ export const renderSlowestFreshScans = (
     const metric = options.studySlowestMetric ?? 'p98';
     const studyRows = [...model.studyDetectorTimings.values(), ...model.studyTimings.values()]
       .filter((row) => matchesStudyTimingFilters(row, options.studyTimingFilters))
-      .sort((left, right) => studyTimingMetric(right, metric) - studyTimingMetric(left, metric))
+      .map((row) => ({ row, value: studyTimingMetric(row, metric) }))
+      .sort((left, right) => right.value - left.value)
       .slice(offset, offset + normalizeMaxRows(options.maxRows, 8));
     if (studyRows.length === 0) {
       lines.push(truncate('none yet', width));
       return lines;
     }
-    for (const [index, row] of studyRows.entries()) {
-      const metricMs = studyTimingMetric(row, metric);
+    for (const [index, { row, value }] of studyRows.entries()) {
       lines.push(
         truncate(
-          `${padLeft(String(offset + index + 1), 2)} ${padRight(row.id, 35)} ${padLeft(formatCompactDuration(metricMs), 7)} ${row.count} c=${row.cachedCount}`,
+          `${padLeft(String(offset + index + 1), 2)} ${padRight(row.id, 35)} ${padLeft(formatCompactDuration(value), 7)} ${row.count} c=${row.cachedCount}`,
           width,
         ),
       );
