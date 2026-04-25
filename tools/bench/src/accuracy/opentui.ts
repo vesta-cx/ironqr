@@ -492,7 +492,7 @@ const renderStudyTimingBars = (
   const maxAverage = Math.max(1, ...rows.map(averageStudyTimingMs));
   return [
     truncateLine(
-      `views ${first}-${last}/${rows.length}  scroll=${offset + 1}/${rows.length}  ↑/↓ j/k`,
+      `views ${first}-${last}/${rows.length}  scroll=${offset + 1}/${rows.length}  a=control b=candidate  ↑/↓ j/k`,
       options.width,
     ),
     ...visibleRows.map((row) => {

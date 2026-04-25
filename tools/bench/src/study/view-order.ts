@@ -240,7 +240,7 @@ export const viewProposalsStudyPlugin: StudyPlugin<
         if (event.type !== 'proposal-view-generated') return;
         generatedViewCount += 1;
         generatedProposalCount += event.proposalCount;
-        logStudyTiming(log, studyTimingId(event.binaryViewId), event.detectorDurationMs);
+        logStudyTiming(log, studyTimingId(event.binaryViewId, 'a'), event.detectorDurationMs);
         log(
           `${asset.id}: view ${generatedViewCount} ${event.binaryViewId} proposals=${event.proposalCount} total=${generatedProposalCount}`,
         );
@@ -317,9 +317,9 @@ const logStudyTiming = (log: (message: string) => void, id: string, durationMs: 
   log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs })}`);
 };
 
-const studyTimingId = (viewId: string): string => {
+const studyTimingId = (viewId: string, variant: string): string => {
   const [scalar = '', threshold = '', polarity = ''] = viewId.split(':');
-  return `${threshold}:${polarity}:${scalar}`;
+  return `${variant}:${scalar}:${threshold}:${polarity}`;
 };
 
 const buildViewRows = (

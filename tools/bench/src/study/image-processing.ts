@@ -358,7 +358,7 @@ function makeImageProcessingStudyPlugin(input: {
           maxProposalsPerView: EXHAUSTIVE_SCAN_CEILING,
         }).summary;
         proposalSummaries.push(summary);
-        logStudyTiming(log, studyTimingId(viewId), summary.detectorDurationMs);
+        logStudyTiming(log, studyTimingId(viewId, 'a'), summary.detectorDurationMs);
         log(`${asset.id}: proposal path ${proposalViewIndex}/${viewIds.length} ${viewId}`);
         await yieldToDashboard();
       }
@@ -491,9 +491,9 @@ const logStudyTiming = (log: (message: string) => void, id: string, durationMs: 
   log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs })}`);
 };
 
-const studyTimingId = (viewId: BinaryViewId): string => {
+const studyTimingId = (viewId: BinaryViewId, variant: string): string => {
   const [scalar = '', threshold = '', polarity = ''] = viewId.split(':');
-  return `${threshold}:${polarity}:${scalar}`;
+  return `${variant}:${scalar}:${threshold}:${polarity}`;
 };
 
 const sharedPlaneCount = (viewIds: readonly BinaryViewId[]): number =>
@@ -536,6 +536,7 @@ const measureMaterializedInvertedVariant = async (
       floodCountsEqual &&=
         control.finderEvidence.floodCount === candidate.finderEvidence.floodCount;
     }
+    logStudyTiming(log, studyTimingId(viewId, 'b'), candidate.detectorDurationMs);
     log(`${assetId}: materialized inverted detector variant ${viewId}`);
     await yieldToDashboard();
   }
