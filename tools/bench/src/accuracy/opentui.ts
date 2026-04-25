@@ -69,6 +69,7 @@ export class BenchOpenTuiDashboard {
   private renderPaused = false;
   private stopped = false;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private studyTimingOffset = 0;
 
   constructor(
     private readonly dashboard: BenchDashboardModel,
@@ -257,6 +258,14 @@ export class BenchOpenTuiDashboard {
         this.render(true);
         return;
       }
+      if (this.dashboard.commandName === 'study' && isScrollDownKey(key)) {
+        this.scrollStudyTimings(1);
+        return;
+      }
+      if (this.dashboard.commandName === 'study' && isScrollUpKey(key)) {
+        this.scrollStudyTimings(-1);
+        return;
+      }
       if ((key.name === 'c' && key.ctrl) || key.sequence === '\u0003') {
         this.quit();
       }
@@ -274,6 +283,12 @@ export class BenchOpenTuiDashboard {
     this.dashboard.message = 'stopping after requested interrupt';
     this.cleanup();
     this.onQuit();
+  }
+
+  private scrollStudyTimings(delta: number): void {
+    const maxOffset = Math.max(0, this.dashboard.studyTimings.size - 1);
+    this.studyTimingOffset = Math.min(maxOffset, Math.max(0, this.studyTimingOffset + delta));
+    this.render(true);
   }
 
   private cleanup(): void {
@@ -317,14 +332,19 @@ export class BenchOpenTuiDashboard {
     );
 
     panels.header.content = headerText(this.dashboard);
+    const chartBodyRows = panelBodyRows(CHART_PANEL_ROWS);
     panels.chart.body.content = panelBody(
       this.dashboard.commandName === 'study'
-        ? renderStudyProgress(this.dashboard, { width: contentWidth })
+        ? renderStudyProgress(this.dashboard, {
+            width: contentWidth,
+            maxRows: chartBodyRows,
+            offset: this.studyTimingOffset,
+          })
         : renderTimingChart(this.dashboard, {
             width: contentWidth,
             barHeight: height < 34 ? 4 : 6,
           }),
-      panelBodyRows(CHART_PANEL_ROWS),
+      chartBodyRows,
     );
     panels.scorecard.body.content = panelBody(
       this.dashboard.commandName === 'study'
@@ -348,9 +368,15 @@ export class BenchOpenTuiDashboard {
       renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
       recentRows + 1,
     );
-    panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}`;
+    panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? ' | ↑/↓ j/k=scroll timings' : ''}`;
   }
 }
+
+const isScrollDownKey = (key: OpenTuiKeyEvent): boolean =>
+  (key.name === 'down' || key.name === 'j' || key.sequence === 'j') && !key.ctrl && !key.meta;
+
+const isScrollUpKey = (key: OpenTuiKeyEvent): boolean =>
+  (key.name === 'up' || key.name === 'k' || key.sequence === 'k') && !key.ctrl && !key.meta;
 
 const createPanel = (
   BoxRenderable: OpenTuiCore['BoxRenderable'],
@@ -421,7 +447,7 @@ const panelBody = (lines: readonly string[], maxRows: number): string => {
 
 const renderStudyProgress = (
   dashboard: BenchDashboardModel,
-  options: { readonly width: number },
+  options: { readonly width: number; readonly maxRows: number; readonly offset: number },
 ): readonly string[] => {
   const cache = cacheTotals(dashboard);
   const lines = [
@@ -435,31 +461,44 @@ const renderStudyProgress = (
       options.width,
     ),
   ];
-  lines.push(...renderStudyTimingBars(dashboard, options.width));
+  lines.push(...renderStudyTimingBars(dashboard, options));
   return lines;
 };
 
 const renderStudyTimingBars = (
   dashboard: BenchDashboardModel,
-  width: number,
+  options: { readonly width: number; readonly maxRows: number; readonly offset: number },
 ): readonly string[] => {
-  const rows = [...dashboard.studyTimings.values()]
-    .sort((left, right) => right.totalMs - left.totalMs)
-    .slice(0, 8);
-  if (rows.length === 0) return [truncateLine('waiting for view timing samples…', width)];
-  const labelWidth = Math.min(26, Math.max(12, Math.floor(width * 0.34)));
+  const rows = [...dashboard.studyTimings.values()].sort(
+    (left, right) => right.totalMs - left.totalMs,
+  );
+  if (rows.length === 0)
+    return [truncateLine('views 0/0 — waiting for view timing samples…', options.width)];
+  const maxBars = Math.max(1, options.maxRows - 3);
+  const maxOffset = Math.max(0, rows.length - maxBars);
+  const offset = Math.min(Math.max(0, options.offset), maxOffset);
+  const visibleRows = rows.slice(offset, offset + maxBars);
+  const first = offset + 1;
+  const last = Math.min(rows.length, offset + visibleRows.length);
+  const labelWidth = Math.min(26, Math.max(12, Math.floor(options.width * 0.34)));
   const valueWidth = 20;
-  const barWidth = Math.max(8, width - labelWidth - valueWidth - 4);
+  const barWidth = Math.max(8, options.width - labelWidth - valueWidth - 4);
   const maxTotal = Math.max(1, ...rows.map((row) => row.totalMs));
-  return rows.map((row) => {
-    const filled = Math.max(1, Math.round((row.totalMs / maxTotal) * barWidth));
-    const bar = `${'█'.repeat(filled)}${'░'.repeat(Math.max(0, barWidth - filled))}`;
-    const average = row.totalMs / Math.max(1, row.count);
-    return truncateLine(
-      `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(row.totalMs, average, row.count)}`,
-      width,
-    );
-  });
+  return [
+    truncateLine(
+      `views ${first}-${last}/${rows.length}  scroll=${offset + 1}/${rows.length}  ↑/↓ j/k`,
+      options.width,
+    ),
+    ...visibleRows.map((row) => {
+      const filled = Math.max(1, Math.round((row.totalMs / maxTotal) * barWidth));
+      const bar = `${'█'.repeat(filled)}${'░'.repeat(Math.max(0, barWidth - filled))}`;
+      const average = row.totalMs / Math.max(1, row.count);
+      return truncateLine(
+        `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(row.totalMs, average, row.count)}`,
+        options.width,
+      );
+    }),
+  ];
 };
 
 const padStudyCell = (value: string, width: number): string => {
