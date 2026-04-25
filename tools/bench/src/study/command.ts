@@ -296,7 +296,7 @@ const buildStudyHeadline = (
   const floodMs = detectorBreakdown.floodMs ?? 0;
   const floodControlMs = numberField(totals, 'floodControlMs');
   if (floodControlMs > 0) {
-    return `Detector=${formatMs(detectorMs)}; inline-flood lead=${formatMs(floodControlMs)}; activeCandidates=0.`;
+    return `Detector=${formatMs(detectorMs)}; inline-flood lead=${formatMs(floodControlMs)}; activeCandidate=dense-stats.`;
   }
   const matcherMs = numberField(totals, 'matcherControlMs');
   const legacyMs = numberField(totals, 'matcherLegacyControlMs');
@@ -400,37 +400,37 @@ const buildExploredAvenues = (
     {
       id: 'run-length-ccl',
       area: 'flood',
-      status: 'active-candidate',
+      status: 'disabled-candidate',
       finding:
-        'Replace pixel BFS with run-length component labeling; likely next large architecture candidate if inline flood remains hot.',
+        'Replace pixel BFS with run-length component labeling; retained for later measurement after dense-stats.',
     },
     {
       id: 'dense-stats',
       area: 'flood',
       status: 'active-candidate',
       finding:
-        'Use dense typed arrays for component stats to reduce object/Map allocation after inline stats.',
+        'Use dense typed arrays for component stats to reduce object/Map allocation after inline stats; currently enabled for measurement.',
     },
     {
       id: 'spatial-bin',
       area: 'flood',
-      status: 'active-candidate',
+      status: 'disabled-candidate',
       finding:
-        'Use component spatial bins/ranges to reduce ring/gap/stone search if nested matching dominates after inline stats.',
+        'Use component spatial bins/ranges to reduce ring/gap/stone search if nested matching dominates after inline stats; retained for later measurement.',
     },
     {
       id: 'run-pattern',
       area: 'matcher',
-      status: 'active-candidate',
+      status: 'disabled-candidate',
       finding:
-        'Enumerate matcher centers from 1:1:3:1:1 run patterns, then verify with run-map cross-checks instead of sampling arbitrary grid centers.',
+        'Enumerate matcher centers from 1:1:3:1:1 run patterns, then verify with run-map cross-checks instead of sampling arbitrary grid centers; retained for later measurement.',
     },
     {
       id: 'axis-intersect',
       area: 'matcher',
-      status: 'active-candidate',
+      status: 'disabled-candidate',
       finding:
-        'Intersect plausible horizontal and vertical run-pattern centers to reduce matcher probes without the retired hard center-signal gate.',
+        'Intersect plausible horizontal and vertical run-pattern centers to reduce matcher probes without the retired hard center-signal gate; retained for later measurement.',
     },
     {
       id: 'coarse-grid-fallback-matcher',
@@ -442,9 +442,9 @@ const buildExploredAvenues = (
     {
       id: 'shared-runs',
       area: 'flood+matcher',
-      status: 'active-candidate',
+      status: 'disabled-candidate',
       finding:
-        'Use run-length artifacts for both flood connected-components and matcher center enumeration so one threshold-plane pass can feed multiple detectors.',
+        'Use run-length artifacts for both flood connected-components and matcher center enumeration so one threshold-plane pass can feed multiple detectors; retained for later measurement.',
     },
   ];
   return avenues;
@@ -468,7 +468,7 @@ const buildStudyConclusions = (
     'No exhausted legacy flood, filtered flood, or center-signal matcher variants are active in this study phase.',
   );
   conclusions.push(
-    'Current run phase is lead-only cache warmup: active detector execution is inline-flood plus run-map; candidate variants are retained in the ledger but disabled by default.',
+    'Current run phase measures dense-stats against the inline-flood control; other runnable candidates are retained in the ledger and cache but disabled by default.',
   );
   conclusions.push(
     'Decode success and false-positive impact remain out of scope for this detector-evidence report.',
@@ -488,7 +488,7 @@ const buildQuestionCoverage = (
       {
         question: 'What is the current detector control baseline?',
         status: 'answered-for-control-with-active-candidates',
-        evidence: `inlineFlood=${formatMs(floodControlMs)} activeCandidates=0 leadOnlyCacheWarmup=true`,
+        evidence: `inlineFlood=${formatMs(floodControlMs)} activeCandidate=dense-stats`,
       },
       {
         question: 'Do flood variants prove decode success or false positives?',
