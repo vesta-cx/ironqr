@@ -18,6 +18,15 @@ import {
 import { mapConcurrentPartial } from '../core/runner.js';
 import { createBenchProgressReporter } from '../ui/progress.js';
 import { openStudyCache } from './cache.js';
+import {
+  binaryBitHotPathStudyPlugin,
+  binaryPrefilterSignalsStudyPlugin,
+  finderRunMapStudyPlugin,
+  moduleSamplingHotPathStudyPlugin,
+  scalarMaterializationFusionStudyPlugin,
+  sharedBinaryDetectorArtifactsStudyPlugin,
+  thresholdStatsCacheStudyPlugin,
+} from './image-processing.js';
 import { createStudyPluginRegistry } from './registry.js';
 import type {
   StudyCacheHandle,
@@ -68,6 +77,13 @@ export interface StudyBenchmarkResult {
 
 export const createDefaultStudyRegistry = () =>
   createStudyPluginRegistry([
+    { plugin: binaryBitHotPathStudyPlugin },
+    { plugin: binaryPrefilterSignalsStudyPlugin },
+    { plugin: finderRunMapStudyPlugin },
+    { plugin: moduleSamplingHotPathStudyPlugin },
+    { plugin: scalarMaterializationFusionStudyPlugin },
+    { plugin: sharedBinaryDetectorArtifactsStudyPlugin },
+    { plugin: thresholdStatsCacheStudyPlugin },
     { plugin: viewProposalsStudyPlugin },
     { plugin: viewOrderStudyPlugin },
   ]);
