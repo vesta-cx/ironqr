@@ -33,9 +33,11 @@ const RECENT_LAYOUT_RESERVED_ROWS = 24;
 const PROGRESS_BAR_WIDTH = 56;
 const DASHBOARD_REFRESH_INTERVAL_MS = 250;
 const TABLE_ROW_FILL_SLACK = 6;
-const FILTER_MODAL_MIN_ROWS = 12;
-const FILTER_MODAL_MAX_ROWS = 16;
-const FILTER_MODAL_WIDTH_RATIO = 0.7;
+const FILTER_MODAL_MIN_ROWS = 22;
+const FILTER_MODAL_MAX_ROWS = 30;
+const FILTER_MODAL_WIDTH_RATIO = 0.42;
+const FILTER_MODAL_MIN_WIDTH = 56;
+const FILTER_MODAL_MAX_WIDTH = 80;
 
 const panelBodyRows = (panelRows: number): number =>
   Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS - PANEL_BODY_BOTTOM_GUTTER_ROWS);
@@ -450,15 +452,24 @@ export class BenchOpenTuiDashboard {
   }
 
   private ensureFilterCursorVisible(): void {
-    const visibleRows = filterVisibleRows(this.filterModalBodyRows());
-    const maxOffset = Math.max(0, selectableFilterRows().length - visibleRows);
-    this.filterOffset = Math.min(this.filterOffset, maxOffset);
+    const selectableCount = selectableFilterRows().length;
+    const visibleIndexes = renderedFilterOptionIndexes(
+      this.filterOffset,
+      this.filterModalBodyRows(),
+    );
+    if (visibleIndexes.includes(this.filterCursor)) return;
     if (this.filterCursor < this.filterOffset) {
       this.filterOffset = this.filterCursor;
       return;
     }
-    if (this.filterCursor >= this.filterOffset + visibleRows) {
-      this.filterOffset = Math.min(maxOffset, Math.max(0, this.filterCursor - visibleRows + 1));
+    this.filterOffset = Math.max(0, Math.min(selectableCount - 1, this.filterCursor));
+    while (
+      this.filterOffset > 0 &&
+      !renderedFilterOptionIndexes(this.filterOffset, this.filterModalBodyRows()).includes(
+        this.filterCursor,
+      )
+    ) {
+      this.filterOffset -= 1;
     }
   }
 
@@ -472,7 +483,13 @@ export class BenchOpenTuiDashboard {
 
   private centerFilterModal(): void {
     if (!this.panels || !this.renderer) return;
-    const width = Math.max(48, Math.floor(this.renderer.terminalWidth * FILTER_MODAL_WIDTH_RATIO));
+    const width = Math.min(
+      FILTER_MODAL_MAX_WIDTH,
+      Math.max(
+        FILTER_MODAL_MIN_WIDTH,
+        Math.floor(this.renderer.terminalWidth * FILTER_MODAL_WIDTH_RATIO),
+      ),
+    );
     const height = this.filterModalRows();
     this.panels.filterModal.box.width = width;
     this.panels.filterModal.box.height = height;
@@ -764,7 +781,20 @@ const selectableFilterRows = (): readonly Extract<StudyFilterRow, { readonly kin
     (row): row is Extract<StudyFilterRow, { readonly kind: 'option' }> => row.kind === 'option',
   );
 
-const filterVisibleRows = (bodyRows: number): number => Math.max(1, Math.floor((bodyRows - 3) / 2));
+const renderedFilterOptionIndexes = (offset: number, maxRows: number): readonly number[] => {
+  const indexes: number[] = [];
+  let lineCount = 2;
+  let previousGroup: StudyFilterGroup | null = null;
+  for (const [index, row] of selectableFilterRows().entries()) {
+    if (index < offset) continue;
+    const headingRows = row.group === previousGroup ? 0 : 1;
+    if (lineCount + headingRows + 1 > maxRows) break;
+    lineCount += headingRows + 1;
+    previousGroup = row.group;
+    indexes.push(index);
+  }
+  return indexes;
+};
 
 const filterGroupLabel = (group: StudyFilterGroup): string => {
   switch (group) {
@@ -1053,9 +1083,10 @@ const renderStudyFilterModal = (options: {
     ),
   ];
   let previousGroup: StudyFilterGroup | null = null;
-  for (const [index, row] of selectableFilterRows().entries()) {
-    if (index < options.offset || index >= options.offset + filterVisibleRows(options.maxRows))
-      continue;
+  const visibleIndexes = renderedFilterOptionIndexes(options.offset, options.maxRows);
+  for (const index of visibleIndexes) {
+    const row = selectableFilterRows()[index];
+    if (!row) continue;
     if (row.group !== previousGroup) {
       lines.push(truncateLine(filterGroupLabel(row.group), options.width));
       previousGroup = row.group;
@@ -1072,7 +1103,7 @@ const renderStudyFilterModal = (options: {
       ),
     );
   }
-  const visibleRows = filterVisibleRows(options.maxRows);
+  const visibleRows = visibleIndexes.length;
   if (selectableFilterRows().length > visibleRows) {
     lines[0] = truncateLine(
       `study filters ${options.offset + 1}-${Math.min(selectableFilterRows().length, options.offset + visibleRows)}/${selectableFilterRows().length}`,
