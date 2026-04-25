@@ -773,7 +773,15 @@ export const detectRowScanFinders = (
   binary: Uint8Array | BinaryView,
   width: number,
   height: number,
-): FinderEvidence[] => detectRowScanFindersWithCrossCheck(binary, width, height, crossCheck);
+): FinderEvidence[] =>
+  detectRowScanFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      crossCheck(source, sourceWidth, sourceHeight, centerX, centerY, dx, dy, true),
+    true,
+  );
 
 export type RowScanVariant =
   | 'row-scan-scalar-score'
