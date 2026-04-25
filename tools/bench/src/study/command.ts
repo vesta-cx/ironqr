@@ -183,6 +183,7 @@ export const runStudyBenchmark = async (
       ...(options.studyFlags === undefined ? {} : { studyFlags: options.studyFlags }),
       reports,
       cache,
+      refreshCache: options.refreshCache ?? false,
       workerCount,
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       log,
@@ -559,6 +560,7 @@ const runPlugin = async (input: {
   readonly studyFlags?: Readonly<Record<string, string | number | boolean>>;
   readonly reports: ReturnType<typeof createStudyReportReaders>;
   readonly cache: StudyCacheHandle<unknown>;
+  readonly refreshCache: boolean;
   readonly workerCount: number;
   readonly signal?: AbortSignal;
   readonly log: (message: string) => void;
@@ -702,7 +704,7 @@ const runPlugin = async (input: {
             asset,
             cacheFile: input.cacheFile,
             cacheEnabled: input.cache.summary().enabled,
-            refreshCache: false,
+            refreshCache: input.refreshCache,
           });
           await applyStudyCacheWrites(input.cache, assetsById, execution.cacheWrites);
           const result = execution.result;

@@ -1255,7 +1255,7 @@ const floodVariantOptions = (
 
 const labelScanlineComponents = async (
   binary: BinaryView,
-  yieldIfDue: () => Promise<void> = async () => {},
+  yieldIfDue?: () => Promise<void>,
 ): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
@@ -1266,7 +1266,7 @@ const labelScanlineComponents = async (
   let nextLabel = 1;
 
   for (let start = 0; start < labels.length; start += 1) {
-    await yieldIfDue();
+    if (yieldIfDue) await yieldIfDue();
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1282,7 +1282,7 @@ const labelScanlineComponents = async (
     seedY[0] = minY;
 
     while (head < tail) {
-      await yieldIfDue();
+      if (yieldIfDue) await yieldIfDue();
       const x = seedX[head] ?? 0;
       const y = seedY[head] ?? 0;
       head += 1;
@@ -1490,7 +1490,7 @@ const centersNear = (
 
 const labelDenseComponents = async (
   binary: BinaryView,
-  yieldIfDue: () => Promise<void> = async () => {},
+  yieldIfDue?: () => Promise<void>,
 ): Promise<readonly BenchComponentStats[]> => {
   const width = binary.width;
   const height = binary.height;
@@ -1499,7 +1499,7 @@ const labelDenseComponents = async (
   const stats: BenchComponentStats[] = [];
   let nextLabel = 1;
   for (let start = 0; start < labels.length; start += 1) {
-    await yieldIfDue();
+    if (yieldIfDue) await yieldIfDue();
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1514,7 +1514,7 @@ const labelDenseComponents = async (
     queue[0] = start;
     labels[start] = nextLabel;
     while (head < tail) {
-      await yieldIfDue();
+      if (yieldIfDue) await yieldIfDue();
       const index = queue[head] ?? 0;
       head += 1;
       const x = index % width;
@@ -3120,7 +3120,8 @@ const otsuThresholdFromHistogram = (histogram: Uint32Array, total: number): numb
 
 const COOPERATIVE_YIELD_INTERVAL_MS = 25;
 
-const createCooperativeYield = (): (() => Promise<void>) => {
+const createCooperativeYield = (): (() => Promise<void>) | undefined => {
+  if (Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true) return undefined;
   let nextYieldAt = performance.now() + COOPERATIVE_YIELD_INTERVAL_MS;
   return async () => {
     if (performance.now() < nextYieldAt) return;

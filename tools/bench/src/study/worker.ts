@@ -32,6 +32,8 @@ const post = (message: StudyWorkerResponse): void => {
   self.postMessage(message);
 };
 
+Reflect.set(globalThis, '__BENCH_STUDY_WORKER__', true);
+
 post({ type: 'ready' });
 
 const run = async (request: StudyWorkerRequest): Promise<void> => {
