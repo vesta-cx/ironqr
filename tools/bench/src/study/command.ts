@@ -42,7 +42,6 @@ const FULL_REPORTS_DIRECTORY = path.join(REPORTS_DIRECTORY, 'full');
 const STUDY_REPORTS_DIRECTORY = path.join(FULL_REPORTS_DIRECTORY, 'study');
 const PROCESSED_STUDY_REPORTS_DIRECTORY = path.join(REPORTS_DIRECTORY, 'study');
 const STUDY_CACHE_DIRECTORY = path.join('tools', 'bench', '.cache', 'studies');
-const MAX_STUDY_WORKERS = 8;
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
 
 type StudyReport = BenchReportEnvelope<'study-report', Record<string, unknown>, StudyReportDetails>;
@@ -108,15 +107,13 @@ export const listStudyPlugins = (): readonly StudyPlugin[] => createDefaultStudy
 
 const defaultStudyWorkerCount = (): number => {
   const available = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
-  return Math.max(1, Math.min(MAX_STUDY_WORKERS, Math.floor(available / 2)));
+  return Math.max(1, Math.floor(available * 0.9));
 };
 
 const resolveStudyWorkerCount = (requested?: number): number => {
   if (requested === undefined) return defaultStudyWorkerCount();
-  if (!Number.isSafeInteger(requested) || requested < 1 || requested > MAX_STUDY_WORKERS) {
-    throw new Error(
-      `Study worker count must be an integer from 1 to ${MAX_STUDY_WORKERS}, got ${requested}`,
-    );
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    throw new Error(`Study worker count must be a positive integer, got ${requested}`);
   }
   return requested;
 };
