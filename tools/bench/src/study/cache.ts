@@ -87,6 +87,13 @@ export const openStudyCache = async <AssetResult>(
       writes += 1;
       await save();
     },
+    async remove(asset, cacheKey) {
+      if (!options.enabled) return false;
+      const deleted = entries.delete(entryKey(asset, cacheKey));
+      if (!deleted) return false;
+      await save();
+      return true;
+    },
     summary() {
       return {
         enabled: options.enabled,

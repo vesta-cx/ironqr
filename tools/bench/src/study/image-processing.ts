@@ -702,6 +702,16 @@ const activeDetectorPatternIds = (): readonly string[] => [
   ...MATCHER_CANDIDATES.map((candidate) => candidate.id),
 ];
 
+const BINNED_DETECTOR_PATTERN_IDS = [
+  'coarse-grid-fallback-matcher',
+  'center-signal-matcher',
+  'center-pruned-matcher',
+  'seeded-matcher-replacement',
+  'row-flood-seeded-matcher',
+  'fused-polarity-matcher',
+  'filtered-components-flood',
+] as const;
+
 const readCachedDetectorAssetResult = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
   config: ImageProcessingConfig,
@@ -709,6 +719,7 @@ const readCachedDetectorAssetResult = async (
   log: (message: string) => void,
 ): Promise<ImageProcessingAssetResult | null> => {
   const viewIds = detectorStudyViewIds(config);
+  await purgeBinnedDetectorCacheRows(asset, viewIds, cache, log);
   const requiredIds = activeDetectorPatternIds();
   const missing = viewIds.flatMap((viewId) =>
     requiredIds
@@ -827,6 +838,23 @@ const readCachedDetectorAssetResult = async (
     binaryRead: null,
     decode: null,
   };
+};
+
+const purgeBinnedDetectorCacheRows = async (
+  asset: Parameters<StudyCacheHandle['read']>[0],
+  viewIds: readonly BinaryViewId[],
+  cache: Pick<StudyCacheHandle, 'remove'>,
+  log: (message: string) => void,
+): Promise<void> => {
+  let purged = 0;
+  for (const viewId of viewIds) {
+    for (const variantId of BINNED_DETECTOR_PATTERN_IDS) {
+      for (const cacheKey of detectorVariantCacheKeys(variantId, viewId)) {
+        if (await cache.remove(asset, cacheKey)) purged += 1;
+      }
+    }
+  }
+  if (purged > 0) log(`${asset.id}: purged ${purged} binned detector cache rows`);
 };
 
 const readVariantMeasurement = async (
