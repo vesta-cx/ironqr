@@ -1258,14 +1258,29 @@ const renderStudyEvents = (
 
 const renderStudyFooterStatus = (dashboard: BenchDashboardModel): string => {
   const cache = cacheTotals(dashboard);
+  const rowCache = studyTimingCacheTotals(dashboard);
   return [
     'bench study',
     `stage=${dashboard.stage}`,
     `jobs=${studyJobProgress(dashboard)}`,
     `assets=${dashboard.completedJobs}/${dashboard.totalJobs}`,
     `workers=${dashboard.workerCount || '-'}`,
-    `cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
+    `asset-cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
+    `row-cache=c${rowCache.cached}/f${rowCache.fresh}`,
   ].join(' | ');
+};
+
+const studyTimingCacheTotals = (dashboard: BenchDashboardModel) => {
+  let cached = 0;
+  let fresh = 0;
+  for (const row of [
+    ...dashboard.studyTimings.values(),
+    ...dashboard.studyDetectorTimings.values(),
+  ]) {
+    cached += row.cachedCount;
+    fresh += row.freshCount;
+  }
+  return { cached, fresh };
 };
 
 const cacheTotals = (dashboard: BenchDashboardModel) => {
