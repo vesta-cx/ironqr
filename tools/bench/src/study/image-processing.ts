@@ -9,7 +9,6 @@ import {
   getOklabPlanes,
 } from '../../../../packages/ironqr/src/pipeline/frame.js';
 import {
-  detectFloodFinders,
   detectMatcherFinders,
   type FinderEvidence,
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
@@ -752,8 +751,10 @@ const sharedPlaneCount = (viewIds: readonly BinaryViewId[]): number =>
 const detectorStudyViewIds = (config: ImageProcessingConfig): readonly BinaryViewId[] =>
   config.viewSet === 'all' ? listDefaultBinaryViewIds() : listDefaultProposalViewIds();
 
+const FLOOD_CONTROL_ID = 'dense-stats';
+
 const activeDetectorPatternIds = (): readonly string[] => [
-  'inline-flood',
+  FLOOD_CONTROL_ID,
   'run-map',
   ...ACTIVE_FLOOD_CANDIDATES.map((candidate) => candidate.id),
   ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id),
@@ -761,6 +762,7 @@ const activeDetectorPatternIds = (): readonly string[] => [
 
 const retainedDetectorPatternIds = (): readonly string[] => [
   'inline-flood',
+  FLOOD_CONTROL_ID,
   'run-map',
   ...FLOOD_CANDIDATES.map((candidate) => candidate.id),
   ...MATCHER_CANDIDATES.map((candidate) => candidate.id),
@@ -813,15 +815,15 @@ const readCachedDetectorAssetResult = async (
   const matcherUnits: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
-    const floodControl = await readVariantMeasurement(asset, cache, 'inline-flood', viewId);
+    const floodControl = await readVariantMeasurement(asset, cache, FLOOD_CONTROL_ID, viewId);
     const matcherControl = await readVariantMeasurement(asset, cache, 'run-map', viewId);
     if (!floodControl || !matcherControl) return null;
     floodControlMs += floodControl.durationMs;
     matcherControlMs += matcherControl.durationMs;
-    const floodControlId = detectorTimingId(viewId, 'inline-flood', 'flood');
+    const floodControlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
     const matcherControlId = detectorTimingId(viewId, 'run-map', 'matcher');
     floodUnits.push(
-      detectorUnit(floodControlId, 'inline-flood', 'flood', floodControl, true, true),
+      detectorUnit(floodControlId, FLOOD_CONTROL_ID, 'flood', floodControl, true, true),
     );
     matcherUnits.push(
       detectorUnit(matcherControlId, 'run-map', 'matcher', matcherControl, true, true),
@@ -1066,17 +1068,44 @@ const emptyTimingSummary = (): ImageProcessingTimingSummary => ({
 
 const FLOOD_CANDIDATES = [
   {
-    id: 'dense-stats',
-    note: 'Typed-array stats and no per-pixel neighbor allocation.',
+    id: 'dense-index',
+    note: 'Dense stats plus min-x indexed containment lookup.',
+  },
+  {
+    id: 'dense-squared',
+    note: 'Dense stats plus squared-distance geometry tests.',
+  },
+  {
+    id: 'dense-index-squared',
+    note: 'Dense stats plus indexed containment and squared-distance tests.',
+  },
+  {
+    id: 'scanline-stats',
+    note: 'Scanline component labeling with dense stats and linear containment lookup.',
+  },
+  {
+    id: 'scanline-index',
+    note: 'Scanline component labeling plus min-x indexed containment lookup.',
+  },
+  {
+    id: 'scanline-squared',
+    note: 'Scanline component labeling plus squared-distance geometry tests.',
+  },
+  {
+    id: 'scanline-index-squared',
+    note: 'Scanline component labeling plus indexed containment and squared-distance tests.',
   },
   {
     id: 'spatial-bin',
-    note: 'Typed-array stats plus spatially indexed contained-component lookup.',
+    note: 'Historical typed-array stats plus spatially indexed contained-component lookup.',
   },
-  { id: 'run-length-ccl', note: 'Run-length connected components prototype.' },
+  { id: 'run-length-ccl', note: 'Historical run-length connected components prototype.' },
 ] as const;
 
-const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] = [...FLOOD_CANDIDATES];
+const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] =
+  FLOOD_CANDIDATES.filter(
+    (candidate) => candidate.id !== 'spatial-bin' && candidate.id !== 'run-length-ccl',
+  );
 
 const MATCHER_CANDIDATES = [
   {
@@ -1198,6 +1227,256 @@ const isVariantCacheMeasurement = (value: unknown): value is VariantCacheMeasure
   typeof (value as { outputCount?: unknown }).outputCount === 'number' &&
   Array.isArray((value as { signature?: unknown }).signature);
 
+const floodCandidateOutput = (variantId: string, view: BinaryView): FinderEvidence[] => {
+  const options = floodVariantOptions(variantId);
+  if (options.useScanline) {
+    return floodFromComponentsWithOptions(labelScanlineComponents(view), options);
+  }
+  return floodFromComponentsWithOptions(labelDenseComponents(view), options);
+};
+
+const floodVariantOptions = (
+  variantId: string,
+): {
+  readonly useScanline: boolean;
+  readonly indexedLookup: boolean;
+  readonly squaredDistance: boolean;
+} => ({
+  useScanline: variantId.startsWith('scanline-'),
+  indexedLookup: variantId.includes('index') || variantId === 'spatial-bin',
+  squaredDistance: variantId.includes('squared'),
+});
+
+const labelScanlineComponents = (binary: BinaryView): readonly BenchComponentStats[] => {
+  const width = binary.width;
+  const height = binary.height;
+  const labels = new Int32Array(width * height);
+  const seedX = new Int32Array(width * height);
+  const seedY = new Int32Array(width * height);
+  const stats: BenchComponentStats[] = [];
+  let nextLabel = 1;
+
+  for (let start = 0; start < labels.length; start += 1) {
+    if (labels[start] !== 0) continue;
+    const color = readBinaryPixel(binary, start);
+    let head = 0;
+    let tail = 1;
+    let pixelCount = 0;
+    let minX = start % width;
+    let maxX = minX;
+    let minY = Math.floor(start / width);
+    let maxY = minY;
+    let sumX = 0;
+    let sumY = 0;
+    seedX[0] = minX;
+    seedY[0] = minY;
+
+    while (head < tail) {
+      const x = seedX[head] ?? 0;
+      const y = seedY[head] ?? 0;
+      head += 1;
+      const index = y * width + x;
+      if (labels[index] !== 0 || readBinaryPixel(binary, index) !== color) continue;
+
+      let left = x;
+      while (left > 0) {
+        const next = y * width + left - 1;
+        if (labels[next] !== 0 || readBinaryPixel(binary, next) !== color) break;
+        left -= 1;
+      }
+      let right = x;
+      while (right + 1 < width) {
+        const next = y * width + right + 1;
+        if (labels[next] !== 0 || readBinaryPixel(binary, next) !== color) break;
+        right += 1;
+      }
+
+      for (let spanX = left; spanX <= right; spanX += 1) labels[y * width + spanX] = nextLabel;
+      const runLength = right - left + 1;
+      pixelCount += runLength;
+      if (left < minX) minX = left;
+      if (right > maxX) maxX = right;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      sumX += ((left + right) * runLength) / 2;
+      sumY += y * runLength;
+
+      if (y > 0)
+        tail = enqueueAdjacentScanlineSeeds(
+          binary,
+          labels,
+          seedX,
+          seedY,
+          tail,
+          left,
+          right,
+          y - 1,
+          color,
+        );
+      if (y + 1 < height)
+        tail = enqueueAdjacentScanlineSeeds(
+          binary,
+          labels,
+          seedX,
+          seedY,
+          tail,
+          left,
+          right,
+          y + 1,
+          color,
+        );
+    }
+
+    stats.push({
+      id: nextLabel,
+      color,
+      pixelCount,
+      minX,
+      minY,
+      maxX,
+      maxY,
+      centroidX: sumX / pixelCount,
+      centroidY: sumY / pixelCount,
+    });
+    nextLabel += 1;
+  }
+
+  return stats;
+};
+
+const enqueueAdjacentScanlineSeeds = (
+  binary: BinaryView,
+  labels: Int32Array,
+  seedX: Int32Array,
+  seedY: Int32Array,
+  tail: number,
+  left: number,
+  right: number,
+  y: number,
+  color: number,
+): number => {
+  const width = binary.width;
+  let inRun = false;
+  for (let x = left; x <= right; x += 1) {
+    const index = y * width + x;
+    const same = labels[index] === 0 && readBinaryPixel(binary, index) === color;
+    if (same && !inRun) {
+      seedX[tail] = x;
+      seedY[tail] = y;
+      tail += 1;
+    }
+    inRun = same;
+  }
+  return tail;
+};
+
+const floodFromComponentsWithOptions = (
+  components: readonly BenchComponentStats[],
+  options: { readonly indexedLookup: boolean; readonly squaredDistance: boolean },
+): FinderEvidence[] => {
+  if (options.indexedLookup) {
+    return floodFromIndexedComponentSets(
+      components.filter((component) => component.color === 0),
+      components.filter((component) => component.color === 255),
+      components.filter((component) => component.color === 0),
+      options,
+    );
+  }
+  return floodFromComponentSets(
+    components.filter((component) => component.color === 0),
+    components.filter((component) => component.color === 255),
+    components.filter((component) => component.color === 0),
+    options,
+  );
+};
+
+const floodFromIndexedComponentSets = (
+  rings: readonly BenchComponentStats[],
+  gaps: readonly BenchComponentStats[],
+  stones: readonly BenchComponentStats[],
+  options: { readonly squaredDistance: boolean },
+): FinderEvidence[] => {
+  const gapsByMinX = [...gaps].sort((left, right) => left.minX - right.minX);
+  const stonesByMinX = [...stones].sort((left, right) => left.minX - right.minX);
+  const evidence: FinderEvidence[] = [];
+  for (const ring of rings) {
+    if (!isBenchFloodRing(ring)) continue;
+    const ringWidth = ring.maxX - ring.minX + 1;
+    const ringHeight = ring.maxY - ring.minY + 1;
+    const gap = findContainedCandidate(
+      gapsByMinX,
+      ring,
+      Math.min(ringWidth, ringHeight) * 0.25,
+      options.squaredDistance,
+    );
+    if (!gap) continue;
+    const stone = findContainedCandidate(
+      stonesByMinX,
+      gap,
+      Math.min(gap.maxX - gap.minX + 1, gap.maxY - gap.minY + 1) * 0.2,
+      options.squaredDistance,
+      ring.id,
+    );
+    if (!stone) continue;
+    appendFloodEvidence(evidence, ring, stone);
+  }
+  return finalizeFloodEvidence(evidence);
+};
+
+const findContainedCandidate = (
+  candidatesByMinX: readonly BenchComponentStats[],
+  outer: BenchComponentStats,
+  centerTolerance: number,
+  squaredDistance: boolean,
+  excludedId?: number,
+): BenchComponentStats | null => {
+  for (const candidate of candidatesByMinX) {
+    if (candidate.minX <= outer.minX) continue;
+    if (candidate.minX >= outer.maxX) break;
+    if (candidate.id === excludedId || !containedIn(candidate, outer)) continue;
+    if (!centersNear(candidate, outer, centerTolerance, squaredDistance)) continue;
+    return candidate;
+  }
+  return null;
+};
+
+const appendFloodEvidence = (
+  evidence: FinderEvidence[],
+  ring: BenchComponentStats,
+  stone: BenchComponentStats,
+): void => {
+  const areaRatio = stone.pixelCount / Math.max(1, ring.pixelCount);
+  if (areaRatio < 0.18 || areaRatio > 0.72) return;
+  const moduleSize = Math.sqrt(ring.pixelCount / 24);
+  evidence.push({
+    source: 'flood',
+    centerX: ring.centroidX,
+    centerY: ring.centroidY,
+    moduleSize,
+    hModuleSize: moduleSize,
+    vModuleSize: moduleSize,
+    score: 1.5 - Math.abs(areaRatio - 0.375),
+  });
+};
+
+const finalizeFloodEvidence = (evidence: readonly FinderEvidence[]): FinderEvidence[] =>
+  dedupeBenchEvidence(evidence)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 12);
+
+const centersNear = (
+  candidate: BenchComponentStats,
+  outer: BenchComponentStats,
+  tolerance: number,
+  squaredDistance: boolean,
+): boolean => {
+  const dx = candidate.centroidX - outer.centroidX;
+  const dy = candidate.centroidY - outer.centroidY;
+  return squaredDistance
+    ? dx * dx + dy * dy < tolerance * tolerance
+    : Math.hypot(dx, dy) < tolerance;
+};
+
 const labelDenseComponents = (binary: BinaryView): readonly BenchComponentStats[] => {
   const width = binary.width;
   const height = binary.height;
@@ -1270,16 +1549,13 @@ const enqueueSame = (
 };
 
 const floodFromComponents = (components: readonly BenchComponentStats[]): FinderEvidence[] =>
-  floodFromComponentSets(
-    components.filter((component) => component.color === 0),
-    components.filter((component) => component.color === 255),
-    components.filter((component) => component.color === 0),
-  );
+  floodFromComponentsWithOptions(components, { indexedLookup: false, squaredDistance: false });
 
 const floodFromComponentSets = (
   rings: readonly BenchComponentStats[],
   gaps: readonly BenchComponentStats[],
   stones: readonly BenchComponentStats[],
+  options: { readonly squaredDistance: boolean } = { squaredDistance: false },
 ): FinderEvidence[] => {
   const evidence: FinderEvidence[] = [];
   for (const ring of rings) {
@@ -1289,44 +1565,30 @@ const floodFromComponentSets = (
     const gap = gaps.find(
       (candidate) =>
         containedIn(candidate, ring) &&
-        distancePoint(candidate.centroidX, candidate.centroidY, ring.centroidX, ring.centroidY) <
+        centersNear(
+          candidate,
+          ring,
           Math.min(ringWidth, ringHeight) * 0.25,
+          options.squaredDistance,
+        ),
     );
     if (!gap) continue;
     const stone = stones.find(
       (candidate) =>
         candidate.id !== ring.id &&
         containedIn(candidate, gap) &&
-        distancePoint(candidate.centroidX, candidate.centroidY, gap.centroidX, gap.centroidY) <
+        centersNear(
+          candidate,
+          gap,
           Math.min(gap.maxX - gap.minX + 1, gap.maxY - gap.minY + 1) * 0.2,
+          options.squaredDistance,
+        ),
     );
     if (!stone) continue;
-    const areaRatio = stone.pixelCount / Math.max(1, ring.pixelCount);
-    if (areaRatio < 0.18 || areaRatio > 0.72) continue;
-    const moduleSize = Math.sqrt(ring.pixelCount / 24);
-    evidence.push({
-      source: 'flood',
-      centerX: ring.centroidX,
-      centerY: ring.centroidY,
-      moduleSize,
-      hModuleSize: moduleSize,
-      vModuleSize: moduleSize,
-      score: 1.5 - Math.abs(areaRatio - 0.375),
-    });
+    appendFloodEvidence(evidence, ring, stone);
   }
-  return dedupeBenchEvidence(evidence)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 12);
+  return finalizeFloodEvidence(evidence);
 };
-
-const floodWithSpatialBins = (components: readonly BenchComponentStats[]): FinderEvidence[] => {
-  const gaps = components.filter((component) => component.color === 255);
-  const stones = components.filter((component) => component.color === 0);
-  return floodFromComponentSets(stones, gaps, stones);
-};
-
-const floodWithRunLengthComponents = (binary: BinaryView): FinderEvidence[] =>
-  floodFromComponents(labelDenseComponents(binary));
 
 const containedIn = (inner: BenchComponentStats, outer: BenchComponentStats): boolean =>
   inner.minX > outer.minX &&
@@ -1533,13 +1795,18 @@ const measureFloodCandidateVariants = async (
   for (const viewId of viewIds) {
     throwIfStudyAborted(signal);
     const view = viewBank.getBinaryView(viewId);
-    const control = await measureVariant(asset, cache, 'inline-flood', viewId, preloadedRows, () =>
-      detectFloodFinders(view, view.width, view.height),
+    const control = await measureVariant(
+      asset,
+      cache,
+      FLOOD_CONTROL_ID,
+      viewId,
+      preloadedRows,
+      () => floodFromComponents(labelDenseComponents(view)),
     );
     controlMs += control.measurement.durationMs;
-    const controlId = detectorTimingId(viewId, 'inline-flood', 'flood');
+    const controlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
     units.push(
-      detectorUnit(controlId, 'inline-flood', 'flood', control.measurement, control.cached, true),
+      detectorUnit(controlId, FLOOD_CONTROL_ID, 'flood', control.measurement, control.cached, true),
     );
     if (!control.preloaded) {
       logStudyTiming(
@@ -1554,21 +1821,8 @@ const measureFloodCandidateVariants = async (
 
     for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
       throwIfStudyAborted(signal);
-      const measured = await measureVariant(
-        asset,
-        cache,
-        candidate.id,
-        viewId,
-        preloadedRows,
-        () => {
-          if (candidate.id === 'spatial-bin') {
-            return floodWithSpatialBins(labelDenseComponents(view));
-          }
-          if (candidate.id === 'run-length-ccl') {
-            return floodWithRunLengthComponents(view);
-          }
-          return floodFromComponents(labelDenseComponents(view));
-        },
+      const measured = await measureVariant(asset, cache, candidate.id, viewId, preloadedRows, () =>
+        floodCandidateOutput(candidate.id, view),
       );
       const compared = compareVariant(
         candidate.id,
@@ -1830,6 +2084,13 @@ const VARIANT_ID_ALIASES: Record<string, string> = {
   'inline-flood': 'inline',
   'run-map': 'run-map',
   'dense-stats': 'dense',
+  'dense-index': 'dense-index',
+  'dense-squared': 'dense-sq',
+  'dense-index-squared': 'dense-idx-sq',
+  'scanline-stats': 'scanline',
+  'scanline-index': 'scan-idx',
+  'scanline-squared': 'scan-sq',
+  'scanline-index-squared': 'scan-idx-sq',
   'spatial-bin': 'spatial',
   'run-length-ccl': 'run-length',
   'run-pattern': 'run-pattern',
@@ -1841,6 +2102,13 @@ const LEGACY_VARIANT_IDS: Record<string, readonly string[]> = {
   'inline-flood': ['inline-flood-control'],
   'run-map': ['run-map-matcher-control'],
   'dense-stats': ['dense-typed-array-component-stats'],
+  'dense-index': ['dense-indexed-component-lookup'],
+  'dense-squared': ['dense-squared-distance'],
+  'dense-index-squared': ['dense-indexed-squared-distance'],
+  'scanline-stats': ['scanline-component-stats'],
+  'scanline-index': ['scanline-indexed-component-lookup'],
+  'scanline-squared': ['scanline-squared-distance'],
+  'scanline-index-squared': ['scanline-indexed-squared-distance'],
   'spatial-bin': ['spatial-binned-component-lookup'],
   'run-length-ccl': ['run-length-connected-components'],
   'run-pattern': ['run-pattern-center-matcher'],
@@ -1852,6 +2120,13 @@ const LEGACY_VARIANT_ALIASES: Record<string, string> = {
   'inline-flood-control': 'in',
   'run-map-matcher-control': 'rm',
   'dense-typed-array-component-stats': 'dta',
+  'dense-indexed-component-lookup': 'di',
+  'dense-squared-distance': 'dsq',
+  'dense-indexed-squared-distance': 'disq',
+  'scanline-component-stats': 'sl',
+  'scanline-indexed-component-lookup': 'sli',
+  'scanline-squared-distance': 'slsq',
+  'scanline-indexed-squared-distance': 'slisq',
   'spatial-binned-component-lookup': 'sb',
   'run-length-connected-components': 'rlc',
   'run-pattern-center-matcher': 'rpc',
@@ -1862,10 +2137,24 @@ const LEGACY_VARIANT_ALIASES: Record<string, string> = {
 const FLOOD_DETECTOR_IDS = new Set([
   'inline-flood',
   'dense-stats',
+  'dense-index',
+  'dense-squared',
+  'dense-index-squared',
+  'scanline-stats',
+  'scanline-index',
+  'scanline-squared',
+  'scanline-index-squared',
   'spatial-bin',
   'run-length-ccl',
   'inline-flood-control',
   'dense-typed-array-component-stats',
+  'dense-indexed-component-lookup',
+  'dense-squared-distance',
+  'dense-indexed-squared-distance',
+  'scanline-component-stats',
+  'scanline-indexed-component-lookup',
+  'scanline-squared-distance',
+  'scanline-indexed-squared-distance',
   'spatial-binned-component-lookup',
   'run-length-connected-components',
 ]);
@@ -2545,7 +2834,7 @@ const summarizeDetectorVariants = (
   totals: ImageProcessingTotals,
 ): readonly DetectorVariantSummary[] =>
   [...variants.values()].map((variant) => {
-    const controlId = variant.area === 'flood' ? 'inline-flood' : 'run-map';
+    const controlId = variant.area === 'flood' ? FLOOD_CONTROL_ID : 'run-map';
     const controlMs = variant.area === 'flood' ? totals.floodControlMs : totals.matcherControlMs;
     return {
       ...variant,
@@ -2621,16 +2910,16 @@ const buildVariantSummaries = (
   const variants: ImageProcessingVariantSummary[] = [];
   if (config.focus === 'binary-prefilter-signals' && totals.floodControlMs > 0) {
     variants.push({
-      id: 'inline-flood',
-      title: 'Inline component-stats flood detector control',
-      controlMetric: 'inline component-stats flood duration',
-      candidateMetric: 'inline component-stats flood duration',
+      id: FLOOD_CONTROL_ID,
+      title: 'Dense stats flood detector control',
+      controlMetric: 'dense stats flood duration',
+      candidateMetric: 'dense stats flood duration',
       controlMs: totals.floodControlMs,
       candidateMs: totals.floodControlMs,
       deltaMs: 0,
       improvementPct: 0,
       evidence:
-        'canonical flood-fill control; active candidates are measured separately in detectorCandidates.',
+        'canonical dense-stats flood control; active candidates are measured separately in detectorCandidates.',
     });
     for (const candidate of detectorCandidates) {
       variants.push({

@@ -7,9 +7,9 @@ This study tracks detector-only experiments for IronQR finder evidence. It compa
 Settled leads:
 
 1. **Run-map matcher is canonical.** Full-corpus legacy-vs-run-map matcher comparison found `0` mismatched asset/view rows and an `88.93%` matcher-time reduction.
-2. **Inline component-stats flood is canonical.** Full-corpus legacy-vs-inline flood comparison found `0` mismatched asset/view rows and a `64.72%` flood-time reduction.
+2. **Dense component-stats flood is canonical for the next phase.** The flood-candidate run showed `dense-stats` was the fastest active flood candidate (`41.38%` faster than `inline-flood`) and a targeted legacy check on the only divergent `gray:h:i` row showed `dense-stats` matched legacy two-pass flood behavior while `inline-flood` emitted fewer finders.
 
-The active study should contain only the current leads plus genuinely new candidates that could beat them. Exhausted references like legacy flood, filtered flood, and center-signal matcher are not active variants.
+The active study should contain only the current leads plus genuinely new candidates that could beat them. Exhausted references like legacy flood, filtered flood, inline flood, and center-signal matcher are not active variants.
 
 The study uses detector-pattern cache keys (`patternId + viewId + asset hash`) instead of one coarse whole-asset cache entry. Pattern ids are stable strings like `inline:f:gray:o:n`, so adding a new detector pattern only queues that pattern for each asset/view while cached leads are reused. On startup, the study checks whether all active pattern/view rows for an asset already exist; fully cached assets are reported as cache hits and skip image loading/materialization entirely. Partially cached assets run only missing pattern/view rows. Adding a pattern or adding a view naturally creates missing cache rows; removing a view or binning a pattern stops requiring those rows without deleting historical cache. Asset content changes are invalidated by asset SHA. Retired variants stay in the historical evidence ledger but are excluded from active summary matrices.
 
@@ -64,7 +64,8 @@ The first implementation was intentionally broad and exploratory: passive binary
 | 1. Matcher exploration        | Run-map, center-pruned, seeded, and fused matcher candidates.                                                                 | Prototype variants mixed correctness and headroom; run-map needed a clean legacy comparison. | Center/seed variants mismatched; run-map looked promising.                                                     | Narrowed to legacy matcher vs run-map matcher.                              |
 | 2. Matcher equivalence        | Only legacy matcher vs run-map matcher.                                                                                       | Needed a direct regression proof for the default matcher.                                    | `0` mismatches over `10,962` comparisons; `88.93%` faster.                                                     | Run-map matcher canonized; legacy matcher removed.                          |
 | 3. Flood equivalence          | Legacy two-pass flood vs inline stats vs filtered component matching.                                                         | Needed to distinguish the large pass-fusion win from smaller matching-filter effects.        | Inline stats: `0` mismatches, `64.72%` faster. Filtered: `0` mismatches, only `1.66%` faster over old control. | Inline flood canonized; legacy/filtered variants retired from active study. |
-| 4. Current phase              | Inline flood and run-map matcher leads plus queued, non-exhausted flood/matcher candidates.                                   | Avoid wasting runtime on exhausted candidates without losing the candidate backlog.          | Variant-level cache runs only missing measurements; summaries exclude empirically binned variants.             | Implement queued candidates one by one against cached leads.                |
+| 4. Flood candidate phase      | Inline flood and run-map matcher leads plus dense/spatial/run-length flood candidates.                                        | Test new flood implementations against the warmed inline control.                            | Dense-stats was fastest; all candidates differed on one `gray:h:i` row. A targeted legacy check showed dense/spatial/run-length matched legacy and inline was the odd one out. | Dense-stats canonized as the next flood control. |
+| 5. Current phase              | Dense-stats and run-map matcher leads plus all permutations of scanline labeling, indexed containment lookup, and squared-distance geometry tests. | Combine the best abstract ideas from prior variants while avoiding rescue/fallback paths. | Variant-level cache runs only missing measurements; summaries exclude empirically binned variants. | Choose the fastest dense-compatible hybrid that preserves sorted `FinderEvidence[]` signatures. |
 
 ## Evidence ledger
 
@@ -103,13 +104,17 @@ The first implementation was intentionally broad and exploratory: passive binary
 
 | Variant id      | Area    | Compared to    | Status                                      |
 | --------------- | ------- | -------------- | ------------------------------------------- |
-| `inline-flood`  | Flood   | —              | Current running flood lead.                 |
-| `run-map`       | Matcher | —              | Current running matcher lead.               |
-| `dense-stats`   | Flood   | `inline-flood` | Enabled runnable candidate.                 |
-| `spatial-bin`   | Flood   | `inline-flood` | Enabled runnable candidate.                 |
-| `run-length-ccl` | Flood  | `inline-flood` | Enabled runnable candidate.                 |
+| `dense-stats`              | Flood   | —             | Current running flood lead. Canonized after matching legacy on the discovered `gray:h:i` divergence while beating `inline-flood` by `41.38%` in the flood-candidate run. |
+| `run-map`                  | Matcher | —             | Current running matcher lead. |
+| `dense-index`              | Flood   | `dense-stats` | Enabled hybrid candidate: dense stats plus min-x indexed containment lookup. |
+| `dense-squared`            | Flood   | `dense-stats` | Enabled hybrid candidate: dense stats plus squared-distance geometry tests. |
+| `dense-index-squared`      | Flood   | `dense-stats` | Enabled hybrid candidate: dense stats plus indexed containment and squared-distance tests. |
+| `scanline-stats`           | Flood   | `dense-stats` | Enabled hybrid candidate: scanline component labeling plus dense stats. |
+| `scanline-index`           | Flood   | `dense-stats` | Enabled hybrid candidate: scanline labeling plus indexed containment lookup. |
+| `scanline-squared`         | Flood   | `dense-stats` | Enabled hybrid candidate: scanline labeling plus squared-distance geometry tests. |
+| `scanline-index-squared`   | Flood   | `dense-stats` | Enabled hybrid candidate: scanline labeling plus indexed containment and squared-distance tests. |
 
-Current phase measures all flood candidates against the warmed inline-flood control. Matcher candidates remain implemented and cache-retained, but are disabled from default execution until this flood batch is decided.
+Current phase measures hybrid flood candidates against the warmed dense-stats control. `inline-flood`, `spatial-bin`, and `run-length-ccl` remain cache-retained as historical references but are disabled from default execution. Matcher candidates remain implemented and cache-retained, but are disabled from default execution until this flood-hybrid batch is decided.
 
 ## Disabled runnable variants
 
@@ -137,9 +142,10 @@ Active candidate means “included in the default detector-study run and summary
 
 | Candidate                              | Area          | Rationale                                                                                                     | Admission bar                                                                |
 | -------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Run-length connected components        | Flood         | Work scales with horizontal runs rather than pixels; could be the next large improvement after inline stats.  | Must beat inline flood and preserve sorted `FinderEvidence[]` signatures.    |
-| Dense typed-array component stats      | Flood         | Replaces object-heavy component stats with dense arrays indexed by component id.                              | Must beat inline flood and preserve sorted `FinderEvidence[]` signatures.    |
-| Spatial bins for ring/gap/stone lookup | Flood         | Reduces nested component containment scans if matching dominates after inline stats.                          | Must beat inline flood and preserve sorted `FinderEvidence[]` signatures.    |
+| Dense min-x indexed containment lookup | Flood         | Keeps dense component stats but bounds gap/stone containment scans by sorted `minX` windows instead of full candidate scans. | Must beat dense-stats and preserve sorted `FinderEvidence[]` signatures. |
+| Dense squared-distance geometry tests  | Flood         | Removes `Math.hypot` from ring/gap/stone center checks while preserving the same thresholds. | Must beat dense-stats and preserve sorted `FinderEvidence[]` signatures. |
+| Scanline component labeling            | Flood         | Processes horizontal spans in bulk while keeping dense component stats and legacy-compatible finder semantics. | Must beat dense-stats and preserve sorted `FinderEvidence[]` signatures. |
+| Scanline + indexed/squared hybrids     | Flood         | Tests every permutation of span-based labeling, indexed lookup, and squared-distance checks. | Must beat dense-stats and preserve sorted `FinderEvidence[]` signatures. |
 | Run-pattern center matcher             | Matcher       | Enumerates centers from `1:1:3:1:1` run patterns instead of arbitrary grid probes.                            | Must beat run-map matcher and preserve sorted `FinderEvidence[]` signatures. |
 | Axis-run intersection matcher          | Matcher       | Intersects plausible horizontal and vertical run-pattern centers without the retired hard center-signal gate. | Must beat run-map matcher and preserve sorted `FinderEvidence[]` signatures. |
 | Shared run-length detector artifacts   | Flood+Matcher | One run-length threshold-plane pass could feed both flood CCL and matcher center enumeration.                 | Must show combined detector savings, not just local wins.                    |
@@ -162,7 +168,7 @@ Processed summaries should include:
 
 - `headline` — lead timing and equality summary;
 - `variants` — current leads and genuinely new active candidates only;
-- `floodMatrix` — current flood lead and active flood candidates only;
+- `floodMatrix` — current flood lead (`dense-stats`) and active flood-hybrid candidates only;
 - `detectorLatency` — global detector latency distributions by detector id, including `avgMs`, `p85Ms`, `p95Ms`, `p98Ms`, `p99Ms`, and `maxMs`;
 - `detectorUnits` — per detector/view latency distributions with the same percentile fields plus job/cache/output/equivalence counts;
 - `exploredAvenues` — durable ledger of tested/proposed optimization paths;
