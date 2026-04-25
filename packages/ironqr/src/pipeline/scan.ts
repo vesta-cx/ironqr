@@ -865,6 +865,12 @@ const processFrontierClusters = (
           ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
           proposalRank,
           topProposalScore: snapshot.topProposalScore,
+          ...(options.maxDecodeAttempts === undefined
+            ? {}
+            : {
+                shouldAttemptDecode: () =>
+                  state.attemptRecords.length < (options.maxDecodeAttempts ?? 0),
+              }),
           onAttemptMeasured: (attempt) => {
             recordTimingSpan(options.metricsSink, 'decode-attempt', nowMs() - attempt.durationMs, {
               proposalId: attempt.proposalId,

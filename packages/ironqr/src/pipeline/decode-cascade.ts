@@ -86,6 +86,8 @@ export interface DecodeCascadeOptions {
   ) => void;
   /** Cached initial geometry candidates produced during proposal ranking. */
   readonly initialGeometryCandidates?: readonly GeometryCandidate[];
+  /** Optional scan-level decode budget gate checked before each concrete decode attempt. */
+  readonly shouldAttemptDecode?: () => boolean;
 }
 
 const MAX_DECODE_NEIGHBORHOOD = 12;
@@ -171,6 +173,7 @@ export const runDecodeCascade = (
         options.traceSink,
         options.onAttemptMeasured,
         options.metricsSink,
+        options.shouldAttemptDecode,
       );
       if (plain) return plain;
 
@@ -190,6 +193,7 @@ export const runDecodeCascade = (
         options.traceSink,
         options.onAttemptMeasured,
         options.metricsSink,
+        options.shouldAttemptDecode,
       );
       if (refined) return refined;
       if (!allowRescue || geometryIndex >= maxRescueGeometries) continue;
@@ -213,6 +217,7 @@ export const runDecodeCascade = (
             options.traceSink,
             options.onAttemptMeasured,
             options.metricsSink,
+            options.shouldAttemptDecode,
           );
           if (alignmentResult) return alignmentResult;
         }
@@ -236,6 +241,7 @@ export const runDecodeCascade = (
           options.traceSink,
           options.onAttemptMeasured,
           options.metricsSink,
+          options.shouldAttemptDecode,
         );
         if (nudgedResult) return nudgedResult;
       }
@@ -269,6 +275,7 @@ export const runDecodeCascade = (
         options.traceSink,
         options.onAttemptMeasured,
         options.metricsSink,
+        options.shouldAttemptDecode,
       );
       if (rescue) return rescue;
 
@@ -288,6 +295,7 @@ export const runDecodeCascade = (
         options.traceSink,
         options.onAttemptMeasured,
         options.metricsSink,
+        options.shouldAttemptDecode,
       );
       if (rescueRefined) return rescueRefined;
     }
@@ -323,11 +331,13 @@ const tryGeometryAcrossViews = (
   traceSink?: TraceSink,
   onAttemptMeasured?: DecodeCascadeOptions['onAttemptMeasured'],
   metricsSink?: ScanMetricsSink,
+  shouldAttemptDecode?: DecodeCascadeOptions['shouldAttemptDecode'],
 ): Effect.Effect<DecodeCascadeSuccess | null, ScannerError> => {
   return Effect.gen(function* () {
     for (const decodeBinaryViewId of decodeNeighborhood) {
       const binaryView = viewBank.getBinaryView(decodeBinaryViewId);
       for (const sampler of samplers) {
+        if (shouldAttemptDecode?.() === false) return null;
         const geometryCandidateId = `${geometry.id ?? proposal.id}:${refinement}:${decodeBinaryViewId}:${sampler}`;
         const attempt = {
           proposalId: proposal.id,
