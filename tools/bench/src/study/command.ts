@@ -105,15 +105,23 @@ export const getDefaultStudyCachePath = (repoRoot: string, studyId: string): str
 
 export const listStudyPlugins = (): readonly StudyPlugin[] => createDefaultStudyRegistry().list();
 
+const availableStudyWorkerSlots = (): number => {
+  const available = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
+  return Math.max(1, available - 1);
+};
+
 const defaultStudyWorkerCount = (): number => {
   const available = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
-  return Math.max(1, Math.min(available - 1, Math.floor(available * 0.9)));
+  return Math.max(1, Math.min(availableStudyWorkerSlots(), Math.floor(available * 0.9)));
 };
 
 const resolveStudyWorkerCount = (requested?: number): number => {
+  const maxWorkers = availableStudyWorkerSlots();
   if (requested === undefined) return defaultStudyWorkerCount();
-  if (!Number.isSafeInteger(requested) || requested < 1) {
-    throw new Error(`Study worker count must be a positive integer, got ${requested}`);
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > maxWorkers) {
+    throw new Error(
+      `Study worker count must be an integer from 1 to ${maxWorkers}, got ${requested}`,
+    );
   }
   return requested;
 };
