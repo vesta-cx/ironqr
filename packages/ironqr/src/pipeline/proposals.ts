@@ -837,12 +837,7 @@ export const detectMatcherFinders = (
   height: number,
 ): FinderEvidence[] => detectMatcherFindersWithRunMaps(binary, width, height);
 
-export type MatcherRunMapVariant =
-  | 'run-map-early-exit'
-  | 'run-map-u16'
-  | 'run-map-u16-early-exit'
-  | 'run-map-horizontal-first'
-  | 'run-map-horizontal-first-u16';
+export type MatcherRunMapVariant = 'run-map-u16';
 
 export const detectMatcherFindersWithRunMapVariant = (
   binary: Uint8Array | BinaryView,
@@ -850,27 +845,14 @@ export const detectMatcherFindersWithRunMapVariant = (
   height: number,
   variant: MatcherRunMapVariant,
 ): FinderEvidence[] => {
-  if (variant === 'run-map-horizontal-first')
-    return detectMatcherFindersHorizontalFirst(binary, width, height, { compactRuns: false });
-  if (variant === 'run-map-horizontal-first-u16')
-    return detectMatcherFindersHorizontalFirst(binary, width, height, { compactRuns: true });
-
-  const compactRuns = variant === 'run-map-u16' || variant === 'run-map-u16-early-exit';
-  const runs = buildAxisRuns(binary, width, height, { compactRuns });
-  const crossCheckFn = (
-    source: Uint8Array | BinaryView,
-    sourceWidth: number,
-    sourceHeight: number,
-    centerX: number,
-    centerY: number,
-    dx: number,
-    dy: number,
-  ): ReturnType<typeof crossCheck> =>
-    runMapCrossCheck(source, sourceWidth, sourceHeight, runs, centerX, centerY, dx, dy);
-
-  return variant === 'run-map-early-exit' || variant === 'run-map-u16-early-exit'
-    ? detectMatcherFindersWithEarlyExit(binary, width, height, crossCheckFn)
-    : detectMatcherFindersWithCrossCheck(binary, width, height, crossCheckFn);
+  const runs = buildAxisRuns(binary, width, height, { compactRuns: variant === 'run-map-u16' });
+  return detectMatcherFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      runMapCrossCheck(source, sourceWidth, sourceHeight, runs, centerX, centerY, dx, dy),
+  );
 };
 
 const detectMatcherFindersWithRunMaps = (
@@ -927,28 +909,6 @@ const matcherEvidenceAt = (
   const vertical = crossCheckFn(binary, width, height, x, y, 0, 1);
   if (!horizontal || !vertical) return [];
   return matcherEvidenceFromChecks(horizontal, vertical);
-};
-
-const detectMatcherFindersWithEarlyExit = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-  crossCheckFn: typeof crossCheck,
-): FinderEvidence[] => {
-  const evidence: FinderEvidence[] = [];
-  const step = matcherStep(width, height);
-  for (let y = 2; y < height - 2; y += step) {
-    for (let x = 2; x < width - 2; x += step) {
-      if (!isDarkCenter(binary, width, x, y)) continue;
-      const horizontal = crossCheckFn(binary, width, height, x, y, 1, 0);
-      if (!horizontal) continue;
-      const vertical = crossCheckFn(binary, width, height, x, y, 0, 1);
-      if (!vertical) continue;
-      evidence.push(...matcherEvidenceFromChecks(horizontal, vertical));
-    }
-  }
-
-  return finalizeMatcherEvidence(evidence);
 };
 
 const matcherEvidenceFromChecks = (
@@ -1196,137 +1156,6 @@ const buildAxisRuns = (
   }
 
   return { horizontalStart, horizontalEnd, verticalStart, verticalEnd };
-};
-
-const buildHorizontalRuns = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-  options: AxisRunOptions,
-): Pick<AxisRuns, 'horizontalStart' | 'horizontalEnd'> => {
-  const pixelCount = width * height;
-  const horizontalStart = axisRunArray(pixelCount, width, options.compactRuns);
-  const horizontalEnd = axisRunArray(pixelCount, width, options.compactRuns);
-
-  for (let y = 0; y < height; y += 1) {
-    let x = 0;
-    while (x < width) {
-      const start = x;
-      const bit = pixel(binary, width, x, y);
-      while (x + 1 < width && pixel(binary, width, x + 1, y) === bit) x += 1;
-      const end = x;
-      for (let runX = start; runX <= end; runX += 1) {
-        const index = y * width + runX;
-        horizontalStart[index] = start;
-        horizontalEnd[index] = end;
-      }
-      x += 1;
-    }
-  }
-
-  return { horizontalStart, horizontalEnd };
-};
-
-const buildVerticalRuns = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-  options: AxisRunOptions,
-): Pick<AxisRuns, 'verticalStart' | 'verticalEnd'> => {
-  const pixelCount = width * height;
-  const verticalStart = axisRunArray(pixelCount, height, options.compactRuns);
-  const verticalEnd = axisRunArray(pixelCount, height, options.compactRuns);
-
-  for (let x = 0; x < width; x += 1) {
-    let y = 0;
-    while (y < height) {
-      const start = y;
-      const bit = pixel(binary, width, x, y);
-      while (y + 1 < height && pixel(binary, width, x, y + 1) === bit) y += 1;
-      const end = y;
-      for (let runY = start; runY <= end; runY += 1) {
-        const index = runY * width + x;
-        verticalStart[index] = start;
-        verticalEnd[index] = end;
-      }
-      y += 1;
-    }
-  }
-
-  return { verticalStart, verticalEnd };
-};
-
-interface HorizontalMatcherCandidate {
-  readonly x: number;
-  readonly y: number;
-  readonly horizontal: NonNullable<ReturnType<typeof crossCheck>>;
-}
-
-const detectMatcherFindersHorizontalFirst = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-  options: AxisRunOptions,
-): FinderEvidence[] => {
-  const horizontalRuns = buildHorizontalRuns(binary, width, height, options);
-  const horizontalCandidates: HorizontalMatcherCandidate[] = [];
-  const step = matcherStep(width, height);
-  for (let y = 2; y < height - 2; y += step) {
-    for (let x = 2; x < width - 2; x += step) {
-      if (!isDarkCenter(binary, width, x, y)) continue;
-      const horizontal = runMapHorizontalCrossCheck(binary, width, height, horizontalRuns, x, y);
-      if (horizontal) horizontalCandidates.push({ x, y, horizontal });
-    }
-  }
-  if (horizontalCandidates.length === 0) return [];
-
-  const runs = { ...horizontalRuns, ...buildVerticalRuns(binary, width, height, options) };
-  const evidence: FinderEvidence[] = [];
-  for (const candidate of horizontalCandidates) {
-    const vertical = runMapCrossCheck(binary, width, height, runs, candidate.x, candidate.y, 0, 1);
-    if (!vertical) continue;
-    evidence.push(...matcherEvidenceFromChecks(candidate.horizontal, vertical));
-  }
-  return finalizeMatcherEvidence(evidence);
-};
-
-const runMapHorizontalCrossCheck = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-  runs: Pick<AxisRuns, 'horizontalStart' | 'horizontalEnd'>,
-  centerX: number,
-  centerY: number,
-): ReturnType<typeof crossCheck> => {
-  const x = Math.round(centerX);
-  const y = Math.round(centerY);
-  if (pixel(binary, width, x, y) !== 0) return null;
-  const index = y * width + x;
-  const centerStart = runs.horizontalStart[index] ?? 0;
-  const centerEnd = runs.horizontalEnd[index] ?? 0;
-  const counts: [number, number, number, number, number] = [
-    0,
-    0,
-    centerEnd - centerStart + 1,
-    0,
-    0,
-  ];
-
-  counts[1] = runLengthBefore(binary, width, height, runs, x, y, true, centerStart, 255);
-  counts[0] = runLengthBefore(binary, width, height, runs, x, y, true, centerStart - counts[1], 0);
-  counts[3] = runLengthAfter(binary, width, height, runs, x, y, true, centerEnd, 255);
-  counts[4] = runLengthAfter(binary, width, height, runs, x, y, true, centerEnd + counts[3], 0);
-
-  const ratioScore = finderRatioScore(counts);
-  if (ratioScore <= 0) return null;
-  const before = counts[0] + counts[1] + counts[2] / 2;
-  const after = counts[4] + counts[3] + counts[2] / 2;
-  return {
-    centerX: centerX + (after - before) / 2,
-    centerY,
-    moduleSize: (counts[0] + counts[1] + counts[2] + counts[3] + counts[4]) / 7,
-    score: ratioScore,
-  };
 };
 
 const runMapCrossCheck = (

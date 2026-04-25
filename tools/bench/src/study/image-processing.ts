@@ -1152,29 +1152,13 @@ const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] = []
 
 const MATCHER_CANDIDATES = [
   {
-    id: 'run-map-early-exit',
-    note: 'Run-map matcher with vertical cross-check skipped after horizontal failure.',
-  },
-  {
     id: 'run-map-u16',
     note: 'Run-map matcher with 16-bit axis maps when image dimensions fit.',
-  },
-  {
-    id: 'run-map-u16-early-exit',
-    note: 'Hybrid run-map matcher with compact axis maps and horizontal-failure early exit.',
-  },
-  {
-    id: 'run-map-horizontal-first',
-    note: 'Hybrid run-map matcher that builds horizontal maps first and vertical maps only after horizontal candidates survive.',
-  },
-  {
-    id: 'run-map-horizontal-first-u16',
-    note: 'Hybrid staged run-map matcher with compact axis maps when dimensions fit.',
   },
 ] as const satisfies readonly { id: MatcherRunMapVariant; note: string }[];
 
 const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] =
-  MATCHER_CANDIDATES.filter((candidate) => candidate.id === 'run-map-u16-early-exit');
+  MATCHER_CANDIDATES;
 
 const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
@@ -2257,11 +2241,7 @@ const VARIANT_ID_ALIASES: Record<string, string> = {
   'run-pattern': 'run-pattern',
   'axis-intersect': 'axis-x',
   'shared-runs': 'shared-runs',
-  'run-map-early-exit': 'run-map-ee',
   'run-map-u16': 'run-map-u16',
-  'run-map-u16-early-exit': 'run-map-u16-ee',
-  'run-map-horizontal-first': 'run-map-h1',
-  'run-map-horizontal-first-u16': 'run-map-h1-u16',
 };
 
 const LEGACY_VARIANT_IDS: Record<string, readonly string[]> = {
