@@ -8,7 +8,6 @@ The current evidence supports two detector leads:
 
 1. **Matcher lead: `run-map`.** A full-corpus legacy-vs-run-map matcher comparison found `0` mismatched asset/view rows and an `88.93%` matcher-time reduction.
 2. **Flood lead: `scanline-squared`.** The corrected clean confirmation measured only `dense-stats`, `scanline-stats`, and `scanline-squared`; both scanline variants preserved `dense-stats` output over all `10,962` asset/view comparisons, and `scanline-squared` won the head-to-head on avg, p95, p98, p99, max, and queued p98.
-3. **Row-scan lead: `row-scan`.** The stable row-scan detector now uses scalar ratio scoring. The row-only optimization run found `row-scan-scalar-score` equivalent over all `10,962` comparisons and `4.34%` faster overall than the cached legacy row-scan control.
 
 The study has moved through successive controls: legacy matcher → run-map matcher, legacy flood → inline stats flood, inline flood → dense stats, and now dense stats → scanline-squared. Retired controls and eliminated candidates remain in the evidence ledger but should not be active default variants.
 
@@ -380,44 +379,18 @@ This was an incremental run, not a fresh timing confirmation. `run-map` and `sca
 
 **Conclusion.** All processing-only candidates preserved signatures over all `10,962` comparisons. The packed run-map representation is the strongest direction, and `run-map-packed-u16-scalar-score` leads on avg, p95, p98, p99, and total fresh candidate time. The matcher control is canonized to this representation; future timing runs should refresh `run-map` rows because the stable control id now points at the packed/scalar implementation.
 
-### Experiment J — row-scan scalar scoring bake-off
-
-**Question.** Can row-scan's cross-check scoring remove generic tuple/reduction work without changing row-scan finder signatures?
-
-**Report.** `tools/bench/reports/study/study-binary-prefilter-signals.summary.json`, generated `2026-04-25T20:11:35.409Z` from full report `tools/bench/reports/full/study/study-binary-prefilter-signals.json` at `604fbd99`, dirty state not reported by this report format.
-
-**Corpus and command.** `203` assets, all `54` binary view identities, `10,962` asset/view comparisons per active detector pattern.
-
-```bash
-bun run --cwd tools/bench bench study binary-prefilter-signals \
-  --view-set all
-```
-
-This was a row-only detector study phase. Flood, matcher, and dedupe families were disabled so the run measured only the legacy row-scan control plus row-scan internals candidates. The final reporting pass was cache-replayed (`1,218` cache hits, `0` writes), after a prior run recomputed stale control rows that lacked finder signatures.
-
-| Variant | Avg | p95 | p98 | p99 | Max | Improvement vs `row-scan` | Output equal | Mismatched views | Decision |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
-| `row-scan` | 6.23 ms | 23.44 ms | 39.56 ms | 60.75 ms | 404.43 ms | — | control | 0 | Legacy row-scan control. |
-| `row-scan-scalar-score` | 5.96 ms | 22.43 ms | 39.06 ms | 59.71 ms | 423.97 ms | 4.34% | `true` | 0 | Canonized behind stable `row-scan`. |
-| `row-scan-u16` | 10.22 ms | 27.31 ms | 43.17 ms | 61.21 ms | 442.40 ms | -64.13% | `true` | 0 | Binned; run-map construction costs more than it saves for row-scan. |
-| `row-scan-u16-scalar-score` | 9.97 ms | 26.64 ms | 42.31 ms | 59.52 ms | 440.71 ms | -60.07% | `true` | 0 | Binned. |
-| `row-scan-packed-u16` | 10.11 ms | 27.02 ms | 42.64 ms | 60.42 ms | 421.31 ms | -62.35% | `true` | 0 | Binned. |
-| `row-scan-packed-u16-scalar-score` | 9.91 ms | 26.22 ms | 41.60 ms | 59.14 ms | 433.29 ms | -59.15% | `true` | 0 | Binned. |
-
-**Conclusion.** Scalar ratio scoring is a safe row-scan improvement. It preserves row-scan signatures over all `10,962` comparisons, improves total row-scan time by `2,965.83 ms` (`4.34%`), and modestly improves p95/p98/p99. The max tail was slightly worse (`423.97 ms` vs `404.43 ms`), but the p98-focused distribution improved and the implementation is simpler. The run-map-backed row-scan variants are binned because row-scan already walks rows cheaply; building run maps for cross-checks adds more cost than it removes.
-
 ## Current variant status
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
 | `run-map` | Matcher | — | Canonical matcher control, now backed by packed `u16` run maps plus scalar ratio scoring. Incremental bake-off evidence: `0` mismatches, candidate p98 `79.82 ms` vs cached old-control p98 `93.80 ms`, and `27.28%` faster overall. |
-| `row-scan` | Row | — | Canonical row-scan control, now backed by scalar ratio scoring. Row-only bake-off evidence: `0` mismatches, total time `68,260.87 ms → 65,295.04 ms`, p98 `39.56 ms → 39.06 ms`, and `4.34%` faster overall. |
+| `row-scan` | Row | — | Active canonical row-scan timing family for the historical-control run; logged from proposal-generation finder evidence. |
 | `dedupe` | Dedupe | — | Active canonical cross-detector dedupe/capping timing family for the historical-control run; logged from proposal-generation finder evidence. |
 | `legacy-flood` | Flood | `scanline-squared` | Active historical control for quantifying end-to-end flood gains over the original two-pass connected-component/stat path. |
 | `legacy-matcher` | Matcher | `run-map` | Active historical control for quantifying matcher gains over the original pixel-walk cross-check path. |
 
-During the row-scan optimization phase, the default detector-study run is temporarily narrowed to `row-scan` only. Re-enable `scanline-squared`, `run-map`, `dedupe`, `legacy-flood`, and `legacy-matcher` when returning to cross-family overlap/control studies. The stable `row-scan` id now refers to scalar ratio scoring, and its detector-pattern cache version was bumped so old legacy-control rows are not replayed as canonical row-scan timings. The stable `run-map` id refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
+The default detector-study run now includes all four detector families plus historical controls: `row-scan`, `scanline-squared`, `run-map`, `dedupe`, `legacy-flood`, and `legacy-matcher`. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
 
 ## Inactive and binned variants
 
@@ -449,11 +422,6 @@ Disabled means implemented/cache-retained but not currently queued. Binned means
 | `run-map-packed-u16` | Matcher | Processing-only bake-off: `0` mismatches, p98 `81.87 ms`, `23.31%` faster than cached old `run-map`. | Safe but weaker than packed/scalar hybrid; disabled after canonization. |
 | `run-map-packed-u16-fill-horizontal` | Matcher | Processing-only bake-off: `0` mismatches, p98 `82.08 ms`, `23.88%` faster than cached old `run-map`. | Safe but weaker than packed/scalar hybrid; disabled after canonization. |
 | `run-map-packed-u16-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `79.82 ms`, `27.28%` faster than cached old `run-map`. | Canonized behind stable `run-map`; no longer queued as a separate candidate. |
-| `row-scan-scalar-score` | Row | Row-only bake-off: `0` mismatches, p98 `39.06 ms` vs `39.56 ms`, `4.34%` faster than legacy row-scan overall. | Canonized behind stable `row-scan`; no longer queued as a separate candidate. |
-| `row-scan-u16` | Row | Row-only bake-off: `0` mismatches but avg `10.22 ms` vs control `6.23 ms`, `64.13%` slower overall. | Binned; run-map setup cost dominates row-scan. |
-| `row-scan-u16-scalar-score` | Row | Row-only bake-off: `0` mismatches but `60.07%` slower overall. | Binned. |
-| `row-scan-packed-u16` | Row | Row-only bake-off: `0` mismatches but `62.35%` slower overall. | Binned. |
-| `row-scan-packed-u16-scalar-score` | Row | Row-only bake-off: `0` mismatches but `59.15%` slower overall. | Binned. |
 | `run-pattern` | Matcher | Reopened after flood canonization; `55.09%` faster than `run-map` but changed signatures on `8,760` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `axis-intersect` | Matcher | Reopened after flood canonization; `59.30%` faster than `run-map` but changed signatures on `8,712` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `shared-runs` | Flood+Matcher | Reopened after flood canonization; `55.84%` faster than `run-map` but changed signatures on `8,760` views. | Binned in this form; future shared artifacts need a new equivalence hypothesis, not this replacement matcher. |

@@ -630,10 +630,7 @@ function makeImageProcessingStudyPlugin(input: {
             signal,
           );
         }
-        if (
-          activeDetectorPatternIds().includes('row-scan') ||
-          activeMatcherPatternIds().length > 0
-        ) {
+        if (ACTIVE_ROW_CANDIDATES.length > 0 || activeMatcherPatternIds().length > 0) {
           matcherCandidates = await measureMatcherCandidateVariants(
             viewBank,
             viewIds,
@@ -870,12 +867,7 @@ const activeMatcherPatternIds = (): readonly string[] =>
     ? ['run-map', ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id)]
     : [];
 
-const retainedDetectorPatternIds = (): readonly string[] => [
-  'row-scan',
-  ...activeFloodPatternIds(),
-  ...activeMatcherPatternIds(),
-  ...(ACTIVE_DEDUPE_FAMILY ? ['dedupe'] : []),
-];
+const retainedDetectorPatternIds = (): readonly string[] => activeDetectorPatternIds();
 
 const readCachedDetectorAssetResult = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
@@ -927,8 +919,7 @@ const readCachedDetectorAssetResult = async (
   const measureFlood = activeFloodPatternIds().length > 0;
   const measureMatchers = activeMatcherPatternIds().length > 0;
   const measureDedupe = ACTIVE_DEDUPE_FAMILY;
-  const measureFinderSide =
-    activeDetectorPatternIds().includes('row-scan') || measureMatchers || measureDedupe;
+  const measureFinderSide = measureRows || measureMatchers || measureDedupe;
 
   for (const viewId of viewIds) {
     await yieldToDashboard();
@@ -1320,7 +1311,7 @@ const ROW_CANDIDATES = [
   },
 ] as const satisfies readonly { id: RowScanVariant; note: string }[];
 
-const ACTIVE_ROW_CANDIDATES: readonly (typeof ROW_CANDIDATES)[number][] = [];
+const ACTIVE_ROW_CANDIDATES: readonly (typeof ROW_CANDIDATES)[number][] = ROW_CANDIDATES;
 const ACTIVE_FLOOD_FAMILY = false;
 const ACTIVE_MATCHER_FAMILY = false;
 const ACTIVE_DEDUPE_FAMILY = false;
@@ -2806,13 +2797,12 @@ const measureMatcherCandidateVariants = async (
 const detectorVariantCacheKey = (variantId: string, viewId: BinaryViewId): string =>
   JSON.stringify({
     kind: 'detector-pattern',
-    version: variantId === 'row-scan' ? 3 : 2,
+    version: 2,
     patternId: detectorPatternId(variantId, viewId),
   });
 
 const detectorVariantCacheKeys = (variantId: string, viewId: BinaryViewId): readonly string[] => {
   const keys = new Set<string>([detectorVariantCacheKey(variantId, viewId)]);
-  if (variantId === 'row-scan') return [...keys];
   for (const legacyId of [variantId, ...(LEGACY_VARIANT_IDS[variantId] ?? [])]) {
     keys.add(
       JSON.stringify({
