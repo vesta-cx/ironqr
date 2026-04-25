@@ -18,15 +18,18 @@ Null hypothesis: run-map-backed cross-checks change matcher finder output on at 
 
 Run `binary-prefilter-signals` over all 54 binary view identities. For each asset/view:
 
-1. Generate the normal proposal-view summary using the current production detector path, whose matcher uses run-map-backed cross-checks.
-2. Independently run `detectMatcherFindersLegacy(...)` on the same `BinaryView`.
-3. Compare sorted matcher finder signatures:
+1. Materialize the selected `BinaryView`.
+2. Run only `detectMatcherFinders(...)`, the current run-map-backed matcher control.
+3. Independently run only `detectMatcherFindersLegacy(...)` on the same `BinaryView`.
+4. Compare sorted matcher finder signatures:
    - `source`
    - center x/y
    - module sizes
    - score
-4. Record timing for the run-map matcher control and the legacy matcher control.
-5. Report only the legacy-vs-run-map control comparison in the processed summary.
+5. Record timing for the run-map matcher control and the legacy matcher control.
+6. Report only the legacy-vs-run-map control comparison in the processed summary.
+
+The study does not run proposal generation for this mode. It intentionally does not run row-scan, flood-fill, cross-detector dedupe, triple assembly, or proposal construction.
 
 Detector variants intentionally disabled for this run:
 
@@ -45,9 +48,8 @@ Those are optimization questions. This study is only an accuracy/equivalence val
 | Legacy matcher duration | ms | study-side legacy matcher timing | Measures old control cost. |
 | Legacy vs run-map output equality | boolean | finder signature comparison | Primary pass/fail criterion. |
 | Legacy vs run-map mismatch count | view rows | finder signature comparison | Must be zero for promotion validation. |
-| Detector duration | ms | proposal-view spans | Context; not a decision metric for matcher equivalence. |
-| Row/flood/dedupe duration | ms | proposal-view detector spans | Context for next bottleneck after matcher. |
-| Signal collection duration | ms | passive signal timing | Kept as context only. |
+| Matcher-only detector duration | ms | run-map matcher timing | Equals run-map matcher duration for this focused mode. |
+| Materialization duration | ms | scalar/binary timing spans | Context for study overhead. |
 
 ## Decision rule
 
@@ -93,7 +95,7 @@ The processed summary should be the first artifact to read. It includes:
 - `headline`: detector, flood, run-map matcher, legacy matcher, equality, mismatch count;
 - `variants`: only `legacy-matcher-control` and `run-map-matcher-control`;
 - `matcherMatrix.controlComparison`: run-map/legacy timings, equality, mismatch count, saved ms, improvement %;
-- `detectorBreakdown`: row-scan/flood/matcher/dedupe totals for bottleneck context;
+- `detectorBreakdown`: expected to be zeroed for row-scan/flood/dedupe in this matcher-only mode;
 - `questionCoverage`: states that matcher equivalence is answered and decode/false-positive questions are out of scope.
 
 ## 25-asset smoke checkpoint
@@ -118,7 +120,7 @@ Headline evidence:
 | Metric | Value |
 | --- | ---: |
 | Detector time | 75,698.18 ms |
-| Flood time | 44,299.29 ms |
+| Flood time | 44,299.29 ms (historical smoke only; disabled in current matcher-only code) |
 | Run-map matcher time | 22,477.26 ms |
 | Legacy matcher time | 239,995.51 ms |
 | Run-map saved time | 217,518.25 ms |

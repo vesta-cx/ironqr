@@ -404,63 +404,64 @@ function makeImageProcessingStudyPlugin(input: {
         `${asset.id}: profiling ${viewIds.length} binary view identities over ${sharedPlaneCount(viewIds)} shared threshold planes (${config.focus})`,
       );
       const studyStartedAt = performance.now();
-      const proposalStartedAt = performance.now();
       const proposalSummaries: ProposalViewGenerationSummary[] = [];
-      let proposalViewIndex = 0;
-      for (const viewId of viewIds) {
-        proposalViewIndex += 1;
-        const summary = generateProposalBatchForView(viewBank, viewId, {
-          maxProposalsPerView: EXHAUSTIVE_SCAN_CEILING,
-        }).summary;
-        proposalSummaries.push(summary);
-        logStudyTiming(
-          log,
-          studyTimingId(viewId, 'c'),
-          summary.detectorDurationMs,
-          'view',
-          summary.proposalCount,
-        );
-        logFinderDetectorTimings(log, viewId, 'c', summary);
-        log(`${asset.id}: proposal path ${proposalViewIndex}/${viewIds.length} ${viewId}`);
-        await yieldToDashboard();
-      }
-      const proposalGenerationMs = round(performance.now() - proposalStartedAt);
       const binarySignals: BinaryViewSignal[] = [];
-      let binarySignalIndex = 0;
-      for (const viewId of viewIds) {
-        binarySignalIndex += 1;
-        binarySignals.push(measureBinarySignals(viewBank.getBinaryView(viewId)));
-        log(`${asset.id}: polarity signal ${binarySignalIndex}/${viewIds.length} ${viewId}`);
-        await yieldToDashboard();
-      }
       const scalarStats: ScalarStatsMeasurement[] = [];
-      const scalarViewIds = viewBank.listScalarViewIds();
-      let scalarViewIndex = 0;
-      for (const scalarId of scalarViewIds) {
-        scalarViewIndex += 1;
-        scalarStats.push(
-          measureScalarStats(
-            scalarId,
-            viewBank.getScalarView(scalarId).values,
-            image.width,
-            image.height,
-          ),
-        );
-        log(`${asset.id}: scalar stats ${scalarViewIndex}/${scalarViewIds.length} ${scalarId}`);
-        await yieldToDashboard();
+      let scalarFusion = emptyScalarFusionMeasurement();
+      let sharedArtifacts = emptySharedArtifactMeasurement();
+      let matcherCandidates: MatcherCandidateMeasurement | null = null;
+      let proposalGenerationMs = 0;
+
+      if (config.focus === 'binary-prefilter-signals') {
+        const matcherStartedAt = performance.now();
+        matcherCandidates = await measureMatcherCandidateVariants(viewBank, viewIds, asset.id, log);
+        proposalGenerationMs = round(performance.now() - matcherStartedAt);
+      } else {
+        const proposalStartedAt = performance.now();
+        let proposalViewIndex = 0;
+        for (const viewId of viewIds) {
+          proposalViewIndex += 1;
+          const summary = generateProposalBatchForView(viewBank, viewId, {
+            maxProposalsPerView: EXHAUSTIVE_SCAN_CEILING,
+          }).summary;
+          proposalSummaries.push(summary);
+          logStudyTiming(
+            log,
+            studyTimingId(viewId, 'c'),
+            summary.detectorDurationMs,
+            'view',
+            summary.proposalCount,
+          );
+          logFinderDetectorTimings(log, viewId, 'c', summary);
+          log(`${asset.id}: proposal path ${proposalViewIndex}/${viewIds.length} ${viewId}`);
+          await yieldToDashboard();
+        }
+        proposalGenerationMs = round(performance.now() - proposalStartedAt);
+        let binarySignalIndex = 0;
+        for (const viewId of viewIds) {
+          binarySignalIndex += 1;
+          binarySignals.push(measureBinarySignals(viewBank.getBinaryView(viewId)));
+          log(`${asset.id}: polarity signal ${binarySignalIndex}/${viewIds.length} ${viewId}`);
+          await yieldToDashboard();
+        }
+        const scalarViewIds = viewBank.listScalarViewIds();
+        let scalarViewIndex = 0;
+        for (const scalarId of scalarViewIds) {
+          scalarViewIndex += 1;
+          scalarStats.push(
+            measureScalarStats(
+              scalarId,
+              viewBank.getScalarView(scalarId).values,
+              image.width,
+              image.height,
+            ),
+          );
+          log(`${asset.id}: scalar stats ${scalarViewIndex}/${scalarViewIds.length} ${scalarId}`);
+          await yieldToDashboard();
+        }
+        scalarFusion = measureScalarFusion(image);
+        sharedArtifacts = summarizeSharedArtifacts(binarySignals);
       }
-      const scalarFusion = measureScalarFusion(image);
-      const sharedArtifacts = summarizeSharedArtifacts(binarySignals);
-      const matcherCandidates =
-        config.focus === 'binary-prefilter-signals'
-          ? await measureMatcherCandidateVariants(
-              viewBank,
-              viewIds,
-              proposalSummaries,
-              asset.id,
-              log,
-            )
-          : null;
       const binaryRead =
         config.focus === 'binary-bit-hot-path'
           ? await measureBinaryReadVariants(viewBank, viewIds, asset.id, log)
@@ -615,21 +616,28 @@ const sharedPlaneCount = (viewIds: readonly BinaryViewId[]): number =>
 const measureMatcherCandidateVariants = async (
   viewBank: ViewBank,
   viewIds: readonly BinaryViewId[],
-  controlSummaries: readonly ProposalViewGenerationSummary[],
   assetId: string,
   log: (message: string) => void,
 ): Promise<MatcherCandidateMeasurement> => {
-  const controlMatcherMs = controlSummaries.reduce(
-    (sum, summary) => sum + summary.finderEvidence.matcherDurationMs,
-    0,
-  );
+  let controlMatcherMs = 0;
   let legacyControlMs = 0;
   let legacyControlOutputsEqual = true;
   let legacyControlMismatchCount = 0;
 
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
+    const runMapStartedAt = performance.now();
     const controlOutput = detectMatcherFinders(view, view.width, view.height);
+    const runMapElapsed = performance.now() - runMapStartedAt;
+    controlMatcherMs += runMapElapsed;
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'run-map', 'matcher'),
+      runMapElapsed,
+      'detector',
+      controlOutput.length,
+    );
+
     const legacyStartedAt = performance.now();
     const legacyOutput = detectMatcherFindersLegacy(view, view.width, view.height);
     const legacyElapsed = performance.now() - legacyStartedAt;
@@ -949,6 +957,21 @@ const measureScalarFusion = (image: {
   };
 };
 
+const emptyScalarFusionMeasurement = (): ScalarFusionMeasurement => ({
+  rgbFamilyMs: 0,
+  oklabFamilyMs: 0,
+  rgbPlaneBytes: 0,
+  oklabPlaneBytes: 0,
+});
+
+const emptySharedArtifactMeasurement = (): SharedArtifactMeasurement => ({
+  planeCount: 0,
+  polarityViewCount: 0,
+  shareableRunSignalMs: 0,
+  perPolarityRunSignalMs: 0,
+  estimatedSavedMs: 0,
+});
+
 const summarizeSharedArtifacts = (
   signals: readonly BinaryViewSignal[],
 ): SharedArtifactMeasurement => {
@@ -1008,6 +1031,7 @@ const summarizeImageProcessingStudy = ({
     }
     if (result.matcherCandidates) {
       totals.matcherControlMs += result.matcherCandidates.controlMatcherMs;
+      totals.detectorMs += result.matcherCandidates.controlMatcherMs;
       totals.matcherLegacyControlMs += result.matcherCandidates.legacyControlMs;
       totals.matcherRunMapMs += result.matcherCandidates.runMapMs;
       totals.matcherPrunedCenterMs += result.matcherCandidates.prunedCenterMs;
