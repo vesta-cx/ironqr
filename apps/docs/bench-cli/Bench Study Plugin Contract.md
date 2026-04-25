@@ -73,7 +73,7 @@ Cache files may change shape when a plugin version changes. Report shape should 
 bun run bench study list
 bun run bench study --list
 bun run bench study view-proposals
-bun run bench study view-proposals --max-assets 25 --refresh-cache
+bun run bench study view-proposals --max-assets 25
 bun run bench study view-proposals --asset asset-123 --asset asset-456
 bun run bench study view-proposals --report-file tools/bench/reports/view-study.json
 ```
@@ -95,7 +95,7 @@ Top-level flags shared by all studies:
 | `--report-file <path>` | Override report output path. |
 | `--cache-file <path>` | Override cache path. |
 | `--no-cache` | Disable plugin cache reads and writes. |
-| `--refresh-cache` | Ignore cache reads but write fresh cache entries. Applies to plugin cache and any shared engine cache the study uses. |
+| `--refresh-cache` | Ignore cache reads but write fresh cache entries. Use only for intentional invalidation; normal study runs should preserve cached controls and queue only missing work. |
 | `--no-progress` | Disable OpenTUI progress rendering for non-interactive logs. |
 | `--workers <n>` | Bound concurrent asset work when the plugin supports it. |
 | `--plugin-flag=value` | Study-specific flags declared by plugin metadata. |

@@ -11,7 +11,7 @@ Settled controls:
 
 The active study should contain only the current controls plus genuinely new candidates that could beat them. Exhausted references like legacy flood, filtered flood, and center-signal matcher are not active variants.
 
-The study uses detector-variant cache keys (`variantId + viewId + asset hash`) instead of one coarse whole-asset cache entry. Adding a new variant should run only that variant for each asset/view while reusing cached measurements for the current control. On startup, the study checks whether all active variant/view rows for an asset already exist; fully cached assets are reported as cache hits and skip image loading/materialization entirely. Partially cached assets run only missing variant/view rows. Retired variants stay in the historical evidence ledger but are excluded from active summary matrices.
+The study uses detector-pattern cache keys (`patternId + viewId + asset hash`) instead of one coarse whole-asset cache entry. Pattern ids are stable strings like `inline:flood:gray:otsu:normal`, so adding a new detector pattern only queues that pattern for each asset/view while cached controls are reused. On startup, the study checks whether all active pattern/view rows for an asset already exist; fully cached assets are reported as cache hits and skip image loading/materialization entirely. Partially cached assets run only missing pattern/view rows. Adding a pattern or adding a view naturally creates missing cache rows; removing a view or binning a pattern stops requiring those rows without deleting historical cache. Asset content changes are invalidated by asset SHA. Retired variants stay in the historical evidence ledger but are excluded from active summary matrices.
 
 ## Scope and safety bar
 
@@ -164,9 +164,10 @@ Processed summaries should include:
 
 ```bash
 bun run --cwd tools/bench bench study binary-prefilter-signals \
-  --view-set all \
-  --refresh-cache
+  --view-set all
 ```
+
+Use `--refresh-cache` only when intentionally invalidating all detector-pattern rows for the selected assets. It defeats the normal workflow of reusing cached controls and running only newly added patterns.
 
 ## Out of scope
 

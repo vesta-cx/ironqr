@@ -55,11 +55,10 @@ An exhaustive study is expensive because each asset can produce hundreds of rank
 ```sh
 bun run --cwd tools/bench bench study list
 bun run --cwd tools/bench bench study view-proposals --max-assets 25
-bun run --cwd tools/bench bench study view-proposals --max-assets 25 --refresh-cache
 bun run --cwd tools/bench bench study view-proposals --asset asset-123 --top-k 18
 ```
 
-`view-order` remains as a compatibility alias for `view-proposals`; new runs should use `view-proposals`.
+`view-order` remains as a compatibility alias for `view-proposals`; new runs should use `view-proposals`. Avoid `--refresh-cache` on normal study runs because it forces cached control work to rerun; use it only when intentionally invalidating the selected cache domain.
 
 ## Files
 - latest full report output: `tools/bench/reports/full/study/study-view-proposals.json`

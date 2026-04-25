@@ -699,7 +699,11 @@ const readCachedDetectorAssetResult = async (
   ];
   const missing = viewIds.flatMap((viewId) =>
     requiredIds
-      .filter((variantId) => !cache.has(asset, detectorVariantCacheKey(variantId, viewId)))
+      .filter((variantId) =>
+        detectorVariantCacheKeys(variantId, viewId).every(
+          (cacheKey) => !cache.has(asset, cacheKey),
+        ),
+      )
       .map((variantId) => `${variantId}:${viewId}`),
   );
   if (missing.length > 0) {
@@ -780,12 +784,16 @@ const readCachedDetectorAssetResult = async (
 
 const readVariantMeasurement = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
-  cache: StudyCacheHandle<unknown>,
+  cache: Pick<StudyCacheHandle, 'has' | 'read'>,
   variantId: string,
   viewId: BinaryViewId,
 ): Promise<VariantCacheMeasurement | null> => {
-  const value = await cache.read(asset, detectorVariantCacheKey(variantId, viewId));
-  return isVariantCacheMeasurement(value) ? value : null;
+  for (const cacheKey of detectorVariantCacheKeys(variantId, viewId)) {
+    if (!cache.has(asset, cacheKey)) continue;
+    const value = await cache.read(asset, cacheKey);
+    if (isVariantCacheMeasurement(value)) return value;
+  }
+  return null;
 };
 
 const cachedMatcherMeasurement = (
@@ -870,7 +878,7 @@ const MATCHER_CANDIDATES = [
 
 const measureVariant = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
-  cache: Pick<StudyCacheHandle, 'read' | 'write'>,
+  cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
   variantId: string,
   viewId: BinaryViewId,
   run: () => FinderEvidence[],
@@ -879,11 +887,9 @@ const measureVariant = async (
   readonly measurement: VariantCacheMeasurement;
   readonly cached: boolean;
 }> => {
+  const cached = await readVariantMeasurement(asset, cache, variantId, viewId);
+  if (cached) return { output: [], measurement: cached, cached: true };
   const cacheKey = detectorVariantCacheKey(variantId, viewId);
-  const cached = await cache.read(asset, cacheKey);
-  if (isVariantCacheMeasurement(cached)) {
-    return { output: [], measurement: cached, cached: true };
-  }
   const startedAt = performance.now();
   const output = run();
   const measurement = {
@@ -1262,7 +1268,7 @@ const measureFloodCandidateVariants = async (
   viewIds: readonly BinaryViewId[],
   assetId: string,
   asset: Parameters<StudyCacheHandle['read']>[0],
-  cache: Pick<StudyCacheHandle, 'read' | 'write'>,
+  cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
   log: (message: string) => void,
 ): Promise<FloodCandidateMeasurement> => {
   let controlMs = 0;
@@ -1340,7 +1346,7 @@ const measureMatcherCandidateVariants = async (
   viewIds: readonly BinaryViewId[],
   assetId: string,
   asset: Parameters<StudyCacheHandle['read']>[0],
-  cache: Pick<StudyCacheHandle, 'read' | 'write'>,
+  cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
   log: (message: string) => void,
 ): Promise<MatcherCandidateMeasurement> => {
   let controlMatcherMs = 0;
@@ -1432,7 +1438,26 @@ const measureMatcherCandidateVariants = async (
 };
 
 const detectorVariantCacheKey = (variantId: string, viewId: BinaryViewId): string =>
-  JSON.stringify({ kind: 'detector-variant', version: 1, variantId, viewId });
+  JSON.stringify({
+    kind: 'detector-pattern',
+    version: 1,
+    patternId: detectorPatternId(variantId, viewId),
+  });
+
+const detectorVariantCacheKeys = (variantId: string, viewId: BinaryViewId): readonly string[] => [
+  detectorVariantCacheKey(variantId, viewId),
+  JSON.stringify({ kind: 'detector-variant', version: 1, variantId, viewId }),
+];
+
+const detectorPatternId = (variantId: string, viewId: BinaryViewId): string => {
+  const area = variantId.includes('flood') || variantId.includes('component') ? 'flood' : 'matcher';
+  const shortId = variantId
+    .replace(/-control$/, '')
+    .replace(/-candidate$/, '')
+    .replace(/-components?/, '')
+    .replace(/-connected-/, '-ccl-');
+  return `${shortId}:${area}:${viewId}`;
+};
 
 const measureBinaryReadVariants = async (
   viewBank: ReturnType<typeof createViewBank>,
