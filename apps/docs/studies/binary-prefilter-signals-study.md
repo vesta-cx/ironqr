@@ -187,7 +187,35 @@ Keep passive binary signals in study reports. They are cheap enough for study us
 
 This run does **not** answer the full problem statement. It answers the detector-hotspot half, partially answers proposal-yield behavior, and does not answer decode success or safe production gating.
 
-Refined experiment:
+Refinement checkpoint after first run:
+
+The first run showed that inverted paths are more expensive, especially inverted Sauvola, but did not prove whether that cost comes from polarity-read overhead (`plane.data[index] ^ invert`) or from detector behavior on dense inverted maps. The team considered materializing inverted views as cached buffers derived from the normal/shared plane. The evidence did not justify that as an immediate production change because binary-view wrapper materialization was effectively zero and detector time dominated.
+
+To separate those causes, the study now includes a same-run variant for `binary-prefilter-signals`:
+
+- control: current inverted detector pass over the polarity proxy;
+- candidate: materialize an inverted `0 | 1` buffer once, then rerun the inverted detector path with `polarity: normal` reads;
+- compare: detector time, materialization time, total candidate time, improvement percentage, and finder/proposal count equality.
+
+A one-asset production-view smoke test showed only a small candidate win (`~1.6%`) with equal finder/proposal counts, suggesting XOR/read polarity overhead may be much smaller than detector interaction cost. That smoke is not enough for a conclusion; it only validates that the variant runs and records the right evidence.
+
+Recommended smoke size before a full corpus run:
+
+- 25 assets is enough for a valuable checkpoint if it includes both `qr-pos` and `qr-neg` assets and runs `--view-set all`.
+- Use it to judge effect size direction and variance, not to make a final production decision.
+- If the 25-asset run shows <5% materialized-inverted improvement with count equality, deprioritize materialized inverted buffers and focus on shared detector artifacts/run maps.
+- If it shows >10% improvement consistently, run the full corpus before considering implementation.
+
+Suggested command:
+
+```bash
+bun run --cwd tools/bench bench study binary-prefilter-signals \
+  --view-set all \
+  --max-assets 25 \
+  --refresh-cache
+```
+
+Full refined experiment still needed for prefilter gating:
 
 1. Integrate binary signal collection into the exhaustive `view-proposals` path instead of running it as a detached proposal-only study.
 2. For each `proposal-view-generated` row, attach:
