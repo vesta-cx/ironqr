@@ -91,7 +91,7 @@ export class BenchOpenTuiDashboard {
   private filterModalOpen = false;
   private filterCursor = 0;
   private filterOffset = 0;
-  private studySlowestMetric: StudySlowestMetric = 'p95';
+  private studySlowestMetric: StudySlowestMetric = 'p98';
   private readonly studyFilters: Record<'views' | 'detectors', StudyChartFilters> = {
     views: createStudyChartFilters(),
     detectors: createStudyChartFilters(),

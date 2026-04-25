@@ -63,13 +63,13 @@ export const renderSlowestFreshScans = (
     model.commandName === 'study' ? 'slowest study units' : 'slowest fresh scans',
     truncate(
       model.commandName === 'study'
-        ? `#  detector/view                         ${options.studySlowestMetric ?? 'p95'}     jobs`
+        ? `#  detector/view                         ${options.studySlowestMetric ?? 'p98'}     jobs`
         : '#  engine     time      outcome      asset',
       width,
     ),
   ];
   if (model.commandName === 'study') {
-    const metric = options.studySlowestMetric ?? 'p95';
+    const metric = options.studySlowestMetric ?? 'p98';
     const studyRows = [...model.studyDetectorTimings.values(), ...model.studyTimings.values()]
       .filter((row) => matchesStudyTimingFilters(row, options.studyTimingFilters))
       .sort((left, right) => studyTimingMetric(right, metric) - studyTimingMetric(left, metric))
