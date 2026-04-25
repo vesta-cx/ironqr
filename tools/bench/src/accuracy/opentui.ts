@@ -23,12 +23,13 @@ type OpenTuiPanel = {
 };
 
 const CHART_PANEL_ROWS = 18;
-const STUDY_CHART_PANEL_ROWS = 24;
+const STUDY_CHART_PANEL_ROWS = 30;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
 const PANEL_TITLE_ROWS = 0;
 const PANEL_BODY_BOTTOM_GUTTER_ROWS = 0;
 const LEFT_COLUMN_RATIO = 0.42;
+const STUDY_LEFT_COLUMN_RATIO = 0.3;
 const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
 const RECENT_LAYOUT_RESERVED_ROWS = 24;
@@ -47,6 +48,9 @@ const panelBodyRows = (panelRows: number): number =>
 
 const chartPanelRows = (isStudy: boolean): number =>
   isStudy ? STUDY_CHART_PANEL_ROWS : CHART_PANEL_ROWS;
+
+const leftColumnRatio = (isStudy: boolean): number =>
+  isStudy ? STUDY_LEFT_COLUMN_RATIO : LEFT_COLUMN_RATIO;
 
 const FRACTIONAL_BAR_SEGMENTS = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'] as const;
 
@@ -222,7 +226,7 @@ export class BenchOpenTuiDashboard {
       });
       const leftColumn = new BoxRenderable(renderer, {
         id: 'bench-dashboard-left-column',
-        width: `${LEFT_COLUMN_RATIO * 100}%`,
+        width: `${leftColumnRatio(isStudy) * 100}%`,
         height: '100%',
         flexDirection: 'column',
       });
@@ -257,7 +261,7 @@ export class BenchOpenTuiDashboard {
       });
       const rightColumn = new BoxRenderable(renderer, {
         id: 'bench-dashboard-right-column',
-        width: `${(1 - LEFT_COLUMN_RATIO) * 100}%`,
+        width: `${(1 - leftColumnRatio(isStudy)) * 100}%`,
         height: '100%',
         flexDirection: 'row',
       });
@@ -642,7 +646,10 @@ export class BenchOpenTuiDashboard {
     const studyDetectorChartWidth = showStudyViewChart
       ? Math.max(40, contentWidth - studyViewChartWidth - 8)
       : Math.max(40, contentWidth - 4);
-    const leftWidth = Math.max(34, Math.floor(contentWidth * LEFT_COLUMN_RATIO) - 4);
+    const leftWidth = Math.max(
+      30,
+      Math.floor(contentWidth * leftColumnRatio(this.dashboard.commandName === 'study')) - 4,
+    );
     const rightWidth = Math.max(40, contentWidth - leftWidth - 8);
     const legendWidth =
       this.dashboard.commandName === 'study' ? Math.max(24, Math.floor(rightWidth * 0.32) - 4) : 0;
@@ -673,7 +680,7 @@ export class BenchOpenTuiDashboard {
       panels.detectorChart.box.width = showStudyViewChart ? '58%' : '100%';
     }
     this.updateStudyFocusBorders(panels);
-    const chartBodyRows = panelBodyRows(CHART_PANEL_ROWS);
+    const chartBodyRows = panelBodyRows(chartPanelRows(this.dashboard.commandName === 'study'));
     panels.chart.body.content = showStudyViewChart
       ? panelBody(
           this.dashboard.commandName === 'study'
