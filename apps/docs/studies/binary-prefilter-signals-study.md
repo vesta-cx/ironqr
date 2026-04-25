@@ -29,6 +29,15 @@ A candidate can only move toward production if a full-corpus run reports:
 
 A faster candidate with mismatches is design input only. Decode pass/fail and false-positive behavior are out of scope for this detector-only study.
 
+## Latency target context
+The product-level scanning target is a complete 60 FPS frame decision:
+
+```text
+1000 ms / 60 fps = 16.67 ms end-to-end per frame
+```
+
+Detector candidates should be judged by whether their savings can materially move the full `scanFrame` path toward that budget. Detector-only wins are still worthwhile when they remove a dominant bottleneck, but small local gains are not enough unless they change end-to-end latency, unlock a larger architecture, or preserve accuracy while reducing variance. Temporal reuse may later relax occasional per-frame work, but this study uses the standalone 16.67 ms target as the optimization yardstick.
+
 ## Method
 
 For each selected asset/view:

@@ -10,6 +10,17 @@ Views are cheap. Full decode attempts are not.
 
 The pipeline should spend as much cheap work as needed to find good QR candidates, then spend expensive work only where the evidence is strongest.
 
+## End-to-end latency target
+Interactive video scanning targets one complete frame decision inside a 60 FPS frame budget:
+
+```text
+1000 ms / 60 fps = 16.67 ms per frame
+```
+
+That budget covers the full `scanFrame` path for a single frame: input normalization, view construction, proposal generation, clustering, structure/refinement, module sampling, decode, and returning either decoded QR payloads or a confident “no QR code found.” A candidate optimization is strategically valuable when it moves the measured end-to-end path toward this 16.67 ms budget or removes a bottleneck that blocks reaching it.
+
+Future temporal optimization may allow some frames to reuse prior-frame state or run slightly slower than realtime on occasional frames, but the durable baseline target remains a standalone 16.67 ms frame decision.
+
 ## Stage 0 — frame normalization
 ### What
 Convert supported input into one validated internal frame object.
