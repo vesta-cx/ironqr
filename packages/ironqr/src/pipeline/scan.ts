@@ -16,6 +16,7 @@ import {
 import { normalizeImageInput } from './frame.js';
 import { assessProposalStructure } from './plausibility.js';
 import {
+  type FinderEvidenceDetectionPolicy,
   generateProposalBatchForView,
   type ProposalGenerationSummary,
   type ProposalScoreBreakdown,
@@ -47,6 +48,8 @@ export interface ScanRuntimeOptions extends ScanOptions {
   readonly traceSink?: TraceSink;
   /** Optional proposal-generation view override. Defaults to the production priority subset. */
   readonly proposalViewIds?: readonly BinaryViewId[];
+  /** Optional detector-family policy for proposal-generation studies. */
+  readonly proposalDetectorPolicy?: FinderEvidenceDetectionPolicy;
   /** Optional low-overhead timing span sink for performance harnesses. */
   readonly metricsSink?: ScanMetricsSink;
   /** Maximum proposal representatives to try inside one cluster. */
@@ -55,6 +58,8 @@ export interface ScanRuntimeOptions extends ScanOptions {
   readonly maxClusterStructuralFailures?: number;
   /** Continue probing cluster representatives after a successful decode. Used by exhaustive studies. */
   readonly continueAfterDecode?: boolean;
+  /** Optional limit on decode attempts per scan, for bounded policy studies. */
+  readonly maxDecodeAttempts?: number;
   /** Optional cooperative scheduler used between proposal-view batches. */
   readonly scheduler?: ScanScheduler;
 }
@@ -455,6 +460,9 @@ const scanFrameExecutionOnce = (
       viewBank,
       viewIds: options.proposalViewIds ?? viewBank.listProposalViewIds(),
       ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
+      ...(options.proposalDetectorPolicy === undefined
+        ? {}
+        : { detectorPolicy: options.proposalDetectorPolicy }),
       ...(traceSink === undefined ? {} : { traceSink }),
       ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       scheduler: options.scheduler ?? defaultScanScheduler,
@@ -494,6 +502,9 @@ const scanFrameExecutionOnce = (
         maxStructuralFailures:
           options.maxClusterStructuralFailures ?? MAX_CLUSTER_STRUCTURAL_FAILURES,
         continueAfterDecode: options.continueAfterDecode === true,
+        ...(options.maxDecodeAttempts === undefined
+          ? {}
+          : { maxDecodeAttempts: options.maxDecodeAttempts }),
         ...(traceSink === undefined ? {} : { traceSink }),
         ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
@@ -523,6 +534,9 @@ const scanFrameExecutionOnce = (
         maxStructuralFailures:
           options.maxClusterStructuralFailures ?? MAX_CLUSTER_STRUCTURAL_FAILURES,
         continueAfterDecode: options.continueAfterDecode === true,
+        ...(options.maxDecodeAttempts === undefined
+          ? {}
+          : { maxDecodeAttempts: options.maxDecodeAttempts }),
         ...(traceSink === undefined ? {} : { traceSink }),
         ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
@@ -583,6 +597,7 @@ const createSequentialProposalBatchSource = (options: {
   readonly viewBank: ViewBank;
   readonly viewIds: readonly BinaryViewId[];
   readonly maxProposalsPerView?: number;
+  readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
   readonly traceSink?: TraceSink;
   readonly metricsSink?: ScanMetricsSink;
   readonly scheduler: ScanScheduler;
@@ -605,6 +620,9 @@ const createSequentialProposalBatchSource = (options: {
           ...(options.maxProposalsPerView === undefined
             ? {}
             : { maxProposalsPerView: options.maxProposalsPerView }),
+          ...(options.detectorPolicy === undefined
+            ? {}
+            : { detectorPolicy: options.detectorPolicy }),
           ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
         });
         recordTimingSpan(options.metricsSink, 'proposal-view', startedAtMs, {
@@ -735,6 +753,7 @@ const processFrontierClusters = (
     readonly maxNewRepresentatives: number;
     readonly maxStructuralFailures: number;
     readonly continueAfterDecode: boolean;
+    readonly maxDecodeAttempts?: number;
     readonly traceSink?: TraceSink;
     readonly metricsSink?: ScanMetricsSink;
   },
@@ -744,6 +763,12 @@ const processFrontierClusters = (
 
     for (let clusterIndex = 0; clusterIndex < snapshot.clusters.length; clusterIndex += 1) {
       if (processedThisPass >= options.maxNewRepresentatives) break;
+      if (
+        options.maxDecodeAttempts !== undefined &&
+        state.attemptRecords.length >= options.maxDecodeAttempts
+      ) {
+        break;
+      }
       const cluster = snapshot.clusters[clusterIndex];
       if (!cluster) continue;
       const clusterRank = clusterIndex + 1;
@@ -772,6 +797,12 @@ const processFrontierClusters = (
 
       for (const proposal of pendingRepresentatives) {
         if (processedThisPass >= options.maxNewRepresentatives) break;
+        if (
+          options.maxDecodeAttempts !== undefined &&
+          state.attemptRecords.length >= options.maxDecodeAttempts
+        ) {
+          break;
+        }
         const representativeIndex = cluster.representatives.indexOf(proposal);
         const proposalRank = snapshot.proposalRankById.get(proposal.id) ?? 1;
         state.attemptedProposalIds.add(proposal.id);

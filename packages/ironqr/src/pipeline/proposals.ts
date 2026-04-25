@@ -218,12 +218,21 @@ export interface FinderEvidenceDetection {
   readonly summary: FinderEvidenceSummary;
 }
 
+export type FinderDetectorFamily = 'row-scan' | 'flood' | 'matcher';
+
+export interface FinderEvidenceDetectionPolicy {
+  readonly enabledFamilies?: readonly FinderDetectorFamily[];
+  readonly suppressMatcherOverlappingRowScan?: boolean;
+}
+
 /**
  * Per-view proposal-generation options.
  */
 export interface ProposalViewGenerationOptions {
   /** Maximum proposals retained for this binary view. */
   readonly maxProposalsPerView?: number;
+  /** Detector-family policy for proposal studies. Defaults to the production stack. */
+  readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
 }
@@ -278,7 +287,7 @@ export const generateProposalBatchForView = (
 ): ProposalViewBatch => {
   const maxPerView = options.maxProposalsPerView ?? DEFAULT_MAX_PROPOSALS_PER_VIEW;
   const binaryView = viewBank.getBinaryView(binaryViewId);
-  const batch = generateProposalsForView(binaryView, maxPerView);
+  const batch = generateProposalsForView(binaryView, maxPerView, options.detectorPolicy);
   emitProposalViewGenerated(batch.summary, options.traceSink);
   for (const proposal of batch.proposals) {
     emitProposalGenerated(proposal, options.traceSink);
@@ -399,11 +408,12 @@ export const detectBestFinderEvidence = (
 const generateProposalsForView = (
   binaryView: BinaryView,
   maxPerView: number,
+  detectorPolicy?: FinderEvidenceDetectionPolicy,
 ): ProposalViewBatch => {
   const startedAt = nowMs();
 
   const detectorStartedAt = nowMs();
-  const detection = detectFinderEvidenceWithSummary(binaryView);
+  const detection = detectFinderEvidenceWithSummary(binaryView, detectorPolicy);
   const detectorDurationMs = nowMs() - detectorStartedAt;
 
   const tripleAssemblyStartedAt = nowMs();
@@ -471,20 +481,31 @@ const emitProposalViewGenerated = (
 
 export const detectFinderEvidenceWithSummary = (
   binaryView: BinaryView,
+  policy: FinderEvidenceDetectionPolicy = {},
 ): FinderEvidenceDetection => {
+  const enabledFamilies = new Set(policy.enabledFamilies ?? ['row-scan', 'flood', 'matcher']);
   const rowScanStartedAt = nowMs();
-  const rowScan = detectRowScanFinders(binaryView, binaryView.width, binaryView.height);
-  const rowScanDurationMs = nowMs() - rowScanStartedAt;
-  const expensiveDetectorsRan = shouldRunExpensiveDetectors(binaryView, rowScan);
-  const floodStartedAt = nowMs();
-  const flood = expensiveDetectorsRan
-    ? detectFloodFinders(binaryView, binaryView.width, binaryView.height)
+  const rowScan = enabledFamilies.has('row-scan')
+    ? detectRowScanFinders(binaryView, binaryView.width, binaryView.height)
     : [];
+  const rowScanDurationMs = nowMs() - rowScanStartedAt;
+  const expensiveDetectorsRan =
+    (enabledFamilies.has('flood') || enabledFamilies.has('matcher')) &&
+    shouldRunExpensiveDetectors(binaryView, rowScan);
+  const floodStartedAt = nowMs();
+  const flood =
+    expensiveDetectorsRan && enabledFamilies.has('flood')
+      ? detectFloodFinders(binaryView, binaryView.width, binaryView.height)
+      : [];
   const floodDurationMs = nowMs() - floodStartedAt;
   const matcherStartedAt = nowMs();
-  const matcher = expensiveDetectorsRan
-    ? detectMatcherFinders(binaryView, binaryView.width, binaryView.height)
-    : [];
+  const matcherRaw =
+    expensiveDetectorsRan && enabledFamilies.has('matcher')
+      ? detectMatcherFinders(binaryView, binaryView.width, binaryView.height)
+      : [];
+  const matcher = policy.suppressMatcherOverlappingRowScan
+    ? matcherRaw.filter((entry) => !overlapsFinderEvidence(entry, rowScan))
+    : matcherRaw;
   const matcherDurationMs = nowMs() - matcherStartedAt;
   const dedupeStartedAt = nowMs();
   const evidence = dedupeFinderEvidence([...rowScan, ...flood, ...matcher]).slice(
@@ -1749,6 +1770,16 @@ const proposalSignature = (proposal: ScanProposal): string => {
     .sort();
   return `${proposal.kind}:${proposal.estimatedVersions[0] ?? 0}:${points.join('|')}`;
 };
+
+const overlapsFinderEvidence = (
+  entry: FinderEvidence,
+  candidates: readonly FinderEvidence[],
+): boolean =>
+  candidates.some(
+    (candidate) =>
+      distance(entry, candidate) <
+      Math.max(2, Math.min(entry.moduleSize, candidate.moduleSize) * 2.2),
+  );
 
 const shouldRunExpensiveDetectors = (
   binaryView: BinaryView,
