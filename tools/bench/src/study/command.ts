@@ -269,6 +269,8 @@ const buildProcessedStudyReport = (report: StudyReport): Record<string, unknown>
     topScalars: Array.isArray(summary.perScalar) ? summary.perScalar.slice(0, 20) : [],
     totals: summary.totals ?? null,
     detectorBreakdown,
+    detectorLatency: summary.detectorLatency ?? [],
+    detectorUnits: summary.detectorUnits ?? [],
     matcherMatrix,
     floodMatrix,
     exploredAvenues: buildExploredAvenues(report.details.plugin.id, summary),

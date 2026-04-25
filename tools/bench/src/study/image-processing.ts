@@ -123,6 +123,15 @@ interface BinaryReadMeasurement {
   readonly countsEqual: boolean;
 }
 
+interface DetectorLatencySummary {
+  readonly avgMs: number;
+  readonly p85Ms: number;
+  readonly p95Ms: number;
+  readonly p98Ms: number;
+  readonly p99Ms: number;
+  readonly maxMs: number;
+}
+
 interface DetectorVariantMeasurement {
   readonly id: string;
   readonly area: 'flood' | 'matcher' | 'flood+matcher';
@@ -131,13 +140,36 @@ interface DetectorVariantMeasurement {
   readonly outputsEqual: boolean;
   readonly mismatchCount: number;
   readonly note: string;
+  readonly samples: readonly number[];
 }
 
-interface DetectorVariantSummary extends DetectorVariantMeasurement {
+interface DetectorVariantSummary extends DetectorVariantMeasurement, DetectorLatencySummary {
   readonly controlId: string;
   readonly controlMs: number;
   readonly deltaMs: number;
   readonly improvementPct: number;
+}
+
+interface DetectorUnitMeasurement {
+  readonly id: string;
+  readonly variantId: string;
+  readonly area: 'flood' | 'matcher' | 'flood+matcher';
+  readonly durationMs: number;
+  readonly outputCount: number;
+  readonly outputsEqual: boolean;
+  readonly mismatchCount: number;
+  readonly cached: boolean;
+}
+
+interface DetectorUnitSummary extends DetectorLatencySummary {
+  readonly id: string;
+  readonly variantId: string;
+  readonly area: 'flood' | 'matcher' | 'flood+matcher';
+  readonly jobs: number;
+  readonly cachedJobs: number;
+  readonly outputCount: number;
+  readonly outputsEqual: boolean;
+  readonly mismatchCount: number;
 }
 
 interface VariantCacheMeasurement {
@@ -161,10 +193,12 @@ interface BenchComponentStats {
 interface FloodCandidateMeasurement {
   readonly controlMs: number;
   readonly variants: readonly DetectorVariantMeasurement[];
+  readonly units: readonly DetectorUnitMeasurement[];
 }
 
 interface MatcherCandidateMeasurement {
   readonly variants: readonly DetectorVariantMeasurement[];
+  readonly units: readonly DetectorUnitMeasurement[];
   readonly controlMatcherMs: number;
   readonly legacyControlMs: number;
   readonly legacyControlOutputsEqual: boolean;
@@ -219,6 +253,8 @@ interface ImageProcessingSummary extends Record<string, unknown> {
   readonly perScalar: readonly ImageProcessingScalarSummary[];
   readonly recommendations: readonly string[];
   readonly detectorCandidates: readonly DetectorVariantSummary[];
+  readonly detectorLatency: readonly DetectorUnitSummary[];
+  readonly detectorUnits: readonly DetectorUnitSummary[];
 }
 
 interface ImageProcessingTotals {
@@ -747,6 +783,8 @@ const readCachedDetectorAssetResult = async (
   let matcherControlMs = 0;
   const floodVariants = new Map<string, DetectorVariantMeasurement>();
   const matcherVariants = new Map<string, DetectorVariantMeasurement>();
+  const floodUnits: DetectorUnitMeasurement[] = [];
+  const matcherUnits: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
     const floodControl = await readVariantMeasurement(asset, cache, 'inline-flood', viewId);
@@ -754,9 +792,17 @@ const readCachedDetectorAssetResult = async (
     if (!floodControl || !matcherControl) return null;
     floodControlMs += floodControl.durationMs;
     matcherControlMs += matcherControl.durationMs;
+    const floodControlId = detectorTimingId(viewId, 'inline-flood', 'flood');
+    const matcherControlId = detectorTimingId(viewId, 'run-map', 'matcher');
+    floodUnits.push(
+      detectorUnit(floodControlId, 'inline-flood', 'flood', floodControl, true, true),
+    );
+    matcherUnits.push(
+      detectorUnit(matcherControlId, 'run-map', 'matcher', matcherControl, true, true),
+    );
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'inline', 'flood'),
+      floodControlId,
       floodControl.durationMs,
       'detector',
       floodControl.outputCount,
@@ -764,7 +810,7 @@ const readCachedDetectorAssetResult = async (
     );
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'run-map', 'matcher'),
+      matcherControlId,
       matcherControl.durationMs,
       'detector',
       matcherControl.outputCount,
@@ -774,40 +820,37 @@ const readCachedDetectorAssetResult = async (
     for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
       const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
       if (!measured) return null;
-      mergeDetectorVariant(
-        floodVariants,
-        compareVariant(candidate.id, 'flood', floodControl.signature, measured, candidate.note),
+      const compared = compareVariant(
+        candidate.id,
+        'flood',
+        floodControl.signature,
+        measured,
+        candidate.note,
       );
-      logStudyTiming(
-        log,
-        detectorTimingId(viewId, candidate.id, 'flood'),
-        measured.durationMs,
-        'detector',
-        measured.outputCount,
-        true,
+      mergeDetectorVariant(floodVariants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'flood');
+      floodUnits.push(
+        detectorUnit(unitId, candidate.id, 'flood', measured, true, compared.outputsEqual),
       );
+      logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
     }
     for (const candidate of ACTIVE_MATCHER_CANDIDATES) {
       const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
       if (!measured) return null;
-      mergeDetectorVariant(
-        matcherVariants,
-        compareVariant(
-          candidate.id,
-          candidate.id === 'shared-runs' ? 'flood+matcher' : 'matcher',
-          matcherControl.signature,
-          measured,
-          candidate.note,
-        ),
+      const area = candidate.id === 'shared-runs' ? 'flood+matcher' : 'matcher';
+      const compared = compareVariant(
+        candidate.id,
+        area,
+        matcherControl.signature,
+        measured,
+        candidate.note,
       );
-      logStudyTiming(
-        log,
-        detectorTimingId(viewId, candidate.id, 'matcher'),
-        measured.durationMs,
-        'detector',
-        measured.outputCount,
-        true,
+      mergeDetectorVariant(matcherVariants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'matcher');
+      matcherUnits.push(
+        detectorUnit(unitId, candidate.id, area, measured, true, compared.outputsEqual),
       );
+      logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
     }
   }
 
@@ -834,8 +877,17 @@ const readCachedDetectorAssetResult = async (
     scalarStats: [],
     scalarFusion: emptyScalarFusionMeasurement(),
     sharedArtifacts: emptySharedArtifactMeasurement(),
-    matcherCandidates: cachedMatcherMeasurement(matcherControlMs, viewIds, matcherVariants),
-    floodCandidates: { controlMs: round(floodControlMs), variants: [...floodVariants.values()] },
+    matcherCandidates: cachedMatcherMeasurement(
+      matcherControlMs,
+      viewIds,
+      matcherVariants,
+      matcherUnits,
+    ),
+    floodCandidates: {
+      controlMs: round(floodControlMs),
+      variants: [...floodVariants.values()],
+      units: floodUnits,
+    },
     binaryRead: null,
     decode: null,
   };
@@ -910,8 +962,10 @@ const cachedMatcherMeasurement = (
   controlMatcherMs: number,
   viewIds: readonly BinaryViewId[],
   variants: ReadonlyMap<string, DetectorVariantMeasurement>,
+  units: readonly DetectorUnitMeasurement[],
 ): MatcherCandidateMeasurement => ({
   variants: [...variants.values()],
+  units,
   controlMatcherMs: round(controlMatcherMs),
   legacyControlMs: 0,
   legacyControlOutputsEqual: true,
@@ -1027,8 +1081,27 @@ const compareVariant = (
     outputsEqual,
     mismatchCount: outputsEqual ? 0 : 1,
     note,
+    samples: [measurement.durationMs],
   };
 };
+
+const detectorUnit = (
+  id: string,
+  variantId: string,
+  area: DetectorUnitMeasurement['area'],
+  measurement: VariantCacheMeasurement,
+  cached: boolean,
+  outputsEqual: boolean,
+): DetectorUnitMeasurement => ({
+  id,
+  variantId,
+  area,
+  durationMs: measurement.durationMs,
+  outputCount: measurement.outputCount,
+  outputsEqual,
+  mismatchCount: outputsEqual ? 0 : 1,
+  cached,
+});
 
 const finderSignature = (evidence: readonly FinderEvidence[]): readonly string[] =>
   evidence
@@ -1383,6 +1456,7 @@ const measureFloodCandidateVariants = async (
 ): Promise<FloodCandidateMeasurement> => {
   let controlMs = 0;
   const variants = new Map<string, DetectorVariantMeasurement>();
+  const units: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
@@ -1390,9 +1464,13 @@ const measureFloodCandidateVariants = async (
       detectFloodFinders(view, view.width, view.height),
     );
     controlMs += control.measurement.durationMs;
+    const controlId = detectorTimingId(viewId, 'inline-flood', 'flood');
+    units.push(
+      detectorUnit(controlId, 'inline-flood', 'flood', control.measurement, control.cached, true),
+    );
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'inline', 'flood'),
+      controlId,
       control.measurement.durationMs,
       'detector',
       control.measurement.outputCount,
@@ -1409,19 +1487,28 @@ const measureFloodCandidateVariants = async (
         }
         return floodFromComponents(labelDenseComponents(view));
       });
-      mergeDetectorVariant(
-        variants,
-        compareVariant(
+      const compared = compareVariant(
+        candidate.id,
+        'flood',
+        control.measurement.signature,
+        measured.measurement,
+        candidate.note,
+      );
+      mergeDetectorVariant(variants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'flood');
+      units.push(
+        detectorUnit(
+          unitId,
           candidate.id,
           'flood',
-          control.measurement.signature,
           measured.measurement,
-          candidate.note,
+          measured.cached,
+          compared.outputsEqual,
         ),
       );
       logStudyTiming(
         log,
-        detectorTimingId(viewId, candidate.id, 'flood'),
+        unitId,
         measured.measurement.durationMs,
         'detector',
         measured.measurement.outputCount,
@@ -1434,7 +1521,7 @@ const measureFloodCandidateVariants = async (
     }
   }
 
-  return { controlMs: round(controlMs), variants: [...variants.values()] };
+  return { controlMs: round(controlMs), variants: [...variants.values()], units };
 };
 
 const mergeDetectorVariant = (
@@ -1452,6 +1539,7 @@ const mergeDetectorVariant = (
     outputCount: current.outputCount + next.outputCount,
     outputsEqual: current.outputsEqual && next.outputsEqual,
     mismatchCount: current.mismatchCount + next.mismatchCount,
+    samples: [...current.samples, ...next.samples],
   });
 };
 
@@ -1465,6 +1553,7 @@ const measureMatcherCandidateVariants = async (
 ): Promise<MatcherCandidateMeasurement> => {
   let controlMatcherMs = 0;
   const variants = new Map<string, DetectorVariantMeasurement>();
+  const units: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
@@ -1472,9 +1561,13 @@ const measureMatcherCandidateVariants = async (
       detectMatcherFinders(view, view.width, view.height),
     );
     controlMatcherMs += control.measurement.durationMs;
+    const controlId = detectorTimingId(viewId, 'run-map', 'matcher');
+    units.push(
+      detectorUnit(controlId, 'run-map', 'matcher', control.measurement, control.cached, true),
+    );
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'run-map', 'matcher'),
+      controlId,
       control.measurement.durationMs,
       'detector',
       control.measurement.outputCount,
@@ -1488,19 +1581,29 @@ const measureMatcherCandidateVariants = async (
         }
         return matcherFromCenters(view, matcherPatternCenters(view, 'horizontal'));
       });
-      mergeDetectorVariant(
-        variants,
-        compareVariant(
+      const area = candidate.id === 'shared-runs' ? 'flood+matcher' : 'matcher';
+      const compared = compareVariant(
+        candidate.id,
+        area,
+        control.measurement.signature,
+        measured.measurement,
+        candidate.note,
+      );
+      mergeDetectorVariant(variants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'matcher');
+      units.push(
+        detectorUnit(
+          unitId,
           candidate.id,
-          candidate.id === 'shared-runs' ? 'flood+matcher' : 'matcher',
-          control.measurement.signature,
+          area,
           measured.measurement,
-          candidate.note,
+          measured.cached,
+          compared.outputsEqual,
         ),
       );
       logStudyTiming(
         log,
-        detectorTimingId(viewId, candidate.id, 'matcher'),
+        unitId,
         measured.measurement.durationMs,
         'detector',
         measured.measurement.outputCount,
@@ -1515,6 +1618,7 @@ const measureMatcherCandidateVariants = async (
 
   return {
     variants: [...variants.values()],
+    units,
     controlMatcherMs: round(controlMatcherMs),
     legacyControlMs: 0,
     legacyControlOutputsEqual: true,
@@ -1973,6 +2077,7 @@ const summarizeImageProcessingStudy = ({
   const scalarRows = new Map<string, MutableScalarSummary>();
   const totals: MutableTotals = emptyTotals();
   const detectorVariantRows = new Map<string, DetectorVariantMeasurement>();
+  const detectorUnits: DetectorUnitMeasurement[] = [];
 
   for (const result of results) {
     totals.pixelCount += result.pixelCount;
@@ -1997,6 +2102,7 @@ const summarizeImageProcessingStudy = ({
     if (result.floodCandidates) {
       totals.floodControlMs += result.floodCandidates.controlMs;
       totals.detectorMs += result.floodCandidates.controlMs;
+      detectorUnits.push(...result.floodCandidates.units);
       for (const variant of result.floodCandidates.variants) {
         mergeDetectorVariant(detectorVariantRows, variant);
       }
@@ -2045,6 +2151,7 @@ const summarizeImageProcessingStudy = ({
       totals.matcherFusedDarkCenterCount += result.matcherCandidates.fusedDarkCenterCount;
       totals.matcherFusedLightCenterCount += result.matcherCandidates.fusedLightCenterCount;
       totals.matcherSharedPlaneCount += result.matcherCandidates.sharedPlaneCount;
+      detectorUnits.push(...result.matcherCandidates.units);
       for (const variant of result.matcherCandidates.variants) {
         mergeDetectorVariant(detectorVariantRows, variant);
       }
@@ -2099,6 +2206,8 @@ const summarizeImageProcessingStudy = ({
     .sort((left, right) => right.integralMs - left.integralMs);
   const finalizedTotals = finalizeTotals(totals);
   const detectorCandidates = summarizeDetectorVariants(detectorVariantRows, finalizedTotals);
+  const detectorLatency = summarizeDetectorUnits(detectorUnits, (unit) => unit.variantId);
+  const detectorUnitRows = summarizeDetectorUnits(detectorUnits, (unit) => unit.id);
   const variants = buildVariantSummaries(config, finalizedTotals, detectorCandidates);
 
   return {
@@ -2115,6 +2224,8 @@ const summarizeImageProcessingStudy = ({
     perScalar,
     recommendations: buildRecommendations(perView, perScalar, finalizedTotals),
     detectorCandidates,
+    detectorLatency,
+    detectorUnits: detectorUnitRows,
   };
 };
 
@@ -2334,12 +2445,69 @@ const summarizeDetectorVariants = (
     const controlMs = variant.area === 'flood' ? totals.floodControlMs : totals.matcherControlMs;
     return {
       ...variant,
+      ...latencySummary(variant.samples),
       controlId,
       controlMs,
       deltaMs: round(controlMs - variant.durationMs),
       improvementPct: percent(controlMs - variant.durationMs, controlMs),
     };
   });
+
+const summarizeDetectorUnits = (
+  units: readonly DetectorUnitMeasurement[],
+  keyFor: (unit: DetectorUnitMeasurement) => string,
+): readonly DetectorUnitSummary[] => {
+  const rows = new Map<string, Mutable<DetectorUnitSummary> & { samples: number[] }>();
+  for (const unit of units) {
+    const key = keyFor(unit);
+    const row = rows.get(key);
+    if (!row) {
+      rows.set(key, {
+        id: key,
+        variantId: unit.variantId,
+        area: unit.area,
+        jobs: 1,
+        cachedJobs: unit.cached ? 1 : 0,
+        outputCount: unit.outputCount,
+        outputsEqual: unit.outputsEqual,
+        mismatchCount: unit.mismatchCount,
+        avgMs: 0,
+        p85Ms: 0,
+        p95Ms: 0,
+        p98Ms: 0,
+        p99Ms: 0,
+        maxMs: 0,
+        samples: [unit.durationMs],
+      });
+      continue;
+    }
+    row.jobs += 1;
+    row.cachedJobs += unit.cached ? 1 : 0;
+    row.outputCount += unit.outputCount;
+    row.outputsEqual &&= unit.outputsEqual;
+    row.mismatchCount += unit.mismatchCount;
+    row.samples.push(unit.durationMs);
+  }
+  return [...rows.values()]
+    .map(({ samples, ...row }) => ({ ...row, ...latencySummary(samples) }))
+    .sort((left, right) => right.p95Ms - left.p95Ms);
+};
+
+const latencySummary = (samples: readonly number[]): DetectorLatencySummary => ({
+  avgMs: round(samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length)),
+  p85Ms: percentileMs(samples, 0.85),
+  p95Ms: percentileMs(samples, 0.95),
+  p98Ms: percentileMs(samples, 0.98),
+  p99Ms: percentileMs(samples, 0.99),
+  maxMs: round(samples.reduce((max, value) => Math.max(max, value), 0)),
+});
+
+const percentileMs = (samples: readonly number[], quantile: number): number => {
+  if (samples.length === 0) return 0;
+  const sorted = [...samples].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * quantile) - 1);
+  return round(sorted[index] ?? 0);
+};
 
 const buildVariantSummaries = (
   config: ImageProcessingConfig,

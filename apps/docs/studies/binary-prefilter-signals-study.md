@@ -163,6 +163,8 @@ Processed summaries should include:
 - `headline` — lead timing and equality summary;
 - `variants` — current leads and genuinely new active candidates only;
 - `floodMatrix` — current flood lead and active flood candidates only;
+- `detectorLatency` — global detector latency distributions by detector id, including `avgMs`, `p85Ms`, `p95Ms`, `p98Ms`, `p99Ms`, and `maxMs`;
+- `detectorUnits` — per detector/view latency distributions with the same percentile fields plus job/cache/output/equivalence counts;
 - `exploredAvenues` — durable ledger of tested/proposed optimization paths;
 - `conclusions` — evidence-backed decisions;
 - `questionCoverage` — what the run answers and what remains out of scope.
