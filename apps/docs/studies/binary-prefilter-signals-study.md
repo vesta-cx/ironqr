@@ -71,34 +71,35 @@ tools/bench/reports/study-binary-prefilter-signals.json
 
 Run metadata:
 
-- generated: `2026-04-25T01:02:59.799Z`
-- commit: `abc53c4721e252d95f89a10a1f88ff67b83e5e6c`
+- generated: `2026-04-25T01:38:33.753Z`
+- commit: `e6338e8b9810419c5091e8faedf5a08976bb88fb`
 - dirty state: `false`
-- command: `bench study binary-prefilter-signals --view-set all --refresh-cache`
-- corpus: 203 assets, 60 positive, 143 negative
-- seed: `binary-prefilter-signals-b8ae0bfd479b350e`
+- command: `bench study binary-prefilter-signals --view-set all --refresh-cache --max-assets 25`
+- corpus sample: 25 assets, 8 positive, 17 negative
+- seed: `binary-prefilter-signals-879a5d3409df97f8`
 - workers: 5
 - config: `{ focus: "binary-prefilter-signals", viewSet: "all", decode: false }`
-- cache: 0 hits, 203 misses, 203 writes
+- cache: 0 hits, 25 misses, 25 writes
 
 Report fitness notes:
 
-- The run is suitable for materialization, passive signal, and proposal-detector timing analysis because cache hits were zero.
-- The run partially measured the intended corpus and view set: all 203 assets and all 54 binary view identities were covered.
+- The run is suitable as a smoke-test checkpoint for detector timing, passive signal overhead, and the two current performance variants because cache hits were zero.
+- The run covered all 54 binary view identities on a seeded 25-asset sample, not the full 203-asset corpus.
 - The run is not a decode-capability or prefilter-safety proof because `decode=false`; it cannot report lost positives or false positives for a future gating policy.
-- The run does not fully match the designed experiment because it did not attach signals to the `view-proposals` trace path. It lacks ranked proposal count, structure pass count, decode success, and false-positive outcomes per signal row.
-- The report was generated before the later `summary.variants` report addition, so this analysis treats it as a passive signal/control run rather than a variant decision report.
-- The study processed all 54 binary view identities over the shared threshold-plane model. Inverted entries are polarity paths/signals, not separately materialized inverted planes.
+- The run still does not fully match the original designed experiment because signal rows are not joined to exhaustive `view-proposals` trace outcomes. It lacks ranked proposal score, structure pass/fail, decode success, and false-positive outcomes per signal row.
+- Inverted entries are polarity paths/signals over shared threshold planes, not separately materialized inverted planes, except for candidate `a`, which deliberately materializes inverted buffers to measure that hypothesis.
 
 Question coverage:
 
 | Study-doc question / metric | Status | Report evidence | Interpretation |
 | --- | --- | --- | --- |
-| Do cheap signals identify detector hotspots? | Answered | signal rows + detector durations | Yes. Dark ratio, matcher count, and row-scan finder count correlate with detector time; hottest paths are inverted Sauvola. |
-| Do signals predict proposal quality? | Partially answered | proposal counts only | Proposal count exists, but ranked proposal count, score, and structure pass count are missing from this run. Count alone is not quality. |
+| Do cheap signals identify detector hotspots? | Answered for this sample | signal rows + detector durations | Yes. Dark ratio, matcher count, and deduped finder count correlate with detector time; hottest paths are inverted Sauvola. |
+| Do signals predict proposal quality? | Partially answered | proposal counts only | Proposal count exists, but ranked proposal count, score, and structure pass/fail count are missing. Count alone is not quality. |
 | Do signals predict decode success? | Unanswered | `decode=false` | No decode success or unique-positive evidence was collected. |
 | Do signals predict false-positive risk? | Unanswered | `decode=false` | No false-positive evidence was collected. |
-| Is signal collection cheap enough for study observability? | Answered | signalMs vs detectorMs | Yes for study use: about 20.5s signal time vs 1,696.7s detector time. |
+| Is signal collection cheap enough for study observability? | Answered for this sample | signalMs vs detectorMs | Yes. Total signal overhead was ~1.15% of detector time; p95 per-asset overhead was ~2.41%, under the 3% rule. |
+| Does materializing inverted buffers beat polarity-proxy reads? | Answered for this smoke sample | `materialized-inverted-detector` variant | Candidate `a` improved total inverted detector+materialization time by 3.5% with equal finder/proposal counts, below the 5% checkpoint threshold. |
+| Is shared polarity-neutral detector structure promising? | Partially answered | `shared-run-artifact-prototype` variant | Candidate `b` shows large headroom, but it only measures shared run construction and is not behavior-equivalent detector replacement yet. |
 | Are component counts/percentiles useful? | Unanswered | not collected | Component stats were optional and not present. |
 | Are duplicate/redundant sibling-view signals useful? | Unanswered | not collected | Similarity to sibling views was not present. |
 
@@ -106,114 +107,102 @@ Headline totals:
 
 | Metric | Value |
 | --- | ---: |
-| Pixel observations | 118,173,433 |
-| Proposal generation wall time | 8,654,656.84 ms |
-| Detector time | 1,696,725.33 ms |
-| Scalar view materialization | 14,630.35 ms |
-| Binary plane materialization | 38,248.43 ms |
-| Binary view wrapper materialization | 91.51 ms |
-| Passive signal collection | 20,547.84 ms |
-| Histogram measurement | 14,180.45 ms |
-| Integral measurement | 4,282.12 ms |
-| Study-side RGB fusion prototype | 2,055.71 ms |
-| Study-side OKLab fusion prototype | 9,621.42 ms |
-| Estimated shared polarity artifact saving | 10,578.41 ms |
+| Pixel observations | 15,192,640 |
+| Proposal generation wall time | 1,038,960.91 ms |
+| Detector time | 204,322.80 ms |
+| Scalar view materialization | 1,812.48 ms |
+| Binary plane materialization | 4,458.60 ms |
+| Binary view wrapper materialization | 10.74 ms |
+| Passive signal collection | 2,344.00 ms |
+| Histogram measurement | 1,588.29 ms |
+| Integral measurement | 489.68 ms |
+| Study-side RGB fusion prototype | 231.98 ms |
+| Study-side OKLab fusion prototype | 1,112.98 ms |
+| Estimated shared polarity artifact saving | 1,192.43 ms |
+
+Variant results:
+
+| Variant | Control | Candidate | Delta | Improvement | Behavior evidence | Interpretation |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| `a` materialized inverted detector | 118,662.49 ms | 114,504.65 ms | 4,157.84 ms | 3.5% | proposal/finder counts equal | Below the <5% checkpoint threshold; polarity-read/XOR overhead is unlikely to be the main inverted cost. |
+| `b` shared run artifact prototype | 204,322.80 ms | 1,143.55 ms | 203,179.25 ms | 99.44% | not behavior-equivalent | Strong headroom signal for shared run/component artifacts, but must be implemented as a real detector candidate before adoption. |
 
 Detector hotspots by view:
 
 | View | Detector time | Proposals | Row finders | Matcher finders | Avg dark ratio | Avg H transitions | Avg V transitions |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `oklab-l:sauvola:inverted` | 63.8s | 12,167 | 2,194 | 2,335 | 0.765 | 0.0375 | 0.0367 |
-| `gray:sauvola:inverted` | 57.0s | 12,618 | 2,260 | 2,381 | 0.695 | 0.0444 | 0.0435 |
-| `g:sauvola:inverted` | 56.3s | 12,867 | 2,255 | 2,384 | 0.691 | 0.0439 | 0.0430 |
-| `b:sauvola:inverted` | 53.6s | 13,261 | 2,299 | 2,389 | 0.684 | 0.0464 | 0.0451 |
-| `r:sauvola:inverted` | 53.2s | 12,439 | 2,244 | 2,335 | 0.678 | 0.0466 | 0.0454 |
+| `oklab-l:sauvola:inverted` | 8.0s | 1,064 | 242 | 288 | 0.786 | 0.0273 | 0.0241 |
+| `gray:sauvola:inverted` | 7.1s | 1,259 | 263 | 293 | 0.721 | 0.0305 | 0.0271 |
+| `r:sauvola:inverted` | 7.1s | 1,361 | 281 | 300 | 0.718 | 0.0351 | 0.0304 |
+| `g:sauvola:inverted` | 7.0s | 1,288 | 263 | 296 | 0.720 | 0.0304 | 0.0273 |
+| `b:sauvola:inverted` | 6.6s | 1,265 | 282 | 300 | 0.699 | 0.0342 | 0.0312 |
 
 Detector cost by family:
 
 | Family | Detector time | Proposals | Notes |
 | --- | ---: | ---: | --- |
-| `gray` | 243.0s | 81,472 | Most expensive scalar family. |
-| `oklab-l` | 240.0s | 82,096 | Similar cost/yield to gray. |
-| `g` | 236.2s | 81,980 | RGB channels are also high-cost. |
-| `r` | 235.4s | 79,165 | RGB channels are also high-cost. |
-| `b` | 232.6s | 80,759 | RGB channels are also high-cost. |
-| OKLab chroma families | 120.0s–132.4s each | ~33k–34k each | Much lower detector load in this run. |
+| `oklab-l` | 28.5s | 8,218 | Most expensive scalar family in this sample. |
+| `gray` | 28.3s | 8,979 | Similar cost/yield to OKLab-L. |
+| `r` | 28.0s | 8,060 | RGB channels remain high-cost. |
+| `b` | 27.7s | 7,467 | RGB channels remain high-cost. |
+| `g` | 27.3s | 8,878 | RGB channels remain high-cost. |
+| OKLab chroma families | 15.5s–16.8s each | ~4k–4.9k each | Lower detector load in this sample. |
 
 Detector cost by threshold:
 
 | Threshold | Detector time | Proposals | Notes |
 | --- | ---: | ---: | --- |
-| `otsu` | 654.5s | 189,474 | Highest detector time. |
-| `hybrid` | 637.2s | 213,950 | Highest proposal count. |
-| `sauvola` | 405.0s | 137,470 | Lower total detector time overall, but inverted Sauvola contains the top five hottest individual paths. |
+| `otsu` | 80.4s | 21,581 | Highest detector time. |
+| `hybrid` | 75.3s | 23,378 | Highest proposal count. |
+| `sauvola` | 48.6s | 14,504 | Lower aggregate detector time, but inverted Sauvola contains the top five hottest individual paths. |
 
 Detector cost by polarity:
 
 | Polarity | Detector time | Proposals | Flood finders | Notes |
 | --- | ---: | ---: | ---: | --- |
-| `inverted` | 953.9s | 261,962 | 476 | Higher detector time despite fewer proposals. |
-| `normal` | 742.8s | 278,932 | 3,104 | More flood evidence, lower total detector time. |
+| `inverted` | 118.7s | 27,056 | 78 | Higher detector time despite fewer proposals. |
+| `normal` | 85.7s | 32,407 | 423 | More flood evidence, lower detector time. |
 
 Signal correlations with detector duration across per-asset/per-view rows:
 
 | Signal | Correlation with detector duration |
 | --- | ---: |
-| Matcher finder count | 0.497 |
-| Dark ratio | 0.413 |
-| Row-scan finder count | 0.375 |
-| Vertical run count | 0.243 |
-| Horizontal run count | 0.231 |
-| Vertical transition density | 0.200 |
-| Horizontal transition density | 0.199 |
-| Proposal count | 0.168 |
+| Deduped finder count | 0.536 |
+| Matcher finder count | 0.532 |
+| Dark ratio | 0.491 |
+| Row-scan finder count | 0.386 |
+| Vertical transition density | 0.196 |
+| Vertical run count | 0.168 |
+| Horizontal transition density | 0.172 |
+| Horizontal run count | 0.149 |
+| Proposal count | 0.099 |
+| Flood finder count | -0.008 |
 
 ## Interpretation plan
 
 Treat signals as explanatory first. A signal that identifies low-yield views is not automatically a production prefilter; it must be validated against unique successes and hard positives. Signals that identify high-cost views may still be useful for optimizing masks or detector paths without skipping those views.
 
-This run supports keeping passive signal collection as study observability: signal collection was about 20.5s versus about 1,696.7s of detector work, or roughly 1.2% of detector time. The strongest predictors in this report are not raw transition density but matcher finder count, dark ratio, and row-scan finder count.
+This smoke run supports keeping passive signal collection as study observability. Signal collection was ~2.34s versus ~204.32s of detector work, or ~1.15% overall. The p95 per-asset signal overhead was ~2.41%, under the study's 3% adoption threshold for observability.
 
-The hottest paths are concentrated in inverted Sauvola views with high dark ratios. That does not justify skipping inverted Sauvola, because this run did not decode and cannot measure unique positive loss. It does suggest two follow-up directions:
+The strongest predictors in this run were deduped finder count, matcher finder count, and dark ratio. Raw transition density and run counts had weaker correlation. The hottest paths again concentrated in inverted Sauvola views with high dark ratios.
 
-1. improve matcher/finder detector mechanics for dense dark inverted views; and
-2. evaluate shared polarity-neutral detector artifacts, because normal and inverted have identical transition densities and shared threshold planes but still pay separate polarity-path detector costs.
+Candidate `a` answers the immediate XOR-vs-interaction question for the smoke sample: materializing inverted buffers reduced inverted detector+materialization time by only 3.5% while preserving finder/proposal counts. That suggests polarity-read/XOR overhead is not the main cause of inverted cost. Most of the cost appears to come from detector interaction with inverted semantics and repeated detector traversal.
 
-`binaryViewMs` is effectively zero compared with `binaryPlaneMs`, confirming that inverted view identities are cheap proxies. Optimization should target detector use of the plane, not binary-view wrapper construction.
+Candidate `b` provides strong headroom evidence for shared polarity-neutral run artifacts. However, it is only a prototype measurement of shared run construction, not a detector replacement. The next candidate must consume those run artifacts inside finder row-scan/cross-check/matcher logic and prove behavior equivalence.
+
+`binaryViewMs` remains effectively zero compared with detector time, confirming that inverted view identities are cheap proxies. Optimization should target detector traversal/artifact reuse, not binary-view wrapper construction.
 
 ## Conclusion / evidence-backed decision
 
 Keep passive binary signals in study reports. They are cheap enough for study use and explain detector hotspots well enough to guide follow-up work.
 
-This run does **not** answer the full problem statement. It answers the detector-hotspot half, partially answers proposal-yield behavior, and does not answer decode success or safe production gating.
+This run does **not** answer the full problem statement. It answers the detector-hotspot and signal-overhead questions for the 25-asset sample, partially answers proposal-yield behavior, answers the materialized-inverted smoke question, and does not answer decode success or safe production gating.
 
-Refinement checkpoint after first run:
+Checkpoint decisions:
 
-The first run showed that inverted paths are more expensive, especially inverted Sauvola, but did not prove whether that cost comes from polarity-read overhead (`plane.data[index] ^ invert`) or from detector behavior on dense inverted maps. The team considered materializing inverted views as cached buffers derived from the normal/shared plane. The evidence did not justify that as an immediate production change because binary-view wrapper materialization was effectively zero and detector time dominated.
-
-To separate those causes, the study now includes a same-run variant for `binary-prefilter-signals`:
-
-- control: current inverted detector pass over the polarity proxy;
-- candidate: materialize an inverted `0 | 1` buffer once, then rerun the inverted detector path with `polarity: normal` reads;
-- compare: detector time, materialization time, total candidate time, improvement percentage, and finder/proposal count equality.
-
-A one-asset production-view smoke test showed only a small candidate win (`~1.6%`) with equal finder/proposal counts, suggesting XOR/read polarity overhead may be much smaller than detector interaction cost. That smoke is not enough for a conclusion; it only validates that the variant runs and records the right evidence.
-
-Recommended smoke size before a full corpus run:
-
-- 25 assets is enough for a valuable checkpoint if it includes both `qr-pos` and `qr-neg` assets and runs `--view-set all`.
-- Use it to judge effect size direction and variance, not to make a final production decision.
-- If the 25-asset run shows <5% materialized-inverted improvement with count equality, deprioritize materialized inverted buffers and focus on shared detector artifacts/run maps.
-- If it shows >10% improvement consistently, run the full corpus before considering implementation.
-
-Suggested command:
-
-```bash
-bun run --cwd tools/bench bench study binary-prefilter-signals \
-  --view-set all \
-  --max-assets 25 \
-  --refresh-cache
-```
+- Do not prioritize cached materialized inverted views yet. Candidate `a` improved only 3.5%, below the predeclared <5% threshold for deprioritization, although a full corpus run could confirm.
+- Prioritize candidate `b`: implement a behavior-equivalent shared run/component artifact detector path, because the prototype shows large potential headroom and directly addresses repeated normal/inverted detector traversal.
+- Do not ship production prefilter gating from this run.
 
 Full refined experiment still needed for prefilter gating:
 
@@ -247,6 +236,6 @@ Full refined experiment still needed for prefilter gating:
 
 Do not ship production prefilter gating from this run. Required next evidence:
 
+- implement behavior-equivalent shared run/component detector candidate `b` and rerun the 25-asset smoke;
 - rerun after signal rows are joined to `view-proposals` decode/structure evidence;
-- verify candidate thresholds against unique positive successes and false-positive risk;
-- prioritize `shared-binary-detector-artifacts` and `finder-run-map` candidate studies for the inverted Sauvola hotspot regardless of gating outcome.
+- verify any candidate thresholds against unique positive successes and false-positive risk.
