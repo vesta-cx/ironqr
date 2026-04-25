@@ -297,6 +297,9 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
   }),
   estimateUnits: (config, assets) =>
     assets.length * config.policies.length * STUDY_TIMING_ROWS_PER_POLICY,
+  replayCachedAsset: ({ result, log }) => {
+    for (const policy of result.policies) logPolicyMetrics(log, policy.policyId, policy);
+  },
   runAsset: async ({ asset, config, signal, log }) => {
     if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
     const image = await asset.loadImage();

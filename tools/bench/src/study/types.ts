@@ -97,6 +97,8 @@ export interface StudyPlugin<
   cacheKey?(config: Config): string;
   /** Optional generic per-asset execution hook owned by the reusable study runner. */
   readCachedAsset?(input: StudyAssetInput<Config>): Promise<AssetResult | null>;
+  /** Replays study-owned timing/event logs when a generic cached asset is preloaded. */
+  replayCachedAsset?(input: StudyAssetInput<Config> & { readonly result: AssetResult }): void;
   runAsset?(input: StudyAssetInput<Config>): Promise<AssetResult>;
   /** Summarize generic per-asset results after cache/resume completes. */
   summarize?(input: StudySummaryInput<Config, AssetResult>): Summary;

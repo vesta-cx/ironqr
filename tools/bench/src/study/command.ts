@@ -596,25 +596,41 @@ const runPlugin = async (input: {
     const preloadedResults: unknown[] = [];
     const assetsToRun: (typeof input.assets)[number][] = [];
     const readCachedAsset = input.plugin.readCachedAsset;
-    if (readCachedAsset) {
+    const canPreloadGenericCache = !input.plugin.usesInternalCache && input.cache.summary().enabled;
+    if (readCachedAsset || canPreloadGenericCache) {
       input.progress.onMessage(`study cache preload starting for ${input.assets.length} assets`);
       for (const [index, asset] of input.assets.entries()) {
         if (input.signal?.aborted) throw input.signal.reason ?? new Error('Study interrupted.');
         await yieldToProgressRenderer();
         input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
-        const cached = await readCachedAsset({
+        const cached = readCachedAsset
+          ? await readCachedAsset({
+              repoRoot: input.repoRoot,
+              asset,
+              config,
+              reports: input.reports,
+              cache: input.cache,
+              ...(input.signal === undefined ? {} : { signal: input.signal }),
+              log: input.log,
+            })
+          : await input.cache.read(
+              asset,
+              genericStudyAssetCacheKey(input.plugin, baseCacheKey, asset, engines, observability),
+            );
+        if (cached === null) {
+          assetsToRun.push(asset);
+          continue;
+        }
+        input.plugin.replayCachedAsset?.({
           repoRoot: input.repoRoot,
           asset,
           config,
           reports: input.reports,
           cache: input.cache,
+          result: cached,
           ...(input.signal === undefined ? {} : { signal: input.signal }),
           log: input.log,
         });
-        if (cached === null) {
-          assetsToRun.push(asset);
-          continue;
-        }
         input.progress.onScanStarted({
           engineId: input.plugin.id,
           assetId: asset.id,
@@ -673,15 +689,13 @@ const runPlugin = async (input: {
         async (asset, index) => {
           if (!readCachedAsset)
             input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
-          const cacheKey = JSON.stringify({
-            studyId: input.plugin.id,
-            studyVersion: input.plugin.version,
-            configKey: baseCacheKey,
-            assetId: asset.id,
-            assetSha256: asset.sha256,
-            engines: engines.map((engine) => ({ id: engine.id, version: engine.adapterVersion })),
+          const cacheKey = genericStudyAssetCacheKey(
+            input.plugin,
+            baseCacheKey,
+            asset,
+            engines,
             observability,
-          });
+          );
           const cached = input.plugin.usesInternalCache
             ? null
             : await input.cache.read(asset, cacheKey);
@@ -812,6 +826,23 @@ const runPlugin = async (input: {
 const yieldToProgressRenderer = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 };
+
+const genericStudyAssetCacheKey = (
+  plugin: StudyPlugin,
+  baseCacheKey: string,
+  asset: BenchCorpusAsset,
+  engines: readonly AccuracyEngineDescriptor[],
+  observability: Record<string, unknown>,
+): string =>
+  JSON.stringify({
+    studyId: plugin.id,
+    studyVersion: plugin.version,
+    configKey: baseCacheKey,
+    assetId: asset.id,
+    assetSha256: asset.sha256,
+    engines: engines.map((engine) => ({ id: engine.id, version: engine.adapterVersion })),
+    observability,
+  });
 
 const studyUnitResult = (
   engineId: string,

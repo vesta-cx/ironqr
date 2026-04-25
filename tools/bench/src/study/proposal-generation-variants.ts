@@ -179,6 +179,9 @@ export const proposalGenerationVariantsStudyPlugin: StudyPlugin<
     }),
   estimateUnits: (config, assets) =>
     assets.length * config.variants.length * TIMING_ROWS_PER_VARIANT,
+  replayCachedAsset: ({ result, log }) => {
+    for (const variant of result.variants) logVariantMetrics(log, variant);
+  },
   runAsset: async ({ asset, config, signal, log }) => {
     const image = await asset.loadImage();
     const variants: VariantResult[] = [];
