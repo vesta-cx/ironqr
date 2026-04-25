@@ -188,6 +188,8 @@ export const runStudyBenchmark = async (
       progress,
     });
 
+    await cache.flush();
+
     const pass = passedVerdict(`Study ${studyId} completed.`);
     const regression: BenchmarkVerdict = {
       status: 'unavailable',
@@ -237,6 +239,7 @@ export const runStudyBenchmark = async (
     await writeProcessedStudyReport(processedReportFile, report);
     return { reportFile, processedReportFile, report };
   } finally {
+    await cache.flush();
     progress.stop();
   }
 };

@@ -28,6 +28,7 @@ export interface StudyCacheHandle<AssetResult = unknown> {
   readonly write: (asset: CorpusBenchAsset, cacheKey: string, result: AssetResult) => Promise<void>;
   readonly remove: (asset: CorpusBenchAsset, cacheKey: string) => Promise<boolean>;
   readonly purge: (shouldRemove: (cacheKey: string) => boolean) => Promise<number>;
+  readonly flush: () => Promise<void>;
   readonly summary: () => {
     readonly enabled: boolean;
     readonly file: string | null;

@@ -10,6 +10,7 @@ import {
   performanceOptionsKey,
 } from '../../src/performance/cache.js';
 import type { PerformanceIterationResult } from '../../src/performance/runner.js';
+import { openStudyCache } from '../../src/study/cache.js';
 
 const tempDirs: string[] = [];
 
@@ -23,11 +24,21 @@ const makeTempFile = async (): Promise<string> => {
   return path.join(dir, 'accuracy-cache.json');
 };
 
-const asset: Pick<CorpusBenchAsset, 'id' | 'label' | 'sha256' | 'relativePath'> = {
+const asset: CorpusBenchAsset = {
   id: 'asset-1',
+  assetId: 'asset-1',
   label: 'qr-pos',
   sha256: 'sha-a',
+  imagePath: '/tmp/asset-1.png',
   relativePath: 'assets/asset-1.png',
+  expectedTexts: [],
+  loadImage: async () => ({
+    path: '/tmp/asset-1.png',
+    width: 1,
+    height: 1,
+    data: new Uint8ClampedArray(4),
+    colorSpace: 'srgb',
+  }),
 };
 
 const cacheableEngine: AccuracyEngine = {
@@ -53,6 +64,33 @@ const cacheableEngine: AccuracyEngine = {
     error: null,
   }),
 };
+
+describe('study cache', () => {
+  it('batches writes until an explicit flush', async () => {
+    const file = await makeTempFile();
+    const firstStore = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+
+    await firstStore.write(asset, 'row-1', { value: 1 });
+    const beforeFlush = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await beforeFlush.read(asset, 'row-1')).toBeNull();
+
+    await firstStore.flush();
+    const afterFlush = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await afterFlush.read(asset, 'row-1')).toEqual({ value: 1 });
+  });
+});
 
 describe('accuracy cache', () => {
   it('round-trips a cached third-party result with duration', async () => {

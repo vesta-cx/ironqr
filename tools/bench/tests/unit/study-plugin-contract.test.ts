@@ -58,6 +58,7 @@ describe('study plugin contract', () => {
         write: async () => {},
         remove: async () => false,
         purge: async () => 0,
+        flush: async () => {},
         summary: () => ({
           enabled: true,
           file: '/repo/tools/bench/.cache/studies/view-order.json',

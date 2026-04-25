@@ -21,6 +21,9 @@ export interface StudyCacheOptions {
   readonly file: string;
 }
 
+const STUDY_CACHE_FLUSH_INTERVAL_MS = 5_000;
+const STUDY_CACHE_FLUSH_WRITE_THRESHOLD = 1_024;
+
 export const openStudyCache = async <AssetResult>(
   options: StudyCacheOptions,
 ): Promise<StudyCacheHandle<AssetResult>> => {
@@ -33,22 +36,57 @@ export const openStudyCache = async <AssetResult>(
   let invalidRows = 0;
   let purgedRows = 0;
   let saveCounter = 0;
+  let dirtyWrites = 0;
+  let dirty = false;
+  let flushTimer: NodeJS.Timeout | null = null;
   let saveTail = Promise.resolve();
 
-  const save = async (): Promise<void> => {
+  const clearFlushTimer = (): void => {
+    if (flushTimer === null) return;
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  };
+
+  const persist = async (): Promise<void> => {
+    const snapshot: StudyCacheSnapshot = {
+      version: 1,
+      entries: Object.fromEntries(entries),
+    };
+    await mkdir(path.dirname(options.file), { recursive: true });
+    saveCounter += 1;
+    const tempFile = `${options.file}.${process.pid}.${Date.now()}.${saveCounter}.tmp`;
+    await writeFile(tempFile, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+    await rename(tempFile, options.file);
+  };
+
+  const flushOnce = (): Promise<void> => {
+    if (!options.enabled) return Promise.resolve();
+    clearFlushTimer();
+    if (!dirty) return saveTail;
+    dirty = false;
+    dirtyWrites = 0;
+    saveTail = saveTail.then(persist);
+    return saveTail;
+  };
+
+  const flush = async (): Promise<void> => {
+    await flushOnce();
+    while (dirty) await flushOnce();
+  };
+
+  const queueSave = (): void => {
     if (!options.enabled) return;
-    saveTail = saveTail.then(async () => {
-      const snapshot: StudyCacheSnapshot = {
-        version: 1,
-        entries: Object.fromEntries(entries),
-      };
-      await mkdir(path.dirname(options.file), { recursive: true });
-      saveCounter += 1;
-      const tempFile = `${options.file}.${process.pid}.${Date.now()}.${saveCounter}.tmp`;
-      await writeFile(tempFile, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
-      await rename(tempFile, options.file);
-    });
-    await saveTail;
+    dirty = true;
+    dirtyWrites += 1;
+    if (dirtyWrites >= STUDY_CACHE_FLUSH_WRITE_THRESHOLD) {
+      void flushOnce();
+      return;
+    }
+    if (flushTimer !== null) return;
+    flushTimer = setTimeout(() => {
+      void flushOnce();
+    }, STUDY_CACHE_FLUSH_INTERVAL_MS);
+    flushTimer.unref?.();
   };
 
   return {
@@ -62,16 +100,17 @@ export const openStudyCache = async <AssetResult>(
         misses += 1;
         return null;
       }
-      const entry = entries.get(entryKey(asset, cacheKey));
+      const key = entryKey(asset, cacheKey);
+      const entry = entries.get(key);
       if (!entry) {
         misses += 1;
         return null;
       }
       if (entry.assetSha256 !== asset.sha256 || entry.cacheKey !== cacheKey) {
-        entries.delete(entryKey(asset, cacheKey));
+        entries.delete(key);
         invalidRows += 1;
         misses += 1;
-        await save();
+        queueSave();
         return null;
       }
       hits += 1;
@@ -86,14 +125,14 @@ export const openStudyCache = async <AssetResult>(
         result,
       });
       writes += 1;
-      await save();
+      queueSave();
     },
     async remove(asset, cacheKey) {
       if (!options.enabled) return false;
       const deleted = entries.delete(entryKey(asset, cacheKey));
       if (!deleted) return false;
       purgedRows += 1;
-      await save();
+      queueSave();
       return true;
     },
     async purge(shouldRemove) {
@@ -106,9 +145,10 @@ export const openStudyCache = async <AssetResult>(
       }
       if (removed === 0) return 0;
       purgedRows += removed;
-      await save();
+      queueSave();
       return removed;
     },
+    flush,
     summary() {
       return {
         enabled: options.enabled,
