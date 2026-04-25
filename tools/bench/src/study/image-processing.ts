@@ -773,8 +773,9 @@ const readCachedDetectorAssetResult = async (
       .map((variantId) => `${variantId}:${viewId}`),
   );
   if (missing.length > 0) {
+    const replayed = await replayCachedDetectorRows(asset, cache, viewIds, requiredIds, log);
     log(
-      `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows`,
+      `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows; preloaded ${replayed} cached rows`,
     );
     return null;
   }
@@ -891,6 +892,33 @@ const readCachedDetectorAssetResult = async (
     binaryRead: null,
     decode: null,
   };
+};
+
+const replayCachedDetectorRows = async (
+  asset: Parameters<StudyCacheHandle['read']>[0],
+  cache: Pick<StudyCacheHandle, 'has' | 'read'>,
+  viewIds: readonly BinaryViewId[],
+  variantIds: readonly string[],
+  log: (message: string) => void,
+): Promise<number> => {
+  let replayed = 0;
+  for (const viewId of viewIds) {
+    for (const variantId of variantIds) {
+      const measurement = await readVariantMeasurement(asset, cache, variantId, viewId);
+      if (!measurement) continue;
+      replayed += 1;
+      const detector = detectorAreaId(variantId) === 'f' ? 'flood' : 'matcher';
+      logStudyTiming(
+        log,
+        detectorTimingId(viewId, variantId, detector),
+        measurement.durationMs,
+        'detector',
+        measurement.outputCount,
+        true,
+      );
+    }
+  }
+  return replayed;
 };
 
 const purgeRedundantDetectorCacheRows = async (
@@ -1468,14 +1496,16 @@ const measureFloodCandidateVariants = async (
     units.push(
       detectorUnit(controlId, 'inline-flood', 'flood', control.measurement, control.cached, true),
     );
-    logStudyTiming(
-      log,
-      controlId,
-      control.measurement.durationMs,
-      'detector',
-      control.measurement.outputCount,
-      control.cached,
-    );
+    if (!control.cached) {
+      logStudyTiming(
+        log,
+        controlId,
+        control.measurement.durationMs,
+        'detector',
+        control.measurement.outputCount,
+        false,
+      );
+    }
 
     for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
       const measured = await measureVariant(asset, cache, candidate.id, viewId, () => {
@@ -1506,14 +1536,16 @@ const measureFloodCandidateVariants = async (
           compared.outputsEqual,
         ),
       );
-      logStudyTiming(
-        log,
-        unitId,
-        measured.measurement.durationMs,
-        'detector',
-        measured.measurement.outputCount,
-        measured.cached,
-      );
+      if (!measured.cached) {
+        logStudyTiming(
+          log,
+          unitId,
+          measured.measurement.durationMs,
+          'detector',
+          measured.measurement.outputCount,
+          false,
+        );
+      }
       log(
         `${assetId}: flood ${shortVariantId(candidate.id)} ${shortBinaryViewId(viewId)} ${measured.cached ? 'cache hit' : 'fresh'} p=${measured.measurement.outputCount}`,
       );
@@ -1565,14 +1597,16 @@ const measureMatcherCandidateVariants = async (
     units.push(
       detectorUnit(controlId, 'run-map', 'matcher', control.measurement, control.cached, true),
     );
-    logStudyTiming(
-      log,
-      controlId,
-      control.measurement.durationMs,
-      'detector',
-      control.measurement.outputCount,
-      control.cached,
-    );
+    if (!control.cached) {
+      logStudyTiming(
+        log,
+        controlId,
+        control.measurement.durationMs,
+        'detector',
+        control.measurement.outputCount,
+        false,
+      );
+    }
 
     for (const candidate of ACTIVE_MATCHER_CANDIDATES) {
       const measured = await measureVariant(asset, cache, candidate.id, viewId, () => {
@@ -1601,14 +1635,16 @@ const measureMatcherCandidateVariants = async (
           compared.outputsEqual,
         ),
       );
-      logStudyTiming(
-        log,
-        unitId,
-        measured.measurement.durationMs,
-        'detector',
-        measured.measurement.outputCount,
-        measured.cached,
-      );
+      if (!measured.cached) {
+        logStudyTiming(
+          log,
+          unitId,
+          measured.measurement.durationMs,
+          'detector',
+          measured.measurement.outputCount,
+          false,
+        );
+      }
       log(
         `${assetId}: matcher ${shortVariantId(candidate.id)} ${shortBinaryViewId(viewId)} ${measured.cached ? 'cache hit' : 'fresh'} p=${measured.measurement.outputCount}`,
       );
