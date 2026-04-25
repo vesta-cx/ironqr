@@ -1453,7 +1453,7 @@ const measureKnownDurationVariant = async (
     return {
       measurement: cached,
       cached: true,
-      preloaded: preloadedRows.has(detectorRowKey(asset.id, variantId, viewId)),
+      preloaded: isPreloadedDetectorRow(asset.id, variantId, viewId, preloadedRows),
     };
   const measurement = produce();
   await cache.write(asset, detectorVariantCacheKey(variantId, viewId), measurement);
@@ -1480,7 +1480,7 @@ const measureVariant = async (
       output: [],
       measurement: cached,
       cached: true,
-      preloaded: preloadedRows.has(detectorRowKey(asset.id, variantId, viewId)),
+      preloaded: isPreloadedDetectorRow(asset.id, variantId, viewId, preloadedRows),
     };
   const cacheKey = detectorVariantCacheKey(variantId, viewId);
   const schedulerWaitMs = scheduler ? await scheduler.acquire() : 0;
@@ -1506,6 +1506,15 @@ const measureVariant = async (
 
 const detectorRowKey = (assetId: string, variantId: string, viewId: BinaryViewId): string =>
   `${assetId}\u0000${variantId}\u0000${viewId}`;
+
+const isPreloadedDetectorRow = (
+  assetId: string,
+  variantId: string,
+  viewId: BinaryViewId,
+  preloadedRows: ReadonlySet<string>,
+): boolean =>
+  preloadedRows.has(detectorRowKey(assetId, variantId, viewId)) ||
+  Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true;
 
 const compareVariant = (
   id: string,

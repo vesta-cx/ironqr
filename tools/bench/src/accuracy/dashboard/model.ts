@@ -366,10 +366,7 @@ export const onDashboardStudyTiming = (
     event.outputCount === undefined || !Number.isFinite(event.outputCount) || event.outputCount < 0
       ? 0
       : event.outputCount;
-  model.studyCompletedUnits =
-    model.studyTotalUnits > 0
-      ? Math.min(model.studyTotalUnits, model.studyCompletedUnits + 1)
-      : model.studyCompletedUnits + 1;
+  model.studyCompletedUnits += 1;
   if (!event.cached) {
     const nowMs = Date.now();
     model.studyFreshStartedAtMs ??= nowMs;

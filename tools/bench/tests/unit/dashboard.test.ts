@@ -14,7 +14,6 @@ import {
   onDashboardScanFinished,
   onDashboardScanStarted,
   onDashboardStudyTiming,
-  onDashboardStudyUnitsPlanned,
 } from '../../src/accuracy/dashboard/model.js';
 import { renderScorecard } from '../../src/accuracy/dashboard/scorecard.js';
 import {
@@ -336,18 +335,6 @@ describe('table widgets', () => {
     expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('02:45:12');
     expect(renderRecentScans(model, { width: 100 }).join('\n')).toContain('decoded=0 matched=0');
     expect(renderRecentScans(model, { width: 100, maxRows: 0 }).join('\n')).toContain('none yet');
-  });
-
-  it('keeps study progress bounded by planned timing units', () => {
-    const model = createBenchDashboardModel();
-    model.commandName = 'study';
-    onDashboardStudyUnitsPlanned(model, 2);
-
-    onDashboardStudyTiming(model, { id: 'row', durationMs: 1 });
-    onDashboardStudyTiming(model, { id: 'matcher', durationMs: 2 });
-    onDashboardStudyTiming(model, { id: 'extra', durationMs: 3 });
-
-    expect(model.studyCompletedUnits).toBe(2);
   });
 
   it('ranks study timing rows by fresh samples when cached preload rows exist', () => {

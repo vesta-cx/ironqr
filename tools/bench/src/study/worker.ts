@@ -71,6 +71,8 @@ const run = async (request: StudyWorkerRequest): Promise<void> => {
         request.floodConcurrencyLimit ?? 1,
       );
     }
+    const previousWorkerFlag = Reflect.get(globalThis, '__BENCH_STUDY_WORKER__');
+    Reflect.set(globalThis, '__BENCH_STUDY_WORKER__', true);
     try {
       const result = await plugin.runAsset({
         repoRoot: request.repoRoot,
@@ -82,6 +84,7 @@ const run = async (request: StudyWorkerRequest): Promise<void> => {
       });
       post({ type: 'result', jobId: request.jobId, result, cacheWrites });
     } finally {
+      restoreGlobal('__BENCH_STUDY_WORKER__', previousWorkerFlag);
       restoreGlobal('__BENCH_STUDY_FLOOD_SEMAPHORE__', previousSemaphore);
       restoreGlobal('__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__', previousFloodLimit);
     }
