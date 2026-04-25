@@ -41,6 +41,21 @@ For each selected asset/view:
    - score
 5. record timing and output counts.
 
+The first implementation of this study was too broad: it mixed passive binary signals, proposal generation, matcher variants, flood timing, and retired materialization candidates. That made the dashboard useful for exploration but made the evidence hard to interpret. The study was refined into isolated detector-equivalence experiments:
+
+1. **Matcher equivalence.** Turn off flood/proposal/decode work and compare only legacy matcher vs run-map matcher. This isolated the matcher promotion question and produced a clean full-corpus equality result.
+2. **Flood equivalence.** After matcher was settled, turn off matcher/proposal/decode work and compare only flood implementations. This isolated the label/stat fusion question and made inline stats clearly production-worthy.
+3. **Follow-up detector variants.** After canonizing run-map matcher and inline flood, restore only small detector candidates against the new controls. Keep proposal/decode work off so timing/equality belongs to the detector under test.
+
+## Experiment design refinement
+
+| Iteration | Design | Problem with prior design | What changed | Resulting evidence |
+| --- | --- | --- | --- | --- |
+| 0. Passive signal / broad detector exploration | Collected per-view signals, materialization timings, detector timings, and early matcher/flood candidates. | Too many moving parts; useful for finding hotspots, not for validating a production change. | Identified matcher then flood as hot paths and split them into focused studies. | Showed materialization was not the main issue and detector work dominated. |
+| 1. Matcher variant exploration | Compared run-map, center-pruned, seeded, and fused matcher candidates. | Some candidates were prototypes or mismatched; run-map needed a clean regression proof against legacy. | Reduced the study to legacy matcher vs run-map matcher only. | Full-corpus `0` mismatches; run-map became canonical. |
+| 2. Flood variant exploration | Compared legacy two-pass flood, inline stats, and filtered component matching. | Needed to distinguish the large pass-fusion win from smaller matching-filter wins. | Kept legacy flood as control and measured candidates over all views/assets. | Inline stats had `0` mismatches and `64.72%` speedup; it became canonical. |
+| 3. Current follow-up phase | Inline flood and run-map matcher are controls; filtered flood and center-signal matcher are candidates. | We need to know whether smaller variants compose with the new controls. | Report summaries now include `exploredAvenues` and `conclusions` to preserve the evidence trail. | Pending fresh full run. |
+
 ## Evidence ledger
 
 ### Experiment A — matcher cross-check replacement
