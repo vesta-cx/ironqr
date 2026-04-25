@@ -82,6 +82,7 @@ export class BenchOpenTuiDashboard {
   private renderQueued = false;
   private renderPaused = false;
   private stopped = false;
+  private interruptCount = 0;
   private refreshTimer: NodeJS.Timeout | null = null;
   private studyViewTimingOffset = 0;
   private studyDetectorTimingOffset = 0;
@@ -396,15 +397,26 @@ export class BenchOpenTuiDashboard {
         return;
       }
       if ((key.name === 'c' && key.ctrl) || key.sequence === '\u0003') {
-        this.quit();
+        this.interrupt();
       }
     };
     renderer.keyInput.on('keypress', this.keyHandler);
 
     this.sigintHandler = () => {
-      this.quit();
+      this.interrupt();
     };
     process.once('SIGINT', this.sigintHandler);
+  }
+
+  private interrupt(): void {
+    this.interruptCount += 1;
+    if (this.interruptCount === 1) {
+      this.quit();
+      return;
+    }
+    this.cleanup();
+    process.stderr.write('\n[bench] force exiting after second interrupt\n');
+    process.exit(130);
   }
 
   private quit(): void {

@@ -874,14 +874,21 @@ const main = async (): Promise<void> => {
   }
 
   const abortController = new AbortController();
+  let sigintCount = 0;
   const requestStop = (): void => {
     if (abortController.signal.aborted) return;
     abortController.abort(new Error('Interrupted by user request.'));
   };
   const onSigint = (): void => {
-    requestStop();
+    sigintCount += 1;
+    if (sigintCount === 1) {
+      requestStop();
+      return;
+    }
+    process.stderr.write('\n[bench] force exiting after second interrupt\n');
+    process.exit(130);
   };
-  process.once('SIGINT', onSigint);
+  process.on('SIGINT', onSigint);
   const control = { signal: abortController.signal, requestStop };
 
   try {

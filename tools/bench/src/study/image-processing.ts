@@ -537,6 +537,7 @@ function makeImageProcessingStudyPlugin(input: {
           cache,
           log,
           preloadedDetectorRows,
+          signal,
         );
         matcherCandidates = await measureMatcherCandidateVariants(
           viewBank,
@@ -546,6 +547,7 @@ function makeImageProcessingStudyPlugin(input: {
           cache,
           log,
           preloadedDetectorRows,
+          signal,
         );
         proposalGenerationMs = round(performance.now() - detectorStartedAt);
       } else {
@@ -1093,6 +1095,10 @@ const MATCHER_CANDIDATES = [
 
 const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] = [];
 
+const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
+};
+
 const measureVariant = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
   cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
@@ -1518,12 +1524,14 @@ const measureFloodCandidateVariants = async (
   cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
   log: (message: string) => void,
   preloadedRows: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
 ): Promise<FloodCandidateMeasurement> => {
   let controlMs = 0;
   const variants = new Map<string, DetectorVariantMeasurement>();
   const units: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
+    throwIfStudyAborted(signal);
     const view = viewBank.getBinaryView(viewId);
     const control = await measureVariant(asset, cache, 'inline-flood', viewId, preloadedRows, () =>
       detectFloodFinders(view, view.width, view.height),
@@ -1545,6 +1553,7 @@ const measureFloodCandidateVariants = async (
     }
 
     for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
+      throwIfStudyAborted(signal);
       const measured = await measureVariant(
         asset,
         cache,
@@ -1629,12 +1638,14 @@ const measureMatcherCandidateVariants = async (
   cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
   log: (message: string) => void,
   preloadedRows: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
 ): Promise<MatcherCandidateMeasurement> => {
   let controlMatcherMs = 0;
   const variants = new Map<string, DetectorVariantMeasurement>();
   const units: DetectorUnitMeasurement[] = [];
 
   for (const viewId of viewIds) {
+    throwIfStudyAborted(signal);
     const view = viewBank.getBinaryView(viewId);
     const control = await measureVariant(asset, cache, 'run-map', viewId, preloadedRows, () =>
       detectMatcherFinders(view, view.width, view.height),
@@ -1656,6 +1667,7 @@ const measureMatcherCandidateVariants = async (
     }
 
     for (const candidate of ACTIVE_MATCHER_CANDIDATES) {
+      throwIfStudyAborted(signal);
       const measured = await measureVariant(
         asset,
         cache,

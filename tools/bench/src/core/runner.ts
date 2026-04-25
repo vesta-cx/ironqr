@@ -41,6 +41,7 @@ export const mapConcurrentPartial = async <Input, Output>(
         results[currentIndex] = await map(value, currentIndex);
         completedCount += 1;
       } catch (caught) {
+        if (options.signal?.aborted === true) return;
         error = caught;
         return;
       }
