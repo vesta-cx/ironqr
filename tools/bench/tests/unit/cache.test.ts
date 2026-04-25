@@ -83,12 +83,43 @@ describe('study cache', () => {
     expect(await beforeFlush.read(asset, 'row-1')).toBeNull();
 
     await firstStore.flush();
+    expect(JSON.parse(await Bun.file(file).text()).version).toBe(2);
     const afterFlush = await openStudyCache<{ readonly value: number }>({
       enabled: true,
       refresh: false,
       file,
     });
     expect(await afterFlush.read(asset, 'row-1')).toEqual({ value: 1 });
+  });
+
+  it('reads v1 snapshots and migrates them on flush', async () => {
+    const file = await makeTempFile();
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: {
+          [`${asset.id}:row-1`]: {
+            assetId: asset.id,
+            assetSha256: asset.sha256,
+            cacheKey: 'row-1',
+            result: { value: 1 },
+          },
+        },
+      }),
+    );
+    const store = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await store.read(asset, 'row-1')).toEqual({ value: 1 });
+    await store.write(asset, 'row-2', { value: 2 });
+    await store.flush();
+    const migrated = JSON.parse(await Bun.file(file).text());
+    expect(migrated.version).toBe(2);
+    expect(migrated.assets[asset.id].entries['row-1']).toEqual({ value: 1 });
+    expect(migrated.assets[asset.id].entries['row-2']).toEqual({ value: 2 });
   });
 });
 

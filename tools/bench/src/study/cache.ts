@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { CorpusBenchAsset } from '../accuracy/types.js';
 import type { StudyCacheHandle } from './types.js';
@@ -10,9 +10,19 @@ interface StudyCacheEntry {
   readonly result: unknown;
 }
 
-interface StudyCacheSnapshot {
+interface StudyCacheV1Snapshot {
   readonly version: 1;
   readonly entries: Record<string, StudyCacheEntry>;
+}
+
+interface StudyCacheV2AssetRows {
+  readonly sha: string;
+  readonly entries: Record<string, unknown>;
+}
+
+interface StudyCacheV2Snapshot {
+  readonly version: 2;
+  readonly assets: Record<string, StudyCacheV2AssetRows>;
 }
 
 export interface StudyCacheOptions {
@@ -48,15 +58,10 @@ export const openStudyCache = async <AssetResult>(
   };
 
   const persist = async (): Promise<void> => {
-    const snapshot: StudyCacheSnapshot = {
-      version: 1,
-      entries: Object.fromEntries(entries),
-    };
-    await mkdir(path.dirname(options.file), { recursive: true });
-    saveCounter += 1;
-    const tempFile = `${options.file}.${process.pid}.${Date.now()}.${saveCounter}.tmp`;
-    await writeFile(tempFile, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
-    await rename(tempFile, options.file);
+    await writeSnapshot(options.file, entries, () => {
+      saveCounter += 1;
+      return `${process.pid}.${Date.now()}.${saveCounter}`;
+    });
   };
 
   const flushOnce = (): Promise<void> => {
@@ -163,20 +168,93 @@ export const openStudyCache = async <AssetResult>(
   };
 };
 
+export const migrateStudyCacheFile = async (
+  file: string,
+): Promise<{
+  readonly entries: number;
+  readonly bytesBefore: number;
+  readonly bytesAfter: number;
+}> => {
+  const bytesBefore = await fileSize(file);
+  const entries = await readSnapshot(file);
+  await writeSnapshot(file, entries, () => `migrate.${process.pid}.${Date.now()}`);
+  return { entries: entries.size, bytesBefore, bytesAfter: await fileSize(file) };
+};
+
 const readSnapshot = async (file: string): Promise<Map<string, StudyCacheEntry>> => {
   try {
-    const parsed = JSON.parse(await readFile(file, 'utf8')) as Partial<StudyCacheSnapshot>;
-    if (parsed.version !== 1 || !parsed.entries || typeof parsed.entries !== 'object') {
-      return new Map();
-    }
+    return snapshotEntries(JSON.parse(await readFile(file, 'utf8')) as unknown);
+  } catch {
+    return new Map();
+  }
+};
+
+const snapshotEntries = (parsed: unknown): Map<string, StudyCacheEntry> => {
+  if (isV2Snapshot(parsed)) return entriesFromV2(parsed);
+  if (isV1Snapshot(parsed)) {
     return new Map(
       Object.entries(parsed.entries).filter((entry): entry is [string, StudyCacheEntry] =>
         isStudyCacheEntry(entry[1]),
       ),
     );
-  } catch {
-    return new Map();
   }
+  return new Map();
+};
+
+const entriesFromV2 = (snapshot: StudyCacheV2Snapshot): Map<string, StudyCacheEntry> => {
+  const entries = new Map<string, StudyCacheEntry>();
+  for (const [assetId, assetRows] of Object.entries(snapshot.assets)) {
+    for (const [cacheKey, result] of Object.entries(assetRows.entries)) {
+      const entry = {
+        assetId,
+        assetSha256: assetRows.sha,
+        cacheKey,
+        result,
+      } satisfies StudyCacheEntry;
+      entries.set(entryKeyParts(assetId, cacheKey), entry);
+    }
+  }
+  return entries;
+};
+
+const writeSnapshot = async (
+  file: string,
+  entries: ReadonlyMap<string, StudyCacheEntry>,
+  nonce: () => string,
+): Promise<void> => {
+  await mkdir(path.dirname(file), { recursive: true });
+  const tempFile = `${file}.${nonce()}.tmp`;
+  await writeFile(tempFile, `${JSON.stringify(toV2Snapshot(entries))}\n`, 'utf8');
+  await rename(tempFile, file);
+};
+
+const toV2Snapshot = (entries: ReadonlyMap<string, StudyCacheEntry>): StudyCacheV2Snapshot => {
+  const assets: Record<string, StudyCacheV2AssetRows> = {};
+  for (const entry of entries.values()) {
+    let assetRows = assets[entry.assetId];
+    if (!assetRows) {
+      assetRows = { sha: entry.assetSha256, entries: {} };
+      assets[entry.assetId] = assetRows;
+    }
+    assetRows.entries[entry.cacheKey] = entry.result;
+  }
+  return { version: 2, assets };
+};
+
+const isV1Snapshot = (value: unknown): value is StudyCacheV1Snapshot => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<StudyCacheV1Snapshot>;
+  return (
+    candidate.version === 1 && Boolean(candidate.entries) && typeof candidate.entries === 'object'
+  );
+};
+
+const isV2Snapshot = (value: unknown): value is StudyCacheV2Snapshot => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<StudyCacheV2Snapshot>;
+  return (
+    candidate.version === 2 && Boolean(candidate.assets) && typeof candidate.assets === 'object'
+  );
 };
 
 const isStudyCacheEntry = (value: unknown): value is StudyCacheEntry => {
@@ -190,4 +268,8 @@ const isStudyCacheEntry = (value: unknown): value is StudyCacheEntry => {
   );
 };
 
-const entryKey = (asset: CorpusBenchAsset, cacheKey: string): string => `${asset.id}:${cacheKey}`;
+const fileSize = async (file: string): Promise<number> => (await stat(file)).size;
+
+const entryKey = (asset: CorpusBenchAsset, cacheKey: string): string =>
+  entryKeyParts(asset.id, cacheKey);
+const entryKeyParts = (assetId: string, cacheKey: string): string => `${assetId}:${cacheKey}`;
