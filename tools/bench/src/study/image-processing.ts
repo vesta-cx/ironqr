@@ -11,7 +11,6 @@ import {
 import {
   detectMatcherFinders,
   detectMatcherFindersWithCenterSignal,
-  detectMatcherFindersWithRunMaps,
   type FinderEvidence,
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import {
@@ -579,7 +578,7 @@ const measureMatcherCandidateVariants = async (
     (sum, summary) => sum + summary.finderEvidence.matcherDurationMs,
     0,
   );
-  let runMapMs = 0;
+  const runMapMs = 0;
   let prunedCenterMs = 0;
   let fusedPolarityMs = 0;
   let seededMatcherEstimatedCenters = 0;
@@ -587,9 +586,9 @@ const measureMatcherCandidateVariants = async (
   let prunedCenterCount = 0;
   let fusedDarkCenterCount = 0;
   let fusedLightCenterCount = 0;
-  let runMapOutputsEqual = true;
+  const runMapOutputsEqual = true;
   let prunedCenterOutputsEqual = true;
-  let runMapMismatchCount = 0;
+  const runMapMismatchCount = 0;
   let prunedCenterMismatchCount = 0;
 
   for (const summary of controlSummaries) {
@@ -600,15 +599,6 @@ const measureMatcherCandidateVariants = async (
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
     const controlOutput = detectMatcherFinders(view, view.width, view.height);
-
-    const runStartedAt = performance.now();
-    const runMapOutput = detectMatcherFindersWithRunMaps(view, view.width, view.height);
-    const runElapsed = performance.now() - runStartedAt;
-    runMapMs += runElapsed;
-    const runEqual = finderOutputsEqual(controlOutput, runMapOutput);
-    runMapOutputsEqual &&= runEqual;
-    if (!runEqual) runMapMismatchCount += 1;
-    logStudyTiming(log, detectorTimingId(viewId, 'a', 'run-map-matcher'), runElapsed, 'detector');
 
     const prunedStartedAt = performance.now();
     const prunedOutput = detectMatcherFindersWithCenterSignal(view, view.width, view.height);
@@ -621,9 +611,7 @@ const measureMatcherCandidateVariants = async (
     prunedCenterOutputsEqual &&= prunedEqual;
     if (!prunedEqual) prunedCenterMismatchCount += 1;
     logStudyTiming(log, detectorTimingId(viewId, 'b', 'pruned-matcher'), prunedElapsed, 'detector');
-    log(
-      `${assetId}: matcher output candidates ${viewId} runEqual=${runEqual} prunedEqual=${prunedEqual}`,
-    );
+    log(`${assetId}: matcher output candidate ${viewId} prunedEqual=${prunedEqual}`);
     await yieldToDashboard();
   }
 
@@ -1319,24 +1307,11 @@ const buildVariantSummaries = (
   const variants: ImageProcessingVariantSummary[] = [];
   if (config.focus === 'binary-prefilter-signals' && totals.matcherControlMs > 0) {
     variants.push({
-      id: 'matcher-run-map-crosscheck-prototype',
-      title: 'Run-map-backed matcher cross-check prototype',
-      controlMetric: 'current matcher detector duration',
-      candidateMetric: 'output-producing matcher using row/column run-map cross-checks',
-      controlMs: totals.matcherControlMs,
-      candidateMs: totals.matcherRunMapMs,
-      deltaMs: round(totals.matcherControlMs - totals.matcherRunMapMs),
-      improvementPct: percent(
-        totals.matcherControlMs - totals.matcherRunMapMs,
-        totals.matcherControlMs,
-      ),
-      evidence: `finder outputs equal=${totals.matcherRunMapOutputsEqual}; mismatched views=${totals.matcherRunMapMismatchCount}; ${totals.matcherSharedPlaneCount} shared planes measured.`,
-    });
-    variants.push({
       id: 'matcher-candidate-pruning-prototype',
-      title: 'Cheap matcher center pruning prototype',
+      title: 'Center-pruned run-map matcher prototype',
       controlMetric: 'current matcher detector duration',
-      candidateMetric: 'output-producing matcher guarded by cheap local center-signal filter',
+      candidateMetric:
+        'output-producing run-map matcher guarded by cheap local center-signal filter',
       controlMs: totals.matcherControlMs,
       candidateMs: totals.matcherPrunedCenterMs,
       deltaMs: round(totals.matcherControlMs - totals.matcherPrunedCenterMs),

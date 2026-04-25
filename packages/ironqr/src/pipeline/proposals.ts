@@ -835,6 +835,12 @@ export const detectMatcherFinders = (
   binary: Uint8Array | BinaryView,
   width: number,
   height: number,
+): FinderEvidence[] => detectMatcherFindersWithRunMaps(binary, width, height);
+
+export const detectMatcherFindersLegacy = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
 ): FinderEvidence[] => detectMatcherFindersWithCrossCheck(binary, width, height, crossCheck);
 
 export const detectMatcherFindersWithRunMaps = (
@@ -856,8 +862,17 @@ export const detectMatcherFindersWithCenterSignal = (
   binary: Uint8Array | BinaryView,
   width: number,
   height: number,
-): FinderEvidence[] =>
-  detectMatcherFindersWithCrossCheck(binary, width, height, crossCheck, hasMatcherCenterSignal);
+): FinderEvidence[] => {
+  const runs = buildAxisRuns(binary, width, height);
+  return detectMatcherFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      runMapCrossCheck(source, sourceWidth, sourceHeight, runs, centerX, centerY, dx, dy),
+    hasMatcherCenterSignal,
+  );
+};
 
 const detectMatcherFindersWithCrossCheck = (
   binary: Uint8Array | BinaryView,
@@ -972,8 +987,10 @@ const hasMatcherCenterSignal = (
 ): boolean => {
   if (!isDarkCenter(binary, width, x, y)) return false;
   const horizontalTransitions = countMatcherCenterTransitions(binary, width, x, y, 1, 0);
-  if (horizontalTransitions < 2) return false;
-  return countMatcherCenterTransitions(binary, width, x, y, 0, 1) >= 2;
+  const verticalTransitions = countMatcherCenterTransitions(binary, width, x, y, 0, 1);
+  if (horizontalTransitions >= 2 && verticalTransitions >= 2) return true;
+  if (horizontalTransitions === 0 && verticalTransitions === 0) return true;
+  return horizontalTransitions === 0 ? verticalTransitions >= 2 : horizontalTransitions >= 2;
 };
 
 const countMatcherCenterTransitions = (
