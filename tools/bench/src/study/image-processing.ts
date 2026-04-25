@@ -487,7 +487,9 @@ function makeImageProcessingStudyPlugin(input: {
         log('detector cache purge starting: scanning binned pattern rows');
         await purgeRedundantDetectorCacheRows(cache, log);
       }
-      return readCachedDetectorAssetResult(asset, config, cache, log);
+      return readCachedDetectorAssetResult(asset, config, cache, log, {
+        replayPartialRows: true,
+      });
     },
     runAsset: async ({ asset, config, cache, signal, log }) => {
       if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
@@ -497,7 +499,9 @@ function makeImageProcessingStudyPlugin(input: {
           log('detector cache purge starting: scanning binned pattern rows');
           await purgeRedundantDetectorCacheRows(cache, log);
         }
-        const cached = await readCachedDetectorAssetResult(asset, config, cache, log);
+        const cached = await readCachedDetectorAssetResult(asset, config, cache, log, {
+          replayPartialRows: false,
+        });
         if (cached) return cached;
       }
       const image = await asset.loadImage();
@@ -760,6 +764,7 @@ const readCachedDetectorAssetResult = async (
   config: ImageProcessingConfig,
   cache: StudyCacheHandle<unknown>,
   log: (message: string) => void,
+  options: { readonly replayPartialRows: boolean },
 ): Promise<ImageProcessingAssetResult | null> => {
   const viewIds = detectorStudyViewIds(config);
   const requiredIds = activeDetectorPatternIds();
@@ -773,10 +778,16 @@ const readCachedDetectorAssetResult = async (
       .map((variantId) => `${variantId}:${viewId}`),
   );
   if (missing.length > 0) {
-    const replayed = await replayCachedDetectorRows(asset, cache, viewIds, requiredIds, log);
-    log(
-      `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows; preloaded ${replayed} cached rows`,
-    );
+    if (options.replayPartialRows) {
+      const replayed = await replayCachedDetectorRows(asset, cache, viewIds, requiredIds, log);
+      log(
+        `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows; preloaded ${replayed} cached rows`,
+      );
+    } else {
+      log(
+        `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows`,
+      );
+    }
     return null;
   }
 
