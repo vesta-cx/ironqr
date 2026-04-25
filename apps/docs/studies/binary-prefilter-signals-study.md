@@ -377,17 +377,16 @@ This was an incremental run, not a fresh timing confirmation. `run-map` and `sca
 | `run-map-packed-u16-fill-horizontal` | 18.13 ms | 49.45 ms | 82.08 ms | 114.11 ms | 492.75 ms | 23.88% | `true` | 0 | Safe but not lead. |
 | `run-map-packed-u16-scalar-score` | 17.33 ms | 47.49 ms | 79.82 ms | 113.59 ms | 443.54 ms | 27.28% | `true` | 0 | Lead; narrow for fresh confirmation. |
 
-**Conclusion.** All processing-only candidates preserved signatures over all `10,962` comparisons. The packed run-map representation is the strongest direction, and `run-map-packed-u16-scalar-score` leads on avg, p95, p98, p99, and total fresh candidate time. Narrow the next run to `run-map` and `run-map-packed-u16-scalar-score` with `--refresh-cache` so the control and lead candidate are timed fresh in the same run.
+**Conclusion.** All processing-only candidates preserved signatures over all `10,962` comparisons. The packed run-map representation is the strongest direction, and `run-map-packed-u16-scalar-score` leads on avg, p95, p98, p99, and total fresh candidate time. The matcher control is canonized to this representation; future timing runs should refresh `run-map` rows because the stable control id now points at the packed/scalar implementation.
 
 ## Current variant status
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
-| `run-map` | Matcher | — | Canonical matcher control; current production-equivalent baseline. |
-| `run-map-packed-u16-scalar-score` | Matcher | `run-map` | Lead processing-only matcher candidate: incremental bake-off had `0` mismatches, p98 `79.82 ms`, and `27.28%` faster overall with cached controls. Active for narrowed fresh confirmation. |
+| `run-map` | Matcher | — | Canonical matcher control, now backed by packed `u16` run maps plus scalar ratio scoring. Incremental bake-off evidence: `0` mismatches, candidate p98 `79.82 ms` vs cached old-control p98 `93.80 ms`, and `27.28%` faster overall. |
 
-The next confirmation keeps only `run-map` and `run-map-packed-u16-scalar-score` active. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
+No matcher candidates are currently active, but the canonical `run-map` control remains in the default detector-study run. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
 
 ## Inactive and binned variants
 
@@ -412,13 +411,13 @@ Disabled means implemented/cache-retained but not currently queued. Binned means
 | `inline-flood` | Flood | Superseded by `dense-stats`; targeted `gray:h:i` check showed inline emitted fewer finders than legacy/dense. | Binned; not retained in active detector-pattern cache. |
 | `spatial-bin` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
 | `run-length-ccl` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
-
-| `run-map-u16` | Matcher | Processing-only bake-off: `0` mismatches, p98 `85.48 ms`, `17.20%` faster than cached `run-map`. | Safe but weaker than packed/scalar lead; disabled for narrowed confirmation. |
-| `run-map-u16-fill-horizontal` | Matcher | Processing-only bake-off: `0` mismatches, p98 `84.93 ms`, `20.58%` faster than cached `run-map`. | Safe but weaker than packed/scalar lead; disabled for narrowed confirmation. |
-| `run-map-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `87.13 ms`, `6.53%` faster than cached `run-map`. | Safe but weak alone; disabled for narrowed confirmation. |
-| `run-map-u16-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `83.32 ms`, `20.41%` faster than cached `run-map`. | Safe but weaker than packed/scalar lead; disabled for narrowed confirmation. |
-| `run-map-packed-u16` | Matcher | Processing-only bake-off: `0` mismatches, p98 `81.87 ms`, `23.31%` faster than cached `run-map`. | Safe but weaker than packed/scalar hybrid; disabled for narrowed confirmation. |
-| `run-map-packed-u16-fill-horizontal` | Matcher | Processing-only bake-off: `0` mismatches, p98 `82.08 ms`, `23.88%` faster than cached `run-map`. | Safe but weaker than packed/scalar hybrid; disabled for narrowed confirmation. |
+| `run-map-u16` | Matcher | Processing-only bake-off: `0` mismatches, p98 `85.48 ms`, `17.20%` faster than cached old `run-map`. | Safe but weaker than packed/scalar lead; disabled after canonization. |
+| `run-map-u16-fill-horizontal` | Matcher | Processing-only bake-off: `0` mismatches, p98 `84.93 ms`, `20.58%` faster than cached old `run-map`. | Safe but weaker than packed/scalar lead; disabled after canonization. |
+| `run-map-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `87.13 ms`, `6.53%` faster than cached old `run-map`. | Safe but weak alone; disabled after canonization. |
+| `run-map-u16-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `83.32 ms`, `20.41%` faster than cached old `run-map`. | Safe but weaker than packed/scalar lead; disabled after canonization. |
+| `run-map-packed-u16` | Matcher | Processing-only bake-off: `0` mismatches, p98 `81.87 ms`, `23.31%` faster than cached old `run-map`. | Safe but weaker than packed/scalar hybrid; disabled after canonization. |
+| `run-map-packed-u16-fill-horizontal` | Matcher | Processing-only bake-off: `0` mismatches, p98 `82.08 ms`, `23.88%` faster than cached old `run-map`. | Safe but weaker than packed/scalar hybrid; disabled after canonization. |
+| `run-map-packed-u16-scalar-score` | Matcher | Processing-only bake-off: `0` mismatches, p98 `79.82 ms`, `27.28%` faster than cached old `run-map`. | Canonized behind stable `run-map`; no longer queued as a separate candidate. |
 | `run-pattern` | Matcher | Reopened after flood canonization; `55.09%` faster than `run-map` but changed signatures on `8,760` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `axis-intersect` | Matcher | Reopened after flood canonization; `59.30%` faster than `run-map` but changed signatures on `8,712` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `shared-runs` | Flood+Matcher | Reopened after flood canonization; `55.84%` faster than `run-map` but changed signatures on `8,760` views. | Binned in this form; future shared artifacts need a new equivalence hypothesis, not this replacement matcher. |
@@ -434,7 +433,7 @@ Disabled means implemented/cache-retained but not currently queued. Binned means
 | Compact run-map arrays | Matcher | Current run maps use four `Uint32Array`s; most images fit axis coordinates in `Uint16Array`, reducing memory bandwidth and allocation size without changing whole-view processing. | Active processing-only candidate `run-map-u16`; latest incremental run showed `18.09%` improvement with `0` mismatches. |
 | Horizontal run-map fill | Matcher | Horizontal run-map construction writes contiguous row spans; `TypedArray.fill` can replace per-pixel JS writes without changing work performed. | Active processing-only candidate `run-map-u16-fill-horizontal`. |
 | Scalar ratio scoring | Matcher | Cross-check scoring currently uses tuple reduction and expected-array lookup; scalar arithmetic removes generic array operations while preserving the same formula. | Active processing-only candidates `run-map-scalar-score` and `run-map-u16-scalar-score`. |
-| Packed run-map representation | Matcher | Pack 16-bit start/end coordinates into one `Uint32Array` per axis, reducing four map streams to two while preserving full run-map processing. | Active processing-only candidates `run-map-packed-u16`, `run-map-packed-u16-fill-horizontal`, and `run-map-packed-u16-scalar-score`. |
+| Packed run-map representation | Matcher | Pack 16-bit start/end coordinates into one `Uint32Array` per axis, reducing four map streams to two while preserving full run-map processing. | `run-map-packed-u16-scalar-score` canonized behind stable `run-map`; other packed variants disabled as weaker. |
 | Horizontal-failure gating | Matcher | Skipping vertical checks after horizontal failure was faster in the mixed bake-off, but it is an early-abandon pattern rather than whole-processing optimization. | Deferred to a later early-exit study. |
 | Horizontal-first staging | Matcher | Building vertical maps only after horizontal survivors was faster in the mixed bake-off, but it changes processing order/gating semantics. | Deferred to a later early-exit/staging study. |
 | Run-pattern center matcher | Matcher | Enumerates centers from horizontal `1:1:3:1:1` run patterns instead of arbitrary grid probes. | Binned as a replacement after `8,760` mismatches; may return only with fallback/recall accounting. |
@@ -488,6 +487,6 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 ## Next work
 
 1. Promote `scanline-squared` behind the production flood control abstraction.
-2. Run a fresh narrowed processing-only matcher confirmation with only `run-map` and `run-map-packed-u16-scalar-score` active; use `--refresh-cache` so the control and candidate timings are both fresh.
-3. If confirmation holds, promote the packed compact run-map plus scalar score path behind the production matcher control abstraction.
+2. Run the next fresh detector timing pass with `--refresh-cache` to repopulate stable `run-map` cache rows with the canonized packed/scalar implementation.
+3. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
 4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.

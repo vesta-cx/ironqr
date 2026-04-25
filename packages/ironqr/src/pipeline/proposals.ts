@@ -835,7 +835,8 @@ export const detectMatcherFinders = (
   binary: Uint8Array | BinaryView,
   width: number,
   height: number,
-): FinderEvidence[] => detectMatcherFindersWithRunMaps(binary, width, height);
+): FinderEvidence[] =>
+  detectMatcherFindersWithRunMapVariant(binary, width, height, 'run-map-packed-u16-scalar-score');
 
 export type MatcherRunMapVariant =
   | 'run-map-u16'
@@ -893,21 +894,6 @@ export const detectMatcherFindersWithRunMapVariant = (
         dy,
         scalarScore,
       ),
-  );
-};
-
-const detectMatcherFindersWithRunMaps = (
-  binary: Uint8Array | BinaryView,
-  width: number,
-  height: number,
-): FinderEvidence[] => {
-  const runs = buildAxisRuns(binary, width, height, { compactRuns: false, fillHorizontal: false });
-  return detectMatcherFindersWithCrossCheck(
-    binary,
-    width,
-    height,
-    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
-      runMapCrossCheck(source, sourceWidth, sourceHeight, runs, centerX, centerY, dx, dy),
   );
 };
 

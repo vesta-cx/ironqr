@@ -801,10 +801,10 @@ const activeDetectorPatternIds = (): readonly string[] => [
   ...activeMatcherPatternIds(),
 ];
 
-const activeMatcherPatternIds = (): readonly string[] =>
-  ACTIVE_MATCHER_CANDIDATES.length === 0
-    ? []
-    : ['run-map', ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id)];
+const activeMatcherPatternIds = (): readonly string[] => [
+  'run-map',
+  ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id),
+];
 
 const retainedDetectorPatternIds = (): readonly string[] => [FLOOD_CONTROL_ID, 'run-map'];
 
@@ -1181,8 +1181,7 @@ const MATCHER_CANDIDATES = [
   },
 ] as const satisfies readonly { id: MatcherRunMapVariant; note: string }[];
 
-const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] =
-  MATCHER_CANDIDATES.filter((candidate) => candidate.id === 'run-map-packed-u16-scalar-score');
+const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] = [];
 
 const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
