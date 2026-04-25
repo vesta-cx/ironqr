@@ -12,6 +12,7 @@ import {
   detectFinderEvidenceWithSummary,
   detectMatcherFinders,
   detectMatcherFindersWithRunMapVariant,
+  detectRowScanFinders,
   detectRowScanFindersWithVariant,
   type FinderEvidence,
   type MatcherRunMapVariant,
@@ -246,6 +247,11 @@ interface DetectorFamilyOverlapMeasurement {
   readonly floodRetainedCount: number;
   readonly matcherRetainedCount: number;
   readonly dedupeRemovedCount: number;
+  readonly floodOverlapsRowScanCount: number;
+  readonly floodOverlapsMatcherCount: number;
+  readonly floodOverlapsBothCount: number;
+  readonly floodOverlapsNeitherCount: number;
+  readonly rowScanOverlapsMatcherCount: number;
 }
 
 interface DetectorFamilyOverlapSummary {
@@ -258,10 +264,20 @@ interface DetectorFamilyOverlapSummary {
   readonly floodRetainedCount: number;
   readonly matcherRetainedCount: number;
   readonly dedupeRemovedCount: number;
+  readonly floodOverlapsRowScanCount: number;
+  readonly floodOverlapsMatcherCount: number;
+  readonly floodOverlapsBothCount: number;
+  readonly floodOverlapsNeitherCount: number;
+  readonly rowScanOverlapsMatcherCount: number;
   readonly rowScanRetentionPct: number;
   readonly floodRetentionPct: number;
   readonly matcherRetentionPct: number;
   readonly dedupeRemovalPct: number;
+  readonly floodRowScanOverlapPct: number;
+  readonly floodMatcherOverlapPct: number;
+  readonly floodBothOverlapPct: number;
+  readonly floodNeitherOverlapPct: number;
+  readonly rowScanMatcherOverlapPct: number;
 }
 
 interface MatcherCandidateMeasurement {
@@ -601,17 +617,19 @@ function makeImageProcessingStudyPlugin(input: {
 
       if (config.focus === 'binary-prefilter-signals') {
         const detectorStartedAt = performance.now();
-        floodCandidates = await measureFloodCandidateVariants(
-          viewBank,
-          viewIds,
-          asset.id,
-          asset,
-          cache,
-          log,
-          preloadedDetectorRows,
-          signal,
-        );
-        if (activeMatcherPatternIds().length > 0) {
+        if (activeFloodPatternIds().length > 0) {
+          floodCandidates = await measureFloodCandidateVariants(
+            viewBank,
+            viewIds,
+            asset.id,
+            asset,
+            cache,
+            log,
+            preloadedDetectorRows,
+            signal,
+          );
+        }
+        if (ACTIVE_ROW_CANDIDATES.length > 0 || activeMatcherPatternIds().length > 0) {
           matcherCandidates = await measureMatcherCandidateVariants(
             viewBank,
             viewIds,
@@ -833,16 +851,20 @@ const FLOOD_CONTROL_ID = 'scanline-squared';
 const activeDetectorPatternIds = (): readonly string[] => [
   'row-scan',
   ...ACTIVE_ROW_CANDIDATES.map((candidate) => candidate.id),
-  FLOOD_CONTROL_ID,
-  ...ACTIVE_FLOOD_CANDIDATES.map((candidate) => candidate.id),
+  ...activeFloodPatternIds(),
   ...activeMatcherPatternIds(),
-  'dedupe',
+  ...(ACTIVE_DEDUPE_FAMILY ? ['dedupe'] : []),
 ];
 
-const activeMatcherPatternIds = (): readonly string[] => [
-  'run-map',
-  ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id),
-];
+const activeFloodPatternIds = (): readonly string[] =>
+  ACTIVE_FLOOD_FAMILY
+    ? [FLOOD_CONTROL_ID, ...ACTIVE_FLOOD_CANDIDATES.map((candidate) => candidate.id)]
+    : [];
+
+const activeMatcherPatternIds = (): readonly string[] =>
+  ACTIVE_MATCHER_FAMILY
+    ? ['run-map', ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id)]
+    : [];
 
 const retainedDetectorPatternIds = (): readonly string[] => activeDetectorPatternIds();
 
@@ -891,46 +913,56 @@ const readCachedDetectorAssetResult = async (
   const matcherVariants = new Map<string, DetectorVariantMeasurement>();
   const floodUnits: DetectorUnitMeasurement[] = [];
   const matcherUnits: DetectorUnitMeasurement[] = [];
+  const measureRows = ACTIVE_ROW_CANDIDATES.length > 0;
+  const measureFlood = activeFloodPatternIds().length > 0;
   const measureMatchers = activeMatcherPatternIds().length > 0;
+  const measureDedupe = ACTIVE_DEDUPE_FAMILY;
 
   for (const viewId of viewIds) {
     await yieldToDashboard();
     const rowScan = await readVariantMeasurement(asset, cache, 'row-scan', viewId);
     if (!rowScan) return null;
-    const floodControl = await readVariantMeasurement(asset, cache, FLOOD_CONTROL_ID, viewId);
-    if (!floodControl) return null;
+    const floodControl = measureFlood
+      ? await readVariantMeasurement(asset, cache, FLOOD_CONTROL_ID, viewId)
+      : null;
+    if (measureFlood && !floodControl) return null;
     const matcherControl = measureMatchers
       ? await readVariantMeasurement(asset, cache, 'run-map', viewId)
       : null;
     if (measureMatchers && !matcherControl) return null;
-    const dedupe = await readVariantMeasurement(asset, cache, 'dedupe', viewId);
-    if (!dedupe) return null;
-    floodControlMs += floodControl.durationMs;
+    const dedupe = measureDedupe
+      ? await readVariantMeasurement(asset, cache, 'dedupe', viewId)
+      : null;
+    if (measureDedupe && !dedupe) return null;
+    if (floodControl) floodControlMs += floodControl.durationMs;
     if (matcherControl) matcherControlMs += matcherControl.durationMs;
     const rowScanId = detectorTimingId(viewId, 'row-scan', 'row');
     matcherUnits.push(detectorUnit(rowScanId, 'row-scan', 'row', rowScan, true, true));
     logStudyTiming(log, rowScanId, rowScan.durationMs, 'detector', rowScan.outputCount, true);
-    for (const candidate of ACTIVE_ROW_CANDIDATES) {
-      const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
-      if (!measured) return null;
-      const compared = compareVariant(
-        candidate.id,
-        'row',
-        rowScan.signature,
-        measured,
-        candidate.note,
-      );
-      mergeDetectorVariant(matcherVariants, compared);
-      const unitId = detectorTimingId(viewId, candidate.id, 'row');
-      matcherUnits.push(
-        detectorUnit(unitId, candidate.id, 'row', measured, true, compared.outputsEqual),
-      );
-      logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
-    }
+    if (measureRows)
+      for (const candidate of ACTIVE_ROW_CANDIDATES) {
+        const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
+        if (!measured) return null;
+        const compared = compareVariant(
+          candidate.id,
+          'row',
+          rowScan.signature,
+          measured,
+          candidate.note,
+        );
+        mergeDetectorVariant(matcherVariants, compared);
+        const unitId = detectorTimingId(viewId, candidate.id, 'row');
+        matcherUnits.push(
+          detectorUnit(unitId, candidate.id, 'row', measured, true, compared.outputsEqual),
+        );
+        logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
+      }
     const floodControlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
-    floodUnits.push(
-      detectorUnit(floodControlId, FLOOD_CONTROL_ID, 'flood', floodControl, true, true),
-    );
+    if (floodControl) {
+      floodUnits.push(
+        detectorUnit(floodControlId, FLOOD_CONTROL_ID, 'flood', floodControl, true, true),
+      );
+    }
     if (matcherControl) {
       const matcherControlId = detectorTimingId(viewId, 'run-map', 'matcher');
       matcherUnits.push(
@@ -945,34 +977,40 @@ const readCachedDetectorAssetResult = async (
         true,
       );
     }
-    logStudyTiming(
-      log,
-      floodControlId,
-      floodControl.durationMs,
-      'detector',
-      floodControl.outputCount,
-      true,
-    );
+    if (floodControl) {
+      logStudyTiming(
+        log,
+        floodControlId,
+        floodControl.durationMs,
+        'detector',
+        floodControl.outputCount,
+        true,
+      );
+    }
     const dedupeId = detectorTimingId(viewId, 'dedupe', 'dedupe');
-    matcherUnits.push(detectorUnit(dedupeId, 'dedupe', 'dedupe', dedupe, true, true));
-    logStudyTiming(log, dedupeId, dedupe.durationMs, 'detector', dedupe.outputCount, true);
+    if (dedupe) {
+      matcherUnits.push(detectorUnit(dedupeId, 'dedupe', 'dedupe', dedupe, true, true));
+      logStudyTiming(log, dedupeId, dedupe.durationMs, 'detector', dedupe.outputCount, true);
+    }
 
-    for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
-      const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
-      if (!measured) return null;
-      const compared = compareVariant(
-        candidate.id,
-        'flood',
-        floodControl.signature,
-        measured,
-        candidate.note,
-      );
-      mergeDetectorVariant(floodVariants, compared);
-      const unitId = detectorTimingId(viewId, candidate.id, 'flood');
-      floodUnits.push(
-        detectorUnit(unitId, candidate.id, 'flood', measured, true, compared.outputsEqual),
-      );
-      logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
+    if (floodControl) {
+      for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
+        const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
+        if (!measured) return null;
+        const compared = compareVariant(
+          candidate.id,
+          'flood',
+          floodControl.signature,
+          measured,
+          candidate.note,
+        );
+        mergeDetectorVariant(floodVariants, compared);
+        const unitId = detectorTimingId(viewId, candidate.id, 'flood');
+        floodUnits.push(
+          detectorUnit(unitId, candidate.id, 'flood', measured, true, compared.outputsEqual),
+        );
+        logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
+      }
     }
     for (const candidate of ACTIVE_MATCHER_CANDIDATES) {
       const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
@@ -1020,11 +1058,13 @@ const readCachedDetectorAssetResult = async (
     matcherCandidates: measureMatchers
       ? cachedMatcherMeasurement(matcherControlMs, viewIds, matcherVariants, matcherUnits)
       : null,
-    floodCandidates: {
-      controlMs: round(floodControlMs),
-      variants: [...floodVariants.values()],
-      units: floodUnits,
-    },
+    floodCandidates: measureFlood
+      ? {
+          controlMs: round(floodControlMs),
+          variants: [...floodVariants.values()],
+          units: floodUnits,
+        }
+      : null,
     floodSchedulerLimit: 0,
     binaryRead: null,
     decode: null,
@@ -1202,6 +1242,9 @@ const ROW_CANDIDATES = [
 ] as const satisfies readonly { id: RowScanVariant; note: string }[];
 
 const ACTIVE_ROW_CANDIDATES: readonly (typeof ROW_CANDIDATES)[number][] = ROW_CANDIDATES;
+const ACTIVE_FLOOD_FAMILY = false;
+const ACTIVE_MATCHER_FAMILY = false;
+const ACTIVE_DEDUPE_FAMILY = false;
 
 const FLOOD_CANDIDATES = [
   {
@@ -2319,6 +2362,45 @@ const measureFinderFamilyRows = async (
   readonly rowScanSignature: readonly string[];
   readonly overlap: DetectorFamilyOverlapMeasurement;
 }> => {
+  if (!ACTIVE_DEDUPE_FAMILY) {
+    const rowScan = await measureVariant(asset, cache, 'row-scan', viewId, preloadedRows, () =>
+      detectRowScanFinders(view, view.width, view.height),
+    );
+    const rowScanId = detectorTimingId(viewId, 'row-scan', 'row');
+    if (!rowScan.preloaded) {
+      logStudyTiming(
+        log,
+        rowScanId,
+        rowScan.measurement.durationMs,
+        'detector',
+        rowScan.measurement.outputCount,
+        rowScan.cached,
+      );
+    }
+    return {
+      rowScanSignature: rowScan.measurement.signature,
+      overlap: {
+        viewId,
+        rowScanCount: rowScan.measurement.outputCount,
+        floodCount: 0,
+        matcherCount: 0,
+        dedupedCount: rowScan.measurement.outputCount,
+        rowScanRetainedCount: rowScan.measurement.outputCount,
+        floodRetainedCount: 0,
+        matcherRetainedCount: 0,
+        dedupeRemovedCount: 0,
+        floodOverlapsRowScanCount: 0,
+        floodOverlapsMatcherCount: 0,
+        floodOverlapsBothCount: 0,
+        floodOverlapsNeitherCount: 0,
+        rowScanOverlapsMatcherCount: 0,
+      },
+      units: [
+        detectorUnit(rowScanId, 'row-scan', 'row', rowScan.measurement, rowScan.cached, true),
+      ],
+    };
+  }
+
   let detection: ReturnType<typeof detectFinderEvidenceWithSummary> | null = null;
   const getDetection = (): ReturnType<typeof detectFinderEvidenceWithSummary> => {
     detection ??= detectFinderEvidenceWithSummary(view);
@@ -2372,6 +2454,8 @@ const measureFinderFamilyRows = async (
   const result = getDetection();
   const retainedBySource = (source: FinderEvidence['source']): number =>
     result.evidence.filter((entry) => entry.source === source).length;
+  const floodOverlap = summarizeFloodOverlap(result.flood, result.rowScan, result.matcher);
+  const rowScanOverlapsMatcherCount = countOverlappingFinders(result.rowScan, result.matcher);
   return {
     rowScanSignature: rowScan.measurement.signature,
     overlap: {
@@ -2388,6 +2472,8 @@ const measureFinderFamilyRows = async (
         result.flood.length +
         result.matcher.length -
         result.evidence.length,
+      ...floodOverlap,
+      rowScanOverlapsMatcherCount,
     },
     units: rows.map((row) =>
       detectorUnit(
@@ -2401,6 +2487,49 @@ const measureFinderFamilyRows = async (
     ),
   };
 };
+
+const summarizeFloodOverlap = (
+  flood: readonly FinderEvidence[],
+  rowScan: readonly FinderEvidence[],
+  matcher: readonly FinderEvidence[],
+): Pick<
+  DetectorFamilyOverlapMeasurement,
+  | 'floodOverlapsRowScanCount'
+  | 'floodOverlapsMatcherCount'
+  | 'floodOverlapsBothCount'
+  | 'floodOverlapsNeitherCount'
+> => {
+  let floodOverlapsRowScanCount = 0;
+  let floodOverlapsMatcherCount = 0;
+  let floodOverlapsBothCount = 0;
+  let floodOverlapsNeitherCount = 0;
+  for (const entry of flood) {
+    const overlapsRowScan = overlapsAnyFinder(entry, rowScan);
+    const overlapsMatcher = overlapsAnyFinder(entry, matcher);
+    if (overlapsRowScan) floodOverlapsRowScanCount += 1;
+    if (overlapsMatcher) floodOverlapsMatcherCount += 1;
+    if (overlapsRowScan && overlapsMatcher) floodOverlapsBothCount += 1;
+    if (!overlapsRowScan && !overlapsMatcher) floodOverlapsNeitherCount += 1;
+  }
+  return {
+    floodOverlapsRowScanCount,
+    floodOverlapsMatcherCount,
+    floodOverlapsBothCount,
+    floodOverlapsNeitherCount,
+  };
+};
+
+const countOverlappingFinders = (
+  entries: readonly FinderEvidence[],
+  candidates: readonly FinderEvidence[],
+): number => entries.filter((entry) => overlapsAnyFinder(entry, candidates)).length;
+
+const overlapsAnyFinder = (entry: FinderEvidence, candidates: readonly FinderEvidence[]): boolean =>
+  candidates.some((candidate) => findersOverlap(entry, candidate));
+
+const findersOverlap = (left: FinderEvidence, right: FinderEvidence): boolean =>
+  distancePoint(left.centerX, left.centerY, right.centerX, right.centerY) <
+  Math.max(2, Math.min(left.moduleSize, right.moduleSize) * 2.2);
 
 const mergeDetectorVariant = (
   variants: Map<string, DetectorVariantMeasurement>,
@@ -2489,6 +2618,7 @@ const measureMatcherCandidateVariants = async (
       }
       await yieldToDashboard();
     }
+    if (activeMatcherPatternIds().length === 0) continue;
     const control = await measureVariant(asset, cache, 'run-map', viewId, preloadedRows, () =>
       detectMatcherFinders(view, view.width, view.height),
     );
@@ -3503,6 +3633,12 @@ const summarizeDetectorOverlap = (
       floodRetainedCount: acc.floodRetainedCount + row.floodRetainedCount,
       matcherRetainedCount: acc.matcherRetainedCount + row.matcherRetainedCount,
       dedupeRemovedCount: acc.dedupeRemovedCount + row.dedupeRemovedCount,
+      floodOverlapsRowScanCount: acc.floodOverlapsRowScanCount + row.floodOverlapsRowScanCount,
+      floodOverlapsMatcherCount: acc.floodOverlapsMatcherCount + row.floodOverlapsMatcherCount,
+      floodOverlapsBothCount: acc.floodOverlapsBothCount + row.floodOverlapsBothCount,
+      floodOverlapsNeitherCount: acc.floodOverlapsNeitherCount + row.floodOverlapsNeitherCount,
+      rowScanOverlapsMatcherCount:
+        acc.rowScanOverlapsMatcherCount + row.rowScanOverlapsMatcherCount,
     }),
     {
       views: 0,
@@ -3514,6 +3650,11 @@ const summarizeDetectorOverlap = (
       floodRetainedCount: 0,
       matcherRetainedCount: 0,
       dedupeRemovedCount: 0,
+      floodOverlapsRowScanCount: 0,
+      floodOverlapsMatcherCount: 0,
+      floodOverlapsBothCount: 0,
+      floodOverlapsNeitherCount: 0,
+      rowScanOverlapsMatcherCount: 0,
     },
   );
   const inputCount = totals.rowScanCount + totals.floodCount + totals.matcherCount;
@@ -3523,6 +3664,11 @@ const summarizeDetectorOverlap = (
     floodRetentionPct: percent(totals.floodRetainedCount, totals.floodCount),
     matcherRetentionPct: percent(totals.matcherRetainedCount, totals.matcherCount),
     dedupeRemovalPct: percent(totals.dedupeRemovedCount, inputCount),
+    floodRowScanOverlapPct: percent(totals.floodOverlapsRowScanCount, totals.floodCount),
+    floodMatcherOverlapPct: percent(totals.floodOverlapsMatcherCount, totals.floodCount),
+    floodBothOverlapPct: percent(totals.floodOverlapsBothCount, totals.floodCount),
+    floodNeitherOverlapPct: percent(totals.floodOverlapsNeitherCount, totals.floodCount),
+    rowScanMatcherOverlapPct: percent(totals.rowScanOverlapsMatcherCount, totals.rowScanCount),
   };
 };
 
