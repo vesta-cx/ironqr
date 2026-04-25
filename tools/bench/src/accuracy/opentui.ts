@@ -20,11 +20,11 @@ type OpenTuiPanel = {
   readonly body: OpenTuiText;
 };
 
-const CHART_PANEL_ROWS = 17;
+const CHART_PANEL_ROWS = 18;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
 const PANEL_TITLE_ROWS = 1;
-const PANEL_BODY_BOTTOM_GUTTER_ROWS = 1;
+const PANEL_BODY_BOTTOM_GUTTER_ROWS = 0;
 const LEFT_COLUMN_RATIO = 0.42;
 const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
@@ -837,7 +837,7 @@ const renderStudyTimingBars = (
         : '';
     return [truncateLine(`${title} 0/0 of ${allRows}${suffix} — no matches`, options.width)];
   }
-  const maxBars = Math.max(1, options.maxRows - 2);
+  const maxBars = Math.max(1, options.maxRows - 1);
   const maxOffset = Math.max(0, rows.length - maxBars);
   const offset = Math.min(Math.max(0, options.offset), maxOffset);
   const visibleRows = rows.slice(offset, offset + maxBars);
