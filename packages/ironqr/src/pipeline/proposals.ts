@@ -773,6 +773,85 @@ export const detectRowScanFinders = (
   binary: Uint8Array | BinaryView,
   width: number,
   height: number,
+): FinderEvidence[] => detectRowScanFindersWithCrossCheck(binary, width, height, crossCheck);
+
+export type RowScanVariant =
+  | 'row-scan-scalar-score'
+  | 'row-scan-u16'
+  | 'row-scan-u16-scalar-score'
+  | 'row-scan-packed-u16'
+  | 'row-scan-packed-u16-scalar-score';
+
+export const detectRowScanFindersWithVariant = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  variant: RowScanVariant,
+): FinderEvidence[] => {
+  if (variant === 'row-scan-scalar-score') {
+    return detectRowScanFindersWithCrossCheck(
+      binary,
+      width,
+      height,
+      (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+        crossCheck(source, sourceWidth, sourceHeight, centerX, centerY, dx, dy, true),
+      true,
+    );
+  }
+
+  const scalarScore = variant.includes('scalar-score');
+  if (variant.includes('packed') && width <= 0xffff && height <= 0xffff) {
+    const runs = buildPackedAxisRuns(binary, width, height, { fillHorizontal: false });
+    return detectRowScanFindersWithCrossCheck(
+      binary,
+      width,
+      height,
+      (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+        runMapPackedCrossCheck(
+          source,
+          sourceWidth,
+          sourceHeight,
+          runs,
+          centerX,
+          centerY,
+          dx,
+          dy,
+          scalarScore,
+        ),
+      scalarScore,
+    );
+  }
+
+  const runs = buildAxisRuns(binary, width, height, {
+    compactRuns: variant.includes('u16'),
+    fillHorizontal: false,
+  });
+  return detectRowScanFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      runMapCrossCheck(
+        source,
+        sourceWidth,
+        sourceHeight,
+        runs,
+        centerX,
+        centerY,
+        dx,
+        dy,
+        scalarScore,
+      ),
+    scalarScore,
+  );
+};
+
+const detectRowScanFindersWithCrossCheck = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  crossCheckFn: typeof crossCheck,
+  scalarScore = false,
 ): FinderEvidence[] => {
   const evidence: FinderEvidence[] = [];
   for (let row = 0; row < height; row += 1) {
@@ -791,7 +870,16 @@ export const detectRowScanFinders = (
       if (value === current) continue;
       runs[phase] = col - start;
       if (phase === 4) {
-        const candidate = createRowScanEvidence(binary, width, height, runs, col, row);
+        const candidate = createRowScanEvidence(
+          binary,
+          width,
+          height,
+          runs,
+          col,
+          row,
+          crossCheckFn,
+          scalarScore,
+        );
         if (candidate) evidence.push(candidate);
         runs[0] = runs[2];
         runs[1] = runs[3];
@@ -819,13 +907,17 @@ const createRowScanEvidence = (
   runs: readonly [number, number, number, number, number],
   col: number,
   row: number,
+  crossCheckFn: typeof crossCheck,
+  scalarScore: boolean,
 ): FinderEvidence | null => {
-  const ratioScore = finderRatioScore(runs);
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(runs[0], runs[1], runs[2], runs[3], runs[4])
+    : finderRatioScore(runs);
   if (ratioScore <= 0) return null;
   const centerX = col - runs[4] - runs[3] - runs[2] / 2;
-  const vertical = crossCheck(binary, width, height, centerX, row, 0, 1);
+  const vertical = crossCheckFn(binary, width, height, centerX, row, 0, 1);
   if (!vertical) return null;
-  const horizontal = crossCheck(binary, width, height, centerX, vertical.centerY, 1, 0);
+  const horizontal = crossCheckFn(binary, width, height, centerX, vertical.centerY, 1, 0);
   if (!horizontal) return null;
   const moduleSize = (vertical.moduleSize + horizontal.moduleSize) / 2;
   return {
@@ -1064,6 +1156,7 @@ const crossCheck = (
   centerY: number,
   dx: number,
   dy: number,
+  scalarScore = false,
 ): {
   readonly centerX: number;
   readonly centerY: number;
@@ -1117,7 +1210,9 @@ const crossCheck = (
     cursorY += dy;
   }
 
-  const ratioScore = finderRatioScore(counts);
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(counts[0], counts[1], counts[2], counts[3], counts[4])
+    : finderRatioScore(counts);
   if (ratioScore <= 0) return null;
   const before = counts[0] + counts[1] + counts[2] / 2;
   const after = counts[4] + counts[3] + counts[2] / 2;

@@ -12,8 +12,10 @@ import {
   detectFinderEvidenceWithSummary,
   detectMatcherFinders,
   detectMatcherFindersWithRunMapVariant,
+  detectRowScanFindersWithVariant,
   type FinderEvidence,
   type MatcherRunMapVariant,
+  type RowScanVariant,
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import {
   type BinaryView,
@@ -830,6 +832,7 @@ const FLOOD_CONTROL_ID = 'scanline-squared';
 
 const activeDetectorPatternIds = (): readonly string[] => [
   'row-scan',
+  ...ACTIVE_ROW_CANDIDATES.map((candidate) => candidate.id),
   FLOOD_CONTROL_ID,
   ...ACTIVE_FLOOD_CANDIDATES.map((candidate) => candidate.id),
   ...activeMatcherPatternIds(),
@@ -907,6 +910,23 @@ const readCachedDetectorAssetResult = async (
     const rowScanId = detectorTimingId(viewId, 'row-scan', 'row');
     matcherUnits.push(detectorUnit(rowScanId, 'row-scan', 'row', rowScan, true, true));
     logStudyTiming(log, rowScanId, rowScan.durationMs, 'detector', rowScan.outputCount, true);
+    for (const candidate of ACTIVE_ROW_CANDIDATES) {
+      const measured = await readVariantMeasurement(asset, cache, candidate.id, viewId);
+      if (!measured) return null;
+      const compared = compareVariant(
+        candidate.id,
+        'row',
+        rowScan.signature,
+        measured,
+        candidate.note,
+      );
+      mergeDetectorVariant(matcherVariants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'row');
+      matcherUnits.push(
+        detectorUnit(unitId, candidate.id, 'row', measured, true, compared.outputsEqual),
+      );
+      logStudyTiming(log, unitId, measured.durationMs, 'detector', measured.outputCount, true);
+    }
     const floodControlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
     floodUnits.push(
       detectorUnit(floodControlId, FLOOD_CONTROL_ID, 'flood', floodControl, true, true),
@@ -1157,6 +1177,31 @@ const emptyTimingSummary = (): ImageProcessingTimingSummary => ({
   decodeAttemptMs: 0,
   decodeCascadeMs: 0,
 });
+
+const ROW_CANDIDATES = [
+  {
+    id: 'row-scan-scalar-score',
+    note: 'Row-scan detector with scalar ratio-score arithmetic.',
+  },
+  {
+    id: 'row-scan-u16',
+    note: 'Row-scan detector using compact run maps for cross-checks.',
+  },
+  {
+    id: 'row-scan-u16-scalar-score',
+    note: 'Row-scan detector combining compact run-map cross-checks with scalar scoring.',
+  },
+  {
+    id: 'row-scan-packed-u16',
+    note: 'Row-scan detector using packed run-map cross-checks.',
+  },
+  {
+    id: 'row-scan-packed-u16-scalar-score',
+    note: 'Row-scan detector combining packed run-map cross-checks with scalar scoring.',
+  },
+] as const satisfies readonly { id: RowScanVariant; note: string }[];
+
+const ACTIVE_ROW_CANDIDATES: readonly (typeof ROW_CANDIDATES)[number][] = ROW_CANDIDATES;
 
 const FLOOD_CANDIDATES = [
   {
@@ -2271,6 +2316,7 @@ const measureFinderFamilyRows = async (
   log: (message: string) => void,
 ): Promise<{
   readonly units: readonly DetectorUnitMeasurement[];
+  readonly rowScanSignature: readonly string[];
   readonly overlap: DetectorFamilyOverlapMeasurement;
 }> => {
   let detection: ReturnType<typeof detectFinderEvidenceWithSummary> | null = null;
@@ -2289,7 +2335,7 @@ const measureFinderFamilyRows = async (
       return {
         durationMs: round(result.summary.rowScanDurationMs),
         outputCount: result.summary.rowScanCount,
-        signature: [],
+        signature: finderSignature(result.rowScan),
       };
     },
   );
@@ -2327,6 +2373,7 @@ const measureFinderFamilyRows = async (
   const retainedBySource = (source: FinderEvidence['source']): number =>
     result.evidence.filter((entry) => entry.source === source).length;
   return {
+    rowScanSignature: rowScan.measurement.signature,
     overlap: {
       viewId,
       rowScanCount: result.rowScan.length,
@@ -2405,6 +2452,43 @@ const measureMatcherCandidateVariants = async (
     );
     units.push(...finderDetection.units);
     detectorOverlap.push(finderDetection.overlap);
+
+    for (const candidate of ACTIVE_ROW_CANDIDATES) {
+      throwIfStudyAborted(signal);
+      const measured = await measureVariant(asset, cache, candidate.id, viewId, preloadedRows, () =>
+        detectRowScanFindersWithVariant(view, view.width, view.height, candidate.id),
+      );
+      const compared = compareVariant(
+        candidate.id,
+        'row',
+        finderDetection.rowScanSignature,
+        measured.measurement,
+        candidate.note,
+      );
+      mergeDetectorVariant(variants, compared);
+      const unitId = detectorTimingId(viewId, candidate.id, 'row');
+      units.push(
+        detectorUnit(
+          unitId,
+          candidate.id,
+          'row',
+          measured.measurement,
+          measured.cached,
+          compared.outputsEqual,
+        ),
+      );
+      if (!measured.preloaded) {
+        logStudyTiming(
+          log,
+          unitId,
+          measured.measurement.durationMs,
+          'detector',
+          measured.measurement.outputCount,
+          measured.cached,
+        );
+      }
+      await yieldToDashboard();
+    }
     const control = await measureVariant(asset, cache, 'run-map', viewId, preloadedRows, () =>
       detectMatcherFinders(view, view.width, view.height),
     );
@@ -2573,6 +2657,11 @@ const shortBinaryViewPart = (part: string): string => BINARY_VIEW_PART_ALIASES[p
 
 const VARIANT_ID_ALIASES: Record<string, string> = {
   'row-scan': 'row-scan',
+  'row-scan-scalar-score': 'row-scan-scalar',
+  'row-scan-u16': 'row-scan-u16',
+  'row-scan-u16-scalar-score': 'row-scan-u16-scalar',
+  'row-scan-packed-u16': 'row-scan-pack-u16',
+  'row-scan-packed-u16-scalar-score': 'row-scan-pack-u16-scalar',
   dedupe: 'dedupe',
   'legacy-flood': 'legacy-flood',
   'inline-flood': 'inline',
