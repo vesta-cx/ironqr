@@ -1,18 +1,17 @@
+import { listDefaultBinaryViewIds } from '../../../../packages/ironqr/src/index.js';
+import { createNormalizedImage } from '../../../../packages/ironqr/src/pipeline/frame.js';
 import {
-  createTraceCollector,
-  listDefaultBinaryViewIds,
-  type ScanTimingSpan,
-  scanFrame,
-} from '../../../../packages/ironqr/src/index.js';
-import type { FinderEvidenceDetectionPolicy } from '../../../../packages/ironqr/src/pipeline/proposals.js';
-import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
+  type FinderEvidenceDetectionPolicy,
+  generateProposalBatchForView,
+} from '../../../../packages/ironqr/src/pipeline/proposals.js';
+import { createViewBank } from '../../../../packages/ironqr/src/pipeline/views.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
 import { normalizeDecodedText } from '../shared/text.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
 const STUDY_VERSION = 'study-v1';
-const STUDY_TIMING_ROWS_PER_POLICY = 7;
+const STUDY_TIMING_ROWS_PER_POLICY = 6;
 
 type PolicyId =
   | 'full-current'
@@ -21,7 +20,7 @@ type PolicyId =
   | 'row-plus-flood'
   | 'matcher-only'
   | 'matcher-no-row-overlap'
-  | 'row-first-fallback-on-no-decode';
+  | 'row-first-fallback-on-no-proposals';
 
 interface ProposalDetectorPolicyConfig extends Record<string, unknown> {
   readonly viewSet: 'all';
@@ -36,7 +35,7 @@ interface PolicyDefinition {
   readonly id: PolicyId;
   readonly title: string;
   readonly detectorPolicy: FinderEvidenceDetectionPolicy;
-  readonly fallback?: 'row-first-no-decode';
+  readonly fallback?: 'row-first-no-proposals';
 }
 
 interface ProposalDetectorPolicyAssetResult {
@@ -189,10 +188,10 @@ const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
     },
   },
   {
-    id: 'row-first-fallback-on-no-decode',
-    title: 'row-scan first, run no-flood rescue only when row-scan does not decode',
+    id: 'row-first-fallback-on-no-proposals',
+    title: 'row-scan first, run no-flood rescue only when row-scan emits no proposals',
     detectorPolicy: { enabledFamilies: ['row-scan'] },
-    fallback: 'row-first-no-decode',
+    fallback: 'row-first-no-proposals',
   },
 ];
 
@@ -237,8 +236,7 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
 > = {
   id: 'proposal-detector-policy',
   title: 'IronQR proposal detector policy study',
-  description:
-    'Compares detector-family and staged fallback policies by proposal/decode outcomes and cost.',
+  description: 'Compares detector-family and staged fallback policies by proposal output and cost.',
   version: STUDY_VERSION,
   flags: [
     {
@@ -272,8 +270,7 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
     {
       name: 'max-decode-attempts',
       type: 'number',
-      description:
-        'Maximum decode attempts per policy scan. Defaults to 200 for bounded policy comparisons.',
+      description: 'Reserved for the later decode phase; proposal-only runs ignore this flag.',
       default: 200,
     },
     {
@@ -289,7 +286,7 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
   observability: (config) => ({
     viewSet: config.viewSet,
     policies: config.policies,
-    metrics: 'proposal,cluster,decode,detector-policy',
+    metrics: 'proposal,detector-policy',
   }),
   estimateUnits: (config, assets) =>
     assets.length * config.policies.length * STUDY_TIMING_ROWS_PER_POLICY,
@@ -307,7 +304,7 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
     for (const definition of definitions) {
       if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
       const result =
-        definition.fallback === 'row-first-no-decode'
+        definition.fallback === 'row-first-no-proposals'
           ? await runFallbackPolicy(
               image,
               asset.label,
@@ -320,7 +317,7 @@ export const proposalDetectorPolicyStudyPlugin: StudyPlugin<
       policies.push(result);
       logPolicyMetrics(log, definition.id, result);
       log(
-        `${asset.id}: ${definition.id} success=${result.success} proposals=${result.proposalCount} clusters=${result.clusterCount} attempts=${result.decodeAttemptCount}`,
+        `${asset.id}: ${definition.id} success=${result.success} proposals=${result.proposalCount}`,
       );
     }
 
@@ -359,7 +356,7 @@ const policyDefinition = (id: PolicyId): PolicyDefinition => {
 };
 
 const runFallbackPolicy = async (
-  image: Parameters<typeof scanFrame>[0],
+  image: Parameters<typeof createNormalizedImage>[0],
   label: 'qr-pos' | 'qr-neg',
   expectedTexts: readonly string[],
   rowOnly: PolicyDefinition,
@@ -367,50 +364,75 @@ const runFallbackPolicy = async (
   config: ProposalDetectorPolicyConfig,
 ): Promise<PolicyAssetResult> => {
   const row = await runSinglePolicy(image, label, expectedTexts, rowOnly, config);
-  if (row.success)
-    return { ...row, policyId: 'row-first-fallback-on-no-decode', usedFallback: false };
+  if (row.proposalCount > 0)
+    return { ...row, policyId: 'row-first-fallback-on-no-proposals', usedFallback: false };
   const rescue = await runSinglePolicy(image, label, expectedTexts, fallback, config);
   return combineFallbackResult(row, rescue);
 };
 
 const runSinglePolicy = async (
-  image: Parameters<typeof scanFrame>[0],
+  image: Parameters<typeof createNormalizedImage>[0],
   label: 'qr-pos' | 'qr-neg',
-  expectedTexts: readonly string[],
+  _expectedTexts: readonly string[],
   definition: PolicyDefinition,
   config: ProposalDetectorPolicyConfig,
 ): Promise<PolicyAssetResult> => {
-  const trace = createTraceCollector();
-  const timingSpans: ScanTimingSpan[] = [];
   const startedAt = performance.now();
-  const results = await scanFrame(image, {
-    allowMultiple: false,
-    maxProposals: config.maxProposals,
-    maxClusterRepresentatives: config.maxClusterRepresentatives,
-    maxDecodeAttempts: config.maxDecodeAttempts,
-    maxClusterStructuralFailures: 10_000,
-    continueAfterDecode: false,
-    proposalViewIds: listDefaultBinaryViewIds().slice(0, config.maxViews),
-    proposalDetectorPolicy: definition.detectorPolicy,
-    traceSink: trace,
-    metricsSink: { record: (span) => timingSpans.push(span) },
-  });
+  const normalized = createNormalizedImage(image);
+  const viewBank = createViewBank(normalized);
+  const batches = listDefaultBinaryViewIds()
+    .slice(0, config.maxViews)
+    .map((binaryViewId) =>
+      generateProposalBatchForView(viewBank, binaryViewId, {
+        maxProposalsPerView: config.maxProposals,
+        detectorPolicy: definition.detectorPolicy,
+      }),
+    );
   const scanDurationMs = round(performance.now() - startedAt);
-  const decodedTexts = uniqueTexts(
-    results.map((result) => normalizeDecodedText(result.payload.text)).filter(Boolean),
+  const summaries = batches.map((batch) => batch.summary);
+  const proposalCount = sum(batches, (batch) => batch.proposals.length);
+  const timings = summaries.reduce(
+    (total, summary) =>
+      addTimings(total, {
+        ...emptyTimings(),
+        proposalViewMs: summary.durationMs,
+        rowScanMs: summary.finderEvidence.rowScanDurationMs,
+        floodMs: summary.finderEvidence.floodDurationMs,
+        matcherMs: summary.finderEvidence.matcherDurationMs,
+        dedupeMs: summary.finderEvidence.dedupeDurationMs,
+        tripleAssemblyMs: summary.tripleAssemblyDurationMs,
+        proposalConstructionMs: summary.proposalConstructionDurationMs,
+      }),
+    emptyTimings(),
   );
-  const matchedTexts = decodedTexts.filter((text) => expectedTexts.includes(text));
-  const falsePositiveTexts = label === 'qr-neg' ? decodedTexts : [];
-  const traceSummary = summarizeTrace(trace.events, timingSpans);
+
   return {
     policyId: definition.id,
-    decodedTexts,
-    matchedTexts,
-    falsePositiveTexts,
-    success: label === 'qr-neg' ? decodedTexts.length === 0 : matchedTexts.length > 0,
+    decodedTexts: [],
+    matchedTexts: [],
+    falsePositiveTexts: [],
+    success: label === 'qr-neg' ? proposalCount === 0 : proposalCount > 0,
     usedFallback: false,
     scanDurationMs,
-    ...traceSummary,
+    proposalCount,
+    boundedProposalCount: proposalCount,
+    rankedProposalCount: proposalCount,
+    clusterCount: 0,
+    representativeCount: 0,
+    processedRepresentativeCount: 0,
+    killedClusterCount: 0,
+    firstDecodedClusterRank: null,
+    decodedClusterRanks: [],
+    decodeAttemptCount: 0,
+    decodeSuccessCount: 0,
+    rowScanFinderCount: sum(summaries, (summary) => summary.finderEvidence.rowScanCount),
+    floodFinderCount: sum(summaries, (summary) => summary.finderEvidence.floodCount),
+    matcherFinderCount: sum(summaries, (summary) => summary.finderEvidence.matcherCount),
+    dedupedFinderCount: sum(summaries, (summary) => summary.finderEvidence.dedupedCount),
+    expensiveDetectorViewCount: summaries.filter(
+      (summary) => summary.finderEvidence.expensiveDetectorsRan,
+    ).length,
+    timings,
   };
 };
 
@@ -419,7 +441,7 @@ const combineFallbackResult = (
   rescue: PolicyAssetResult,
 ): PolicyAssetResult => ({
   ...rescue,
-  policyId: 'row-first-fallback-on-no-decode',
+  policyId: 'row-first-fallback-on-no-proposals',
   usedFallback: true,
   scanDurationMs: round(row.scanDurationMs + rescue.scanDurationMs),
   proposalCount: row.proposalCount + rescue.proposalCount,
@@ -439,74 +461,6 @@ const combineFallbackResult = (
   expensiveDetectorViewCount: row.expensiveDetectorViewCount + rescue.expensiveDetectorViewCount,
   timings: addTimings(row.timings, rescue.timings),
 });
-
-const summarizeTrace = (
-  events: readonly IronqrTraceEvent[],
-  spans: readonly ScanTimingSpan[],
-): Omit<
-  PolicyAssetResult,
-  | 'policyId'
-  | 'decodedTexts'
-  | 'matchedTexts'
-  | 'falsePositiveTexts'
-  | 'success'
-  | 'usedFallback'
-  | 'scanDurationMs'
-> => {
-  const proposalViews = events.filter((event) => event.type === 'proposal-view-generated');
-  const clustering = [...events]
-    .reverse()
-    .find((event) => event.type === 'proposal-clusters-built');
-  const scanFinished = [...events].reverse().find((event) => event.type === 'scan-finished');
-  const decodedClusters = events.filter(
-    (event): event is Extract<IronqrTraceEvent, { type: 'cluster-finished' }> =>
-      event.type === 'cluster-finished' && event.outcome === 'decoded',
-  );
-  const decodedClusterRanks = decodedClusters.map((event) => event.clusterRank);
-  return {
-    proposalCount:
-      scanFinished?.proposalCount ?? sum(proposalViews, (event) => event.proposalCount),
-    boundedProposalCount:
-      scanFinished?.boundedProposalCount ?? clustering?.boundedProposalCount ?? 0,
-    rankedProposalCount: clustering?.rankedProposalCount ?? 0,
-    clusterCount: scanFinished?.clusterCount ?? clustering?.clusterCount ?? 0,
-    representativeCount: scanFinished?.representativeCount ?? clustering?.representativeCount ?? 0,
-    processedRepresentativeCount: scanFinished?.processedRepresentativeCount ?? 0,
-    killedClusterCount: scanFinished?.killedClusterCount ?? 0,
-    firstDecodedClusterRank:
-      decodedClusterRanks.length === 0 ? null : Math.min(...decodedClusterRanks),
-    decodedClusterRanks,
-    decodeAttemptCount: events.filter((event) => event.type === 'decode-attempt-started').length,
-    decodeSuccessCount: events.filter((event) => event.type === 'decode-attempt-succeeded').length,
-    rowScanFinderCount: sum(proposalViews, (event) => event.rowScanFinderCount),
-    floodFinderCount: sum(proposalViews, (event) => event.floodFinderCount),
-    matcherFinderCount: sum(proposalViews, (event) => event.matcherFinderCount),
-    dedupedFinderCount: sum(proposalViews, (event) => event.dedupedFinderCount),
-    expensiveDetectorViewCount: proposalViews.filter((event) => event.expensiveDetectorsRan).length,
-    timings: {
-      normalizeMs: spanSum(spans, 'normalize'),
-      scalarViewMs: spanSum(spans, 'scalar-view'),
-      binaryPlaneMs: spanSum(spans, 'binary-plane'),
-      binaryViewMs: spanSum(spans, 'binary-view'),
-      proposalViewMs: spanSum(spans, 'proposal-view'),
-      rowScanMs: round(sum(proposalViews, (event) => event.rowScanDurationMs)),
-      floodMs: round(sum(proposalViews, (event) => event.floodDurationMs)),
-      matcherMs: round(sum(proposalViews, (event) => event.matcherDurationMs)),
-      dedupeMs: round(sum(proposalViews, (event) => event.dedupeDurationMs)),
-      tripleAssemblyMs: round(sum(proposalViews, (event) => event.tripleAssemblyDurationMs)),
-      proposalConstructionMs: round(
-        sum(proposalViews, (event) => event.proposalConstructionDurationMs),
-      ),
-      rankingMs: spanSum(spans, 'ranking'),
-      clusteringMs: spanSum(spans, 'clustering'),
-      structureMs: spanSum(spans, 'structure'),
-      geometryMs: spanSum(spans, 'geometry'),
-      moduleSamplingMs: spanSum(spans, 'module-sampling'),
-      decodeAttemptMs: spanSum(spans, 'decode-attempt'),
-      decodeCascadeMs: spanSum(spans, 'decode-cascade'),
-    },
-  };
-};
 
 const summarizePolicyResults = ({
   config,
@@ -531,8 +485,8 @@ const summarizePolicyResults = ({
       .filter((policy) => policy.policyId !== 'full-current')
       .map((policy) => compareToControl(policy, control)),
     recommendation: [
-      'Use full-current as the control. Do not promote no-flood, staged fallback, or matcher overlap suppression unless positive decodes and false positives match the control.',
-      'Prefer policies that preserve decoded payloads while reducing matcherMs, proposalViewMs, processed representatives, and decode attempts.',
+      'Use full-current as the proposal-generation control. Do not promote no-flood, staged fallback, or matcher overlap suppression unless positive proposal coverage and negative proposal behavior match the control.',
+      'Prefer policies that preserve proposal coverage while reducing matcherMs, floodMs, proposalViewMs, and emitted proposal count.',
     ],
   };
 };
@@ -558,12 +512,11 @@ const summarizeOnePolicy = (
     .filter((result) => result.label === 'qr-neg')
     .filter(
       (result) =>
-        (result.policies.find((policy) => policy.policyId === policyId)?.falsePositiveTexts
-          .length ?? 0) > 0,
+        (result.policies.find((policy) => policy.policyId === policyId)?.proposalCount ?? 0) > 0,
     )
     .map((result) => result.assetId);
   const successAssetIds = new Set(
-    positiveRows.filter((entry) => entry.row.matchedTexts.length > 0).map((entry) => entry.assetId),
+    positiveRows.filter((entry) => entry.row.proposalCount > 0).map((entry) => entry.assetId),
   );
   const decodedRanks = rows.flatMap((row) =>
     row.firstDecodedClusterRank === null ? [] : [row.firstDecodedClusterRank],
@@ -619,8 +572,7 @@ const successfulPositiveAssetIds = (
       .filter((result) => result.label === 'qr-pos')
       .filter(
         (result) =>
-          (result.policies.find((policy) => policy.policyId === policyId)?.matchedTexts.length ??
-            0) > 0,
+          (result.policies.find((policy) => policy.policyId === policyId)?.proposalCount ?? 0) > 0,
       )
       .map((result) => result.assetId),
   );
@@ -649,13 +601,6 @@ const logPolicyMetrics = (
     result.timings.proposalViewMs,
     'view',
     result.proposalCount,
-  );
-  logStudyTiming(
-    log,
-    `${policyId}:decode-attempts`,
-    result.timings.decodeAttemptMs,
-    'view',
-    result.decodeAttemptCount,
   );
   logStudyTiming(
     log,
@@ -741,14 +686,6 @@ const emptyTimings = (): PolicyTimingSummary => ({
   decodeAttemptMs: 0,
   decodeCascadeMs: 0,
 });
-
-const spanSum = (spans: readonly ScanTimingSpan[], name: ScanTimingSpan['name']): number =>
-  round(
-    sum(
-      spans.filter((span) => span.name === name),
-      (span) => span.durationMs,
-    ),
-  );
 
 const sum = <T>(items: readonly T[], value: (item: T) => number): number =>
   items.reduce((total, item) => total + value(item), 0);
