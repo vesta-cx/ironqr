@@ -133,8 +133,8 @@ export class BenchOpenTuiDashboard {
       const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 12,
-        screenMode: 'main-screen',
-        clearOnShutdown: false,
+        screenMode: 'alternate-screen',
+        clearOnShutdown: true,
         useMouse: false,
         enableMouseMovement: false,
       });
@@ -173,7 +173,7 @@ export class BenchOpenTuiDashboard {
         content: '',
         fg: THEME.white,
         bg: 'transparent',
-        selectable: false,
+        selectable: true,
       });
       headerBox.add(header);
 
@@ -287,7 +287,7 @@ export class BenchOpenTuiDashboard {
         content: '',
         fg: THEME.muted,
         bg: 'transparent',
-        selectable: false,
+        selectable: true,
       });
       footerBox.add(footer);
 
@@ -859,7 +859,7 @@ const createPanel = (
     content: ` ${options.title.toUpperCase()} `,
     fg: options.accent,
     bg: 'transparent',
-    selectable: false,
+    selectable: true,
     width: '100%',
     height: 1,
     flexGrow: 0,
@@ -870,7 +870,7 @@ const createPanel = (
     content: '',
     fg: THEME.text,
     bg: 'transparent',
-    selectable: false,
+    selectable: true,
     width: '100%',
     flexGrow: 1,
     flexShrink: 1,
