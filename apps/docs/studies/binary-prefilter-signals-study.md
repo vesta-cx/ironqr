@@ -320,22 +320,44 @@ The run measured `scanline-squared` as the fixed flood control, `run-map` as the
 
 **Conclusion.** None of the reopened matcher candidates can replace `run-map`. They all improved raw matcher time, but each changed output on most views (`8,712–8,760` mismatches out of `10,962`). `axis-intersect` is the fastest failed candidate, reducing p98 from `87.11 ms` to `32.89 ms`, but its output count collapsed from `97,093` to `37,011`, so the speedup is mostly lost evidence rather than equivalent work. Keep `run-map` as canonical and disable these candidates from the default study. Future matcher work should preserve `run-map` signatures via internal hot-path optimization or explicit prioritization/fallback accounting, not wholesale replacement of center enumeration.
 
+### Experiment H — exact-output run-map internals
+
+**Question.** Can internal `run-map` matcher optimizations reduce the dominant matcher cost while preserving the exact matcher finder signatures?
+
+**Report.** `tools/bench/reports/study/study-binary-prefilter-signals.summary.json`, generated `2026-04-25T17:52:44.509Z` from full report `tools/bench/reports/full/study/study-binary-prefilter-signals.json` at `e56b06829cc9ec2fe728ab614e523a14ce0584d8`, dirty=`true`.
+
+**Corpus and command.** `203` assets (`60` positive, `143` negative), all `54` binary view identities, `10,962` asset/view comparisons per active detector pattern.
+
+```bash
+bun run --cwd tools/bench bench study binary-prefilter-signals \
+  --view-set all \
+  --refresh-cache
+```
+
+The run measured `scanline-squared` as the fixed flood control, `run-map` as the matcher control, and five exact-output matcher candidates. Cache was refreshed: `0` hits, `76,734` writes, and `32,886` old rows purged. The run used `12` study workers with flood scheduler limit `6`.
+
+| Variant | Avg | p95 | p98 | p99 | Max | Saved vs `run-map` | Improvement | Output equal | Mismatched views | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| `run-map` | 23.82 ms | 57.48 ms | 93.80 ms | 127.15 ms | 534.85 ms | — | — | control | 0 | Current matcher control. |
+| `run-map-early-exit` | 20.20 ms | 51.66 ms | 85.02 ms | 117.27 ms | 442.13 ms | 39,669.21 ms | 15.19% | `true` | 0 | Safe but not lead. |
+| `run-map-u16` | 20.09 ms | 51.91 ms | 86.25 ms | 122.71 ms | 475.41 ms | 40,972.20 ms | 15.69% | `true` | 0 | Safe but not lead. |
+| `run-map-u16-early-exit` | 16.71 ms | 46.78 ms | 81.96 ms | 113.09 ms | 453.57 ms | 78,010.95 ms | 29.87% | `true` | 0 | Best p98-focused candidate; narrow confirmation lead. |
+| `run-map-horizontal-first` | 19.76 ms | 52.17 ms | 86.39 ms | 119.70 ms | 452.46 ms | 44,579.76 ms | 17.07% | `true` | 0 | Safe but not lead. |
+| `run-map-horizontal-first-u16` | 16.51 ms | 47.86 ms | 82.19 ms | 110.59 ms | 532.71 ms | 80,198.42 ms | 30.71% | `true` | 0 | Fastest avg, but p98 trails `run-map-u16-early-exit` by `0.23 ms`. |
+
+**Latency context.** `run-map` remained the dominant detector cost: total matcher control time was `261,150.06 ms` versus fixed flood control time `77,506.15 ms`. The fixed flood control averaged `7.07 ms` with p98 `22.87 ms`; flood scheduler wait was negligible in this matcher-focused run (`50.29 ms` total wait, p98 queued flood `22.91 ms`).
+
+**Conclusion.** All exact-output matcher candidates preserved signatures over all `10,962` comparisons, so the internal optimization hypothesis is valid. With the p98-focused decision rule, `run-map-u16-early-exit` is the lead: it reduced matcher p98 from `93.80 ms` to `81.96 ms`, cut total matcher-control-equivalent time by `78,010.95 ms` (`29.87%`), and kept `0` mismatches. `run-map-horizontal-first-u16` was slightly faster on average (`16.51 ms` vs `16.71 ms`) and p99 (`110.59 ms` vs `113.09 ms`), but its p98 was slightly worse (`82.19 ms`) and max was worse (`532.71 ms`). Narrow the next confirmation run to `run-map` and `run-map-u16-early-exit`.
+
 ## Current variant status
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
-| `run-map` | Matcher | — | Canonical matcher lead; remains active after reopened matcher candidates failed equivalence. |
+| `run-map` | Matcher | — | Canonical matcher control; current production-equivalent baseline. |
+| `run-map-u16-early-exit` | Matcher | `run-map` | Lead matcher replacement candidate: `0` mismatches, best p98 in the exact-output matcher-internals run, and `29.87%` faster overall. Active for narrowed confirmation. |
 
-The current matcher phase tests exact-output `run-map` internals, not replacement center enumerators. Active matcher candidates are:
-
-| Variant id | Hypothesis | Hybrid ingredients | Admission bar |
-| --- | --- | --- | --- |
-| `run-map-early-exit` | Skip vertical cross-checks after horizontal failure. | Existing full run maps + horizontal-failure guard. | `0` mismatches; lower avg and p98 than `run-map`. |
-| `run-map-u16` | Cut run-map memory bandwidth by using 16-bit coordinate maps when dimensions fit. | Existing matcher + compact axis maps. | `0` mismatches; lower p98 under Worker load. |
-| `run-map-u16-early-exit` | Combine less memory traffic with fewer vertical checks. | Compact maps + early exit. | `0` mismatches; beat both single-factor variants. |
-| `run-map-horizontal-first` | Avoid vertical map construction on views with no horizontal survivors and stage vertical checks after horizontal filtering. | Horizontal-first run-map build + early exit. | `0` mismatches; improve negative/noisy views without output loss. |
-| `run-map-horizontal-first-u16` | Combine staged map construction with compact coordinate arrays. | Horizontal-first staging + compact maps. | `0` mismatches; best p98-focused safe matcher candidate. |
+The broad exact-output matcher-internals phase tested run-map-preserving variants rather than replacement center enumerators. The narrowed confirmation phase keeps only `run-map` and `run-map-u16-early-exit` active.
 
 ## Inactive and binned variants
 
@@ -360,6 +382,10 @@ Disabled means implemented/cache-retained but not currently queued. Binned means
 | `inline-flood` | Flood | Superseded by `dense-stats`; targeted `gray:h:i` check showed inline emitted fewer finders than legacy/dense. | Binned; not retained in active detector-pattern cache. |
 | `spatial-bin` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
 | `run-length-ccl` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
+| `run-map-early-exit` | Matcher | Exact-output matcher-internals run: `15.19%` faster than `run-map`, p98 `85.02 ms`, `0` mismatches. | Safe but weaker than `run-map-u16-early-exit`; disabled for narrowed confirmation. |
+| `run-map-u16` | Matcher | Exact-output matcher-internals run: `15.69%` faster than `run-map`, p98 `86.25 ms`, `0` mismatches. | Safe but weaker than `run-map-u16-early-exit`; disabled for narrowed confirmation. |
+| `run-map-horizontal-first` | Matcher | Exact-output matcher-internals run: `17.07%` faster than `run-map`, p98 `86.39 ms`, `0` mismatches. | Safe but weaker than `run-map-u16-early-exit`; disabled for narrowed confirmation. |
+| `run-map-horizontal-first-u16` | Matcher | Exact-output matcher-internals run: `30.71%` faster than `run-map`, p98 `82.19 ms`, `0` mismatches. | Safe and fastest on avg, but p98 was slightly worse than `run-map-u16-early-exit`; disabled for narrowed p98-focused confirmation. |
 | `run-pattern` | Matcher | Reopened after flood canonization; `55.09%` faster than `run-map` but changed signatures on `8,760` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `axis-intersect` | Matcher | Reopened after flood canonization; `59.30%` faster than `run-map` but changed signatures on `8,712` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
 | `shared-runs` | Flood+Matcher | Reopened after flood canonization; `55.84%` faster than `run-map` but changed signatures on `8,760` views. | Binned in this form; future shared artifacts need a new equivalence hypothesis, not this replacement matcher. |
@@ -428,6 +454,6 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 ## Next work
 
 1. Promote `scanline-squared` behind the production flood control abstraction.
-2. Run the exact-output matcher-internals phase with active candidates `run-map-early-exit`, `run-map-u16`, `run-map-u16-early-exit`, `run-map-horizontal-first`, and `run-map-horizontal-first-u16`.
-3. If no exact candidate wins, profile `run-map` internally under `--workers 0`, `--workers 1`, and the half-CPU default to separate algorithm cost from loaded Worker contention.
+2. Run a narrowed matcher confirmation with only `run-map` and `run-map-u16-early-exit` active; `run-map-horizontal-first-u16` should remain disabled unless a new decision rule prioritizes avg over p98.
+3. If confirmation holds, promote `run-map-u16-early-exit` behind the production matcher control abstraction.
 4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.

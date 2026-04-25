@@ -1174,7 +1174,7 @@ const MATCHER_CANDIDATES = [
 ] as const satisfies readonly { id: MatcherRunMapVariant; note: string }[];
 
 const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] =
-  MATCHER_CANDIDATES;
+  MATCHER_CANDIDATES.filter((candidate) => candidate.id === 'run-map-u16-early-exit');
 
 const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
