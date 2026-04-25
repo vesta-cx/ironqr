@@ -323,7 +323,9 @@ function makeImageProcessingStudyPlugin(input: {
       const viewIds =
         config.viewSet === 'all' ? viewBank.listBinaryViewIds() : viewBank.listProposalViewIds();
 
-      log(`${asset.id}: profiling ${viewIds.length} binary views (${config.focus})`);
+      log(
+        `${asset.id}: profiling ${viewIds.length} binary view identities over ${sharedPlaneCount(viewIds)} shared threshold planes (${config.focus})`,
+      );
       const proposalStartedAt = performance.now();
       const proposalSummaries: ProposalViewGenerationSummary[] = [];
       let proposalViewIndex = 0;
@@ -334,7 +336,7 @@ function makeImageProcessingStudyPlugin(input: {
             maxProposalsPerView: EXHAUSTIVE_SCAN_CEILING,
           }).summary,
         );
-        log(`${asset.id}: proposal view ${proposalViewIndex}/${viewIds.length} ${viewId}`);
+        log(`${asset.id}: proposal path ${proposalViewIndex}/${viewIds.length} ${viewId}`);
         await yieldToDashboard();
       }
       const proposalGenerationMs = round(performance.now() - proposalStartedAt);
@@ -343,7 +345,7 @@ function makeImageProcessingStudyPlugin(input: {
       for (const viewId of viewIds) {
         binarySignalIndex += 1;
         binarySignals.push(measureBinarySignals(viewBank.getBinaryView(viewId)));
-        log(`${asset.id}: binary signal ${binarySignalIndex}/${viewIds.length} ${viewId}`);
+        log(`${asset.id}: polarity signal ${binarySignalIndex}/${viewIds.length} ${viewId}`);
         await yieldToDashboard();
       }
       const scalarStats: ScalarStatsMeasurement[] = [];
@@ -446,6 +448,9 @@ function makeImageProcessingStudyPlugin(input: {
   };
 }
 
+const sharedPlaneCount = (viewIds: readonly BinaryViewId[]): number =>
+  new Set(viewIds.map((viewId) => viewId.split(':').slice(0, 2).join(':'))).size;
+
 const measureBinaryReadVariants = async (
   viewBank: ReturnType<typeof createViewBank>,
   viewIds: readonly BinaryViewId[],
@@ -473,7 +478,7 @@ const measureBinaryReadVariants = async (
     }
     directBitReaderMs += performance.now() - directStartedAt;
     pixelReads += view.plane.data.length;
-    log(`${assetId}: binary read variant ${viewId}`);
+    log(`${assetId}: binary read polarity variant ${viewId}`);
     await yieldToDashboard();
   }
 
