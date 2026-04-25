@@ -15,7 +15,7 @@ type OpenTuiRenderer = Awaited<ReturnType<OpenTuiCore['createCliRenderer']>>;
 type OpenTuiBox = InstanceType<OpenTuiCore['BoxRenderable']>;
 type OpenTuiText = InstanceType<OpenTuiCore['TextRenderable']>;
 type OpenTuiKeyEvent = import('@opentui/core').KeyEvent;
-type StudyFocusWidget = 'views' | 'detectors' | 'active' | 'slowest' | 'events' | 'legend';
+type StudyFocusWidget = 'views' | 'detectors' | 'active' | 'events' | 'legend';
 
 type OpenTuiPanel = {
   readonly box: OpenTuiBox;
@@ -23,6 +23,7 @@ type OpenTuiPanel = {
 };
 
 const CHART_PANEL_ROWS = 18;
+const STUDY_CHART_PANEL_ROWS = 24;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
 const PANEL_TITLE_ROWS = 0;
@@ -43,6 +44,9 @@ const FILTER_MODAL_MAX_WIDTH = 80;
 
 const panelBodyRows = (panelRows: number): number =>
   Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS - PANEL_BODY_BOTTOM_GUTTER_ROWS);
+
+const chartPanelRows = (isStudy: boolean): number =>
+  isStudy ? STUDY_CHART_PANEL_ROWS : CHART_PANEL_ROWS;
 
 const FRACTIONAL_BAR_SEGMENTS = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'] as const;
 
@@ -87,14 +91,13 @@ export class BenchOpenTuiDashboard {
   private studyViewTimingOffset = 0;
   private studyDetectorTimingOffset = 0;
   private activeStudyWorkOffset = 0;
-  private slowestStudyUnitsOffset = 0;
   private studyEventsOffset = 0;
   private studyLegendOffset = 0;
   private focusedStudyWidget: StudyFocusWidget = 'views';
   private filterModalOpen = false;
   private filterCursor = 0;
   private filterOffset = 0;
-  private studySlowestMetric: StudySlowestMetric = 'p98';
+  private studyTimingMetric: StudySlowestMetric = 'p98';
   private readonly studyFilters: Record<'views' | 'detectors', StudyChartFilters> = {
     views: createStudyChartFilters(),
     detectors: createStudyChartFilters(),
@@ -191,7 +194,7 @@ export class BenchOpenTuiDashboard {
         id: 'chart',
         title: isStudy ? 'Study view timings' : 'Timing by outcome',
         accent: THEME.cyan,
-        height: CHART_PANEL_ROWS,
+        height: chartPanelRows(isStudy),
         ...(isStudy ? { width: '42%' } : {}),
       });
       const detectorChart = isStudy
@@ -199,7 +202,7 @@ export class BenchOpenTuiDashboard {
             id: 'detector-chart',
             title: 'Study detector timings',
             accent: THEME.purple,
-            height: CHART_PANEL_ROWS,
+            height: chartPanelRows(isStudy),
             width: '58%',
           })
         : null;
@@ -236,7 +239,7 @@ export class BenchOpenTuiDashboard {
         flexGrow: 1,
       });
       leftColumn.add(active.box);
-      leftColumn.add(slowest.box);
+      if (!isStudy) leftColumn.add(slowest.box);
 
       const recent = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'recent',
@@ -305,7 +308,7 @@ export class BenchOpenTuiDashboard {
         const chartRow = new BoxRenderable(renderer, {
           id: 'bench-dashboard-study-chart-row',
           width: '100%',
-          height: CHART_PANEL_ROWS,
+          height: chartPanelRows(isStudy),
           flexDirection: 'row',
         });
         chartRow.add(chart.box);
@@ -435,8 +438,8 @@ export class BenchOpenTuiDashboard {
 
   private focusableStudyWidgets(): readonly StudyFocusWidget[] {
     return this.hasStudyViewTimings()
-      ? ['views', 'detectors', 'active', 'slowest', 'events', 'legend']
-      : ['detectors', 'active', 'slowest', 'events', 'legend'];
+      ? ['views', 'detectors', 'active', 'events', 'legend']
+      : ['detectors', 'active', 'events', 'legend'];
   }
 
   private focusedFilterTarget(): 'views' | 'detectors' {
@@ -469,12 +472,6 @@ export class BenchOpenTuiDashboard {
           this.dashboard.activeScans.size,
         );
         break;
-      case 'slowest':
-        this.slowestStudyUnitsOffset = clampOffset(
-          this.slowestStudyUnitsOffset + scrollDelta,
-          this.studySlowestRowCount(),
-        );
-        break;
       case 'events':
         this.studyEventsOffset = clampOffset(
           this.studyEventsOffset + scrollDelta,
@@ -491,16 +488,8 @@ export class BenchOpenTuiDashboard {
     this.renderNow();
   }
 
-  private studySlowestRowCount(): number {
-    return [
-      ...this.dashboard.studyDetectorTimings.values(),
-      ...this.dashboard.studyTimings.values(),
-    ].filter((row) => matchesStudyFilters(row, this.studyFilters[this.focusedFilterTarget()]))
-      .length;
-  }
-
   private studyPageScrollSize(): number {
-    return Math.max(1, panelBodyRows(CHART_PANEL_ROWS) - 4);
+    return Math.max(1, panelBodyRows(chartPanelRows(this.dashboard.commandName === 'study')) - 4);
   }
 
   private moveFilterCursor(delta: number): void {
@@ -566,7 +555,7 @@ export class BenchOpenTuiDashboard {
     const row = selectableFilterRows()[this.filterCursor];
     if (!row) return;
     if (row.group === 'metric') {
-      this.studySlowestMetric = row.value as StudySlowestMetric;
+      this.studyTimingMetric = row.value as StudySlowestMetric;
       this.renderNow();
       return;
     }
@@ -623,8 +612,6 @@ export class BenchOpenTuiDashboard {
         this.focusedStudyWidget === 'detectors' ? THEME.white : THEME.purple;
     }
     panels.active.box.borderColor = this.focusedStudyWidget === 'active' ? THEME.white : THEME.blue;
-    panels.slowest.box.borderColor =
-      this.focusedStudyWidget === 'slowest' ? THEME.white : THEME.amber;
     panels.recent.box.borderColor =
       this.focusedStudyWidget === 'events' ? THEME.white : THEME.purple;
     panels.legend.box.borderColor = this.focusedStudyWidget === 'legend' ? THEME.white : THEME.cyan;
@@ -696,6 +683,7 @@ export class BenchOpenTuiDashboard {
                 offset: this.studyViewTimingOffset,
                 focused: this.focusedStudyWidget === 'views',
                 filters: this.studyFilters.views,
+                metric: this.studyTimingMetric,
               })
             : renderTimingChart(this.dashboard, {
                 width: contentWidth,
@@ -712,6 +700,7 @@ export class BenchOpenTuiDashboard {
           offset: this.studyDetectorTimingOffset,
           focused: this.focusedStudyWidget === 'detectors',
           filters: this.studyFilters.detectors,
+          metric: this.studyTimingMetric,
         }),
         chartBodyRows,
       );
@@ -734,7 +723,7 @@ export class BenchOpenTuiDashboard {
             focus: this.focusedFilterTarget(),
             filters: this.studyFilters[this.focusedFilterTarget()],
             cursor: this.filterCursor,
-            slowestMetric: this.studySlowestMetric,
+            timingMetric: this.studyTimingMetric,
             offset: this.filterOffset,
             maxRows: this.filterModalBodyRows(),
           }),
@@ -758,18 +747,17 @@ export class BenchOpenTuiDashboard {
       }),
       activeRows,
     );
-    panels.slowest.body.content = panelBody(
-      renderSlowestFreshScans(this.dashboard, {
-        width: leftWidth,
-        maxRows: tableRows,
-        offset: this.slowestStudyUnitsOffset,
-        studySlowestMetric: this.studySlowestMetric,
-        ...(this.dashboard.commandName === 'study'
-          ? { studyTimingFilters: this.studyFilters[this.focusedFilterTarget()] }
-          : {}),
-      }),
-      tableRows,
-    );
+    panels.slowest.body.content =
+      this.dashboard.commandName === 'study'
+        ? ''
+        : panelBody(
+            renderSlowestFreshScans(this.dashboard, {
+              width: leftWidth,
+              maxRows: tableRows,
+              offset: 0,
+            }),
+            tableRows,
+          );
     panels.recent.body.content = panelBody(
       this.dashboard.commandName === 'study'
         ? renderStudyEvents(this.dashboard, {
@@ -798,7 +786,7 @@ export class BenchOpenTuiDashboard {
     const focusHint = this.hasStudyViewTimings()
       ? ` | tab=focus ${this.focusedStudyWidget}`
       : ' | focus detectors';
-    panels.footer.content = `${footerStatus} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? `${focusHint} | metric=${this.studySlowestMetric} | f=filters | ↑/↓=page | opt+↑/↓ or j/k=line` : ''}`;
+    panels.footer.content = `${footerStatus} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? `${focusHint} | metric=${this.studyTimingMetric} | f=filters | ↑/↓=page | opt+↑/↓ or j/k=line` : ''}`;
     this.renderer?.requestRender();
   }
 }
@@ -851,7 +839,7 @@ type StudyFilterRow =
   | { readonly kind: 'option'; readonly group: StudyFilterGroup; readonly value: string };
 
 const FILTER_ROWS: readonly StudyFilterRow[] = [
-  { kind: 'heading', label: 'slowest metric' },
+  { kind: 'heading', label: 'timing metric' },
   ...['avg', 'p85', 'p95', 'p98', 'p99', 'max'].map((value) => ({
     kind: 'option' as const,
     group: 'metric' as const,
@@ -906,7 +894,7 @@ const renderedFilterOptionIndexes = (offset: number, maxRows: number): readonly 
 const filterGroupLabel = (group: StudyFilterGroup): string => {
   switch (group) {
     case 'metric':
-      return 'slowest metric';
+      return 'timing metric';
     case 'families':
       return 'detector families';
     case 'scalars':
@@ -987,6 +975,7 @@ const renderStudyViewTimings = (
     readonly offset: number;
     readonly focused: boolean;
     readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
   },
 ): readonly string[] => {
   const cache = cacheTotals(dashboard);
@@ -1013,6 +1002,7 @@ const renderStudyViewTimings = (
       offset: options.offset,
       maxLabelWidth: 30,
       filters: options.filters,
+      metric: options.metric,
     }),
   );
   return lines;
@@ -1026,6 +1016,7 @@ const renderStudyDetectorTimings = (
     readonly offset: number;
     readonly focused: boolean;
     readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
   },
 ): readonly string[] => {
   const lines = [
@@ -1040,6 +1031,7 @@ const renderStudyDetectorTimings = (
       offset: options.offset,
       maxLabelWidth: 44,
       filters: options.filters,
+      metric: options.metric,
     }),
   );
   return lines;
@@ -1053,6 +1045,7 @@ const renderStudyTimingBars = (
     readonly count: number;
     readonly outputCount: number;
     readonly cachedCount: number;
+    readonly samples: readonly number[];
   }[],
   options: {
     readonly width: number;
@@ -1060,12 +1053,16 @@ const renderStudyTimingBars = (
     readonly offset: number;
     readonly maxLabelWidth: number;
     readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
   },
 ): readonly string[] => {
   const allRows = inputRows.length;
   const rows = inputRows
     .filter((row) => matchesStudyFilters(row, options.filters))
-    .sort((left, right) => averageStudyTimingMs(right) - averageStudyTimingMs(left));
+    .sort(
+      (left, right) =>
+        studyTimingMetricMs(right, options.metric) - studyTimingMetricMs(left, options.metric),
+    );
   if (rows.length === 0) {
     const suffix =
       activeFilterCount(options.filters) > 0
@@ -1079,24 +1076,24 @@ const renderStudyTimingBars = (
   const visibleRows = rows.slice(offset, offset + maxBars);
   const first = offset + 1;
   const last = Math.min(rows.length, offset + visibleRows.length);
-  const valueWidth = 22;
+  const valueWidth = 26;
   const minBarWidth = 5;
   const labelWidth = Math.max(
     10,
     Math.min(options.maxLabelWidth, options.width - valueWidth - minBarWidth - 4),
   );
   const barWidth = Math.max(minBarWidth, options.width - labelWidth - valueWidth - 4);
-  const maxAverage = Math.max(1, ...rows.map(averageStudyTimingMs));
+  const maxMetric = Math.max(1, ...rows.map((row) => studyTimingMetricMs(row, options.metric)));
   return [
     truncateLine(
-      `${title} ${first}-${last}/${rows.length}${rows.length === allRows ? '' : ` of ${allRows}`} pos=${offset + 1}/${rows.length}${activeFilterCount(options.filters) > 0 ? ` filters=${activeFilterCount(options.filters)}` : ''}`,
+      `${title} ${options.metric} ${first}-${last}/${rows.length}${rows.length === allRows ? '' : ` of ${allRows}`} pos=${offset + 1}/${rows.length}${activeFilterCount(options.filters) > 0 ? ` filters=${activeFilterCount(options.filters)}` : ''}`,
       options.width,
     ),
     ...visibleRows.map((row) => {
-      const average = averageStudyTimingMs(row);
-      const bar = fractionalBar(average / maxAverage, barWidth, { minVisible: average > 0 });
+      const value = studyTimingMetricMs(row, options.metric);
+      const bar = fractionalBar(value / maxMetric, barWidth, { minVisible: value > 0 });
       return truncateLine(
-        `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(average, row.count, row.outputCount, row.cachedCount)}`,
+        `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(value, options.metric, row.count, row.outputCount, row.cachedCount)}`,
         options.width,
       );
     }),
@@ -1166,7 +1163,7 @@ const renderStudyFilterModal = (options: {
   readonly focus: 'views' | 'detectors';
   readonly filters: StudyChartFilters;
   readonly cursor: number;
-  readonly slowestMetric: StudySlowestMetric;
+  readonly timingMetric: StudySlowestMetric;
   readonly offset: number;
   readonly maxRows: number;
 }): readonly string[] => {
@@ -1188,7 +1185,7 @@ const renderStudyFilterModal = (options: {
     }
     const selected =
       row.group === 'metric'
-        ? options.slowestMetric === row.value
+        ? options.timingMetric === row.value
         : options.filters[row.group].has(row.value);
     const cursor = index === options.cursor ? '›' : ' ';
     lines.push(
@@ -1216,15 +1213,26 @@ const padStudyCell = (value: string, width: number): string => {
   return `${truncated}${' '.repeat(Math.max(0, width - truncated.length))}`;
 };
 
-const averageStudyTimingMs = (row: { readonly totalMs: number; readonly count: number }): number =>
-  row.totalMs / Math.max(1, row.count);
+const studyTimingMetricMs = (
+  row: { readonly totalMs: number; readonly count: number; readonly samples: readonly number[] },
+  metric: StudySlowestMetric,
+): number => {
+  if (metric === 'avg') return row.totalMs / Math.max(1, row.count);
+  if (row.samples.length === 0) return 0;
+  if (metric === 'max') return Math.max(...row.samples);
+  const percentile = Number(metric.slice(1)) / 100;
+  const sorted = [...row.samples].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percentile) - 1)] ?? 0;
+};
 
 const formatStudyTiming = (
-  averageMs: number,
+  valueMs: number,
+  metric: StudySlowestMetric,
   count: number,
   outputCount: number,
   cachedCount: number,
-): string => `${formatCompactDuration(averageMs)} p=${outputCount} jobs=${count} c=${cachedCount}`;
+): string =>
+  `${metric}=${formatCompactDuration(valueMs)} p=${outputCount} jobs=${count} c=${cachedCount}`;
 
 const studyLegendLines = (): readonly string[] => [
   'study legend',
