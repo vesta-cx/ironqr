@@ -62,6 +62,7 @@ interface ImageProcessingAssetResult {
   readonly sharedArtifacts: SharedArtifactMeasurement;
   readonly matcherCandidates: MatcherCandidateMeasurement | null;
   readonly floodCandidates: FloodCandidateMeasurement | null;
+  readonly floodSchedulerLimit: number;
   readonly binaryRead: BinaryReadMeasurement | null;
   readonly decode: DecodeMeasurement | null;
 }
@@ -139,7 +140,9 @@ interface DetectorVariantMeasurement {
   readonly outputsEqual: boolean;
   readonly mismatchCount: number;
   readonly note: string;
+  readonly schedulerWaitMs: number;
   readonly samples: readonly number[];
+  readonly schedulerWaitSamples: readonly number[];
 }
 
 interface DetectorVariantSummary extends DetectorVariantMeasurement, DetectorLatencySummary {
@@ -147,6 +150,10 @@ interface DetectorVariantSummary extends DetectorVariantMeasurement, DetectorLat
   readonly controlMs: number;
   readonly deltaMs: number;
   readonly improvementPct: number;
+  readonly avgSchedulerWaitMs: number;
+  readonly p95SchedulerWaitMs: number;
+  readonly p98SchedulerWaitMs: number;
+  readonly maxSchedulerWaitMs: number;
 }
 
 interface DetectorUnitMeasurement {
@@ -158,6 +165,7 @@ interface DetectorUnitMeasurement {
   readonly outputsEqual: boolean;
   readonly mismatchCount: number;
   readonly cached: boolean;
+  readonly schedulerWaitMs: number;
 }
 
 interface DetectorUnitSummary extends DetectorLatencySummary {
@@ -169,12 +177,18 @@ interface DetectorUnitSummary extends DetectorLatencySummary {
   readonly outputCount: number;
   readonly outputsEqual: boolean;
   readonly mismatchCount: number;
+  readonly schedulerWaitMs: number;
+  readonly avgSchedulerWaitMs: number;
+  readonly p95SchedulerWaitMs: number;
+  readonly p98SchedulerWaitMs: number;
+  readonly maxSchedulerWaitMs: number;
 }
 
 interface VariantCacheMeasurement {
   readonly durationMs: number;
   readonly outputCount: number;
   readonly signature: readonly string[];
+  readonly schedulerWaitMs?: number;
 }
 
 interface BenchComponentStats {
@@ -187,6 +201,17 @@ interface BenchComponentStats {
   readonly maxY: number;
   readonly centroidX: number;
   readonly centroidY: number;
+}
+
+interface DenseLabelScratch {
+  readonly labels: Int32Array;
+  readonly queue: Int32Array;
+}
+
+interface ScanlineLabelScratch {
+  readonly labels: Int32Array;
+  readonly seedX: Int32Array;
+  readonly seedY: Int32Array;
 }
 
 interface FloodCandidateMeasurement {
@@ -313,6 +338,8 @@ interface ImageProcessingTotals {
   readonly matcherFusedLightCenterCount: number;
   readonly matcherSharedPlaneCount: number;
   readonly floodControlMs: number;
+  readonly floodSchedulerLimit: number;
+  readonly floodSchedulerWaitMs: number;
 }
 
 interface ImageProcessingVariantSummary {
@@ -631,6 +658,7 @@ function makeImageProcessingStudyPlugin(input: {
         sharedArtifacts,
         matcherCandidates,
         floodCandidates,
+        floodSchedulerLimit: floodSchedulerLimit(),
         binaryRead,
         decode: decode === null ? null : stripDecodedTexts(decode),
       };
@@ -658,6 +686,7 @@ function makeImageProcessingStudyPlugin(input: {
         scalarFusion: result.scalarFusion,
         sharedArtifacts: result.sharedArtifacts,
         matcherCandidates: result.matcherCandidates,
+        floodSchedulerLimit: result.floodSchedulerLimit,
         binaryRead: result.binaryRead,
         decode: result.decode,
       })),
@@ -917,6 +946,7 @@ const readCachedDetectorAssetResult = async (
       variants: [...floodVariants.values()],
       units: floodUnits,
     },
+    floodSchedulerLimit: 0,
     binaryRead: null,
     decode: null,
   };
@@ -1130,6 +1160,41 @@ const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
 };
 
+interface VariantScheduler {
+  readonly acquire: () => Promise<number>;
+  readonly release: () => void;
+}
+
+const createFloodScheduler = (): VariantScheduler | undefined => {
+  const buffer = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_SEMAPHORE__');
+  if (!(buffer instanceof SharedArrayBuffer)) return undefined;
+  const permits = new Int32Array(buffer);
+  return {
+    async acquire() {
+      const startedAt = performance.now();
+      while (true) {
+        const available = Atomics.load(permits, 0);
+        if (
+          available > 0 &&
+          Atomics.compareExchange(permits, 0, available, available - 1) === available
+        ) {
+          return round(performance.now() - startedAt);
+        }
+        Atomics.wait(permits, 0, 0, 50);
+      }
+    },
+    release() {
+      Atomics.add(permits, 0, 1);
+      Atomics.notify(permits, 0, 1);
+    },
+  };
+};
+
+const floodSchedulerLimit = (): number => {
+  const value = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__');
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+};
+
 const measureVariant = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
   cache: Pick<StudyCacheHandle, 'has' | 'read' | 'write'>,
@@ -1137,6 +1202,7 @@ const measureVariant = async (
   viewId: BinaryViewId,
   preloadedRows: ReadonlySet<string>,
   run: () => FinderEvidence[] | Promise<FinderEvidence[]>,
+  scheduler?: VariantScheduler,
 ): Promise<{
   readonly output: FinderEvidence[];
   readonly measurement: VariantCacheMeasurement;
@@ -1152,15 +1218,25 @@ const measureVariant = async (
       preloaded: preloadedRows.has(detectorRowKey(asset.id, variantId, viewId)),
     };
   const cacheKey = detectorVariantCacheKey(variantId, viewId);
-  const startedAt = performance.now();
-  const output = await run();
-  const measurement = {
-    durationMs: round(performance.now() - startedAt),
-    outputCount: output.length,
-    signature: finderSignature(output),
-  };
-  await cache.write(asset, cacheKey, measurement);
-  return { output, measurement, cached: false, preloaded: false };
+  const schedulerWaitMs = scheduler ? await scheduler.acquire() : 0;
+  try {
+    const startedAt = performance.now();
+    const output = await run();
+    const cachedMeasurement = {
+      durationMs: round(performance.now() - startedAt),
+      outputCount: output.length,
+      signature: finderSignature(output),
+    };
+    await cache.write(asset, cacheKey, cachedMeasurement);
+    return {
+      output,
+      measurement: { ...cachedMeasurement, schedulerWaitMs },
+      cached: false,
+      preloaded: false,
+    };
+  } finally {
+    scheduler?.release();
+  }
 };
 
 const detectorRowKey = (assetId: string, variantId: string, viewId: BinaryViewId): string =>
@@ -1174,6 +1250,7 @@ const compareVariant = (
   note: string,
 ): DetectorVariantMeasurement => {
   const outputsEqual = signaturesEqual(controlSignature, measurement.signature);
+  const schedulerWaitMs = measurement.schedulerWaitMs ?? 0;
   return {
     id,
     area,
@@ -1182,7 +1259,9 @@ const compareVariant = (
     outputsEqual,
     mismatchCount: outputsEqual ? 0 : 1,
     note,
+    schedulerWaitMs,
     samples: [measurement.durationMs],
+    schedulerWaitSamples: [schedulerWaitMs],
   };
 };
 
@@ -1202,6 +1281,7 @@ const detectorUnit = (
   outputsEqual,
   mismatchCount: outputsEqual ? 0 : 1,
   cached,
+  schedulerWaitMs: measurement.schedulerWaitMs ?? 0,
 });
 
 const finderSignature = (evidence: readonly FinderEvidence[]): readonly string[] =>
@@ -1253,6 +1333,36 @@ const floodVariantOptions = (
   squaredDistance: variantId.includes('squared'),
 });
 
+const componentLabelScratch = <T>(
+  key: string,
+  create: () => T,
+  hasCapacity: (value: T) => boolean,
+): T => {
+  const existing = Reflect.get(globalThis, key);
+  if (existing && hasCapacity(existing as T)) return existing as T;
+  const next = create();
+  Reflect.set(globalThis, key, next);
+  return next;
+};
+
+const scanlineLabelScratch = (size: number): ScanlineLabelScratch =>
+  componentLabelScratch(
+    '__BENCH_STUDY_SCANLINE_LABEL_SCRATCH__',
+    () => ({
+      labels: new Int32Array(size),
+      seedX: new Int32Array(size),
+      seedY: new Int32Array(size),
+    }),
+    (scratch: ScanlineLabelScratch) => scratch.labels.length >= size,
+  );
+
+const denseLabelScratch = (size: number): DenseLabelScratch =>
+  componentLabelScratch(
+    '__BENCH_STUDY_DENSE_LABEL_SCRATCH__',
+    () => ({ labels: new Int32Array(size), queue: new Int32Array(size) }),
+    (scratch: DenseLabelScratch) => scratch.labels.length >= size,
+  );
+
 const labelScanlineComponents = (
   binary: BinaryView,
   yieldIfDue?: () => Promise<void> | undefined,
@@ -1264,13 +1374,16 @@ const labelScanlineComponents = (
 const labelScanlineComponentsSync = (binary: BinaryView): readonly BenchComponentStats[] => {
   const width = binary.width;
   const height = binary.height;
-  const labels = new Int32Array(width * height);
-  const seedX = new Int32Array(width * height);
-  const seedY = new Int32Array(width * height);
+  const size = width * height;
+  const scratch = scanlineLabelScratch(size);
+  const labels = scratch.labels;
+  const seedX = scratch.seedX;
+  const seedY = scratch.seedY;
+  labels.fill(0, 0, size);
   const stats: BenchComponentStats[] = [];
   let nextLabel = 1;
 
-  for (let start = 0; start < labels.length; start += 1) {
+  for (let start = 0; start < size; start += 1) {
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1606,11 +1719,14 @@ const labelDenseComponents = (
 const labelDenseComponentsSync = (binary: BinaryView): readonly BenchComponentStats[] => {
   const width = binary.width;
   const height = binary.height;
-  const labels = new Int32Array(width * height);
-  const queue = new Int32Array(width * height);
+  const size = width * height;
+  const scratch = denseLabelScratch(size);
+  const labels = scratch.labels;
+  const queue = scratch.queue;
+  labels.fill(0, 0, size);
   const stats: BenchComponentStats[] = [];
   let nextLabel = 1;
-  for (let start = 0; start < labels.length; start += 1) {
+  for (let start = 0; start < size; start += 1) {
     if (labels[start] !== 0) continue;
     const color = readBinaryPixel(binary, start);
     let head = 0;
@@ -1984,6 +2100,7 @@ const measureFloodCandidateVariants = async (
   for (const viewId of viewIds) {
     throwIfStudyAborted(signal);
     const view = viewBank.getBinaryView(viewId);
+    const floodScheduler = createFloodScheduler();
     const control = await measureVariant(
       asset,
       cache,
@@ -1991,6 +2108,7 @@ const measureFloodCandidateVariants = async (
       viewId,
       preloadedRows,
       async () => floodFromComponents(await labelDenseComponents(view, createCooperativeYield())),
+      floodScheduler,
     );
     controlMs += control.measurement.durationMs;
     const controlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
@@ -2011,8 +2129,14 @@ const measureFloodCandidateVariants = async (
 
     for (const candidate of ACTIVE_FLOOD_CANDIDATES) {
       throwIfStudyAborted(signal);
-      const measured = await measureVariant(asset, cache, candidate.id, viewId, preloadedRows, () =>
-        floodCandidateOutput(candidate.id, view),
+      const measured = await measureVariant(
+        asset,
+        cache,
+        candidate.id,
+        viewId,
+        preloadedRows,
+        () => floodCandidateOutput(candidate.id, view),
+        floodScheduler,
       );
       const compared = compareVariant(
         candidate.id,
@@ -2065,7 +2189,9 @@ const mergeDetectorVariant = (
     outputCount: current.outputCount + next.outputCount,
     outputsEqual: current.outputsEqual && next.outputsEqual,
     mismatchCount: current.mismatchCount + next.mismatchCount,
+    schedulerWaitMs: round(current.schedulerWaitMs + next.schedulerWaitMs),
     samples: [...current.samples, ...next.samples],
+    schedulerWaitSamples: [...current.schedulerWaitSamples, ...next.schedulerWaitSamples],
   });
 };
 
@@ -2675,8 +2801,13 @@ const summarizeImageProcessingStudy = ({
     }
     if (result.floodCandidates) {
       totals.floodControlMs += result.floodCandidates.controlMs;
+      totals.floodSchedulerLimit = Math.max(totals.floodSchedulerLimit, result.floodSchedulerLimit);
       totals.detectorMs += result.floodCandidates.controlMs;
       detectorUnits.push(...result.floodCandidates.units);
+      totals.floodSchedulerWaitMs += result.floodCandidates.units.reduce(
+        (sum, unit) => sum + unit.schedulerWaitMs,
+        0,
+      );
       for (const variant of result.floodCandidates.variants) {
         mergeDetectorVariant(detectorVariantRows, variant);
       }
@@ -2875,6 +3006,8 @@ const emptyTotals = (): MutableTotals => ({
   matcherFusedLightCenterCount: 0,
   matcherSharedPlaneCount: 0,
   floodControlMs: 0,
+  floodSchedulerLimit: 0,
+  floodSchedulerWaitMs: 0,
 });
 
 const ensureViewRow = (
@@ -2979,6 +3112,8 @@ const finalizeTotals = (totals: MutableTotals): ImageProcessingTotals => ({
   matcherFusedLightCenterCount: totals.matcherFusedLightCenterCount,
   matcherSharedPlaneCount: totals.matcherSharedPlaneCount,
   floodControlMs: round(totals.floodControlMs),
+  floodSchedulerLimit: totals.floodSchedulerLimit,
+  floodSchedulerWaitMs: round(totals.floodSchedulerWaitMs),
 });
 
 const finalizeViewRow = (row: MutableViewSummary): ImageProcessingViewSummary => ({
@@ -3024,6 +3159,7 @@ const summarizeDetectorVariants = (
       controlMs,
       deltaMs: round(controlMs - variant.durationMs),
       improvementPct: percent(controlMs - variant.durationMs, controlMs),
+      ...schedulerWaitSummary(variant.schedulerWaitSamples),
     };
   });
 
@@ -3031,7 +3167,10 @@ const summarizeDetectorUnits = (
   units: readonly DetectorUnitMeasurement[],
   keyFor: (unit: DetectorUnitMeasurement) => string,
 ): readonly DetectorUnitSummary[] => {
-  const rows = new Map<string, Mutable<DetectorUnitSummary> & { samples: number[] }>();
+  const rows = new Map<
+    string,
+    Mutable<DetectorUnitSummary> & { samples: number[]; schedulerWaitSamples: number[] }
+  >();
   for (const unit of units) {
     const key = keyFor(unit);
     const row = rows.get(key);
@@ -3051,7 +3190,13 @@ const summarizeDetectorUnits = (
         p98Ms: 0,
         p99Ms: 0,
         maxMs: 0,
+        schedulerWaitMs: unit.schedulerWaitMs,
+        avgSchedulerWaitMs: 0,
+        p95SchedulerWaitMs: 0,
+        p98SchedulerWaitMs: 0,
+        maxSchedulerWaitMs: 0,
         samples: [unit.durationMs],
+        schedulerWaitSamples: [unit.schedulerWaitMs],
       });
       continue;
     }
@@ -3060,10 +3205,16 @@ const summarizeDetectorUnits = (
     row.outputCount += unit.outputCount;
     row.outputsEqual &&= unit.outputsEqual;
     row.mismatchCount += unit.mismatchCount;
+    row.schedulerWaitMs = round(row.schedulerWaitMs + unit.schedulerWaitMs);
     row.samples.push(unit.durationMs);
+    row.schedulerWaitSamples.push(unit.schedulerWaitMs);
   }
   return [...rows.values()]
-    .map(({ samples, ...row }) => ({ ...row, ...latencySummary(samples) }))
+    .map(({ samples, schedulerWaitSamples, ...row }) => ({
+      ...row,
+      ...latencySummary(samples),
+      ...schedulerWaitSummary(schedulerWaitSamples),
+    }))
     .sort((left, right) => right.p95Ms - left.p95Ms);
 };
 
@@ -3074,6 +3225,20 @@ const latencySummary = (samples: readonly number[]): DetectorLatencySummary => (
   p98Ms: percentileMs(samples, 0.98),
   p99Ms: percentileMs(samples, 0.99),
   maxMs: round(samples.reduce((max, value) => Math.max(max, value), 0)),
+});
+
+const schedulerWaitSummary = (
+  samples: readonly number[],
+): Pick<
+  DetectorUnitSummary,
+  'avgSchedulerWaitMs' | 'p95SchedulerWaitMs' | 'p98SchedulerWaitMs' | 'maxSchedulerWaitMs'
+> => ({
+  avgSchedulerWaitMs: round(
+    samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length),
+  ),
+  p95SchedulerWaitMs: percentileMs(samples, 0.95),
+  p98SchedulerWaitMs: percentileMs(samples, 0.98),
+  maxSchedulerWaitMs: round(samples.reduce((max, value) => Math.max(max, value), 0)),
 });
 
 const percentileMs = (samples: readonly number[], quantile: number): number => {

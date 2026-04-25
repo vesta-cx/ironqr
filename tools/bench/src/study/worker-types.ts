@@ -22,6 +22,8 @@ export interface StudyWorkerRequest {
   readonly cacheFile: string;
   readonly cacheEnabled: boolean;
   readonly refreshCache: boolean;
+  readonly floodSemaphore?: SharedArrayBuffer;
+  readonly floodConcurrencyLimit?: number;
 }
 
 export type StudyWorkerResponse =

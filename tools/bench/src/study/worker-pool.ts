@@ -54,6 +54,9 @@ export const createStudyWorkerPool = (
 
   let closed = false;
   let nextJobId = 0;
+  const floodConcurrencyLimit = Math.max(1, Math.floor(size * 0.5));
+  const floodSemaphore = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+  Atomics.store(new Int32Array(floodSemaphore), 0, floodConcurrencyLimit);
   const queue: QueuedJob[] = [];
   const slots: WorkerSlot[] = [];
   const readyPromises: Promise<void>[] = [];
@@ -156,6 +159,8 @@ export const createStudyWorkerPool = (
             cacheFile: job.cacheFile,
             cacheEnabled: job.cacheEnabled,
             refreshCache: job.refreshCache,
+            floodSemaphore,
+            floodConcurrencyLimit,
           },
           resolve,
           reject,

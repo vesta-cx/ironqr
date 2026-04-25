@@ -61,15 +61,30 @@ const run = async (request: StudyWorkerRequest): Promise<void> => {
       loadImage: () => readBenchImage(request.asset.imagePath),
     };
     const cache = workerCache(baseCache, request.asset.id, cacheWrites);
-    const result = await plugin.runAsset({
-      repoRoot: request.repoRoot,
-      asset,
-      config: request.config as never,
-      reports: { accuracy: async () => null, performance: async () => null },
-      cache,
-      log: (message) => post({ type: 'log', jobId: request.jobId, message }),
-    });
-    post({ type: 'result', jobId: request.jobId, result, cacheWrites });
+    const previousSemaphore = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_SEMAPHORE__');
+    const previousFloodLimit = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__');
+    if (request.floodSemaphore) {
+      Reflect.set(globalThis, '__BENCH_STUDY_FLOOD_SEMAPHORE__', request.floodSemaphore);
+      Reflect.set(
+        globalThis,
+        '__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__',
+        request.floodConcurrencyLimit ?? 1,
+      );
+    }
+    try {
+      const result = await plugin.runAsset({
+        repoRoot: request.repoRoot,
+        asset,
+        config: request.config as never,
+        reports: { accuracy: async () => null, performance: async () => null },
+        cache,
+        log: (message) => post({ type: 'log', jobId: request.jobId, message }),
+      });
+      post({ type: 'result', jobId: request.jobId, result, cacheWrites });
+    } finally {
+      restoreGlobal('__BENCH_STUDY_FLOOD_SEMAPHORE__', previousSemaphore);
+      restoreGlobal('__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__', previousFloodLimit);
+    }
   } catch (error) {
     post({
       type: 'error',
@@ -78,6 +93,14 @@ const run = async (request: StudyWorkerRequest): Promise<void> => {
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
     });
   }
+};
+
+const restoreGlobal = (key: string, value: unknown): void => {
+  if (value === undefined) {
+    Reflect.deleteProperty(globalThis, key);
+    return;
+  }
+  Reflect.set(globalThis, key, value);
 };
 
 const workerCache = (
