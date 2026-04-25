@@ -7,9 +7,9 @@ This detector-only study evaluates IronQR finder-evidence implementations by com
 The current evidence supports two detector leads:
 
 1. **Matcher lead: `run-map`.** A full-corpus legacy-vs-run-map matcher comparison found `0` mismatched asset/view rows and an `88.93%` matcher-time reduction.
-2. **Flood lead contenders: `scanline-stats` and `scanline-squared`.** Full-corpus hybrid runs found both scanline variants preserve `dense-stats` output over all `10,962` asset/view comparisons. The intended clean confirmation now measures only `dense-stats`, `scanline-stats`, and `scanline-squared`, with matcher patterns disabled.
+2. **Flood lead: `scanline-squared`.** The corrected clean confirmation measured only `dense-stats`, `scanline-stats`, and `scanline-squared`; both scanline variants preserved `dense-stats` output over all `10,962` asset/view comparisons, and `scanline-squared` won the head-to-head on avg, p95, p98, p99, max, and queued p98.
 
-The study has moved through successive controls: legacy matcher → run-map matcher, legacy flood → inline stats flood, inline flood → dense stats, and now dense stats → the scanline confirmation pair. Retired controls and eliminated candidates remain in the evidence ledger but should not be active default variants.
+The study has moved through successive controls: legacy matcher → run-map matcher, legacy flood → inline stats flood, inline flood → dense stats, and now dense stats → scanline-squared. Retired controls and eliminated candidates remain in the evidence ledger but should not be active default variants.
 
 ## Thesis
 
@@ -141,7 +141,7 @@ Each Worker/main-thread isolate reuses scratch typed arrays for dense and scanli
 | 2. Matcher equivalence | Only legacy matcher vs run-map matcher. | Needed direct regression proof for the default matcher. | `0` mismatches over `10,962` comparisons; `88.93%` faster. | Run-map matcher canonized; legacy matcher removed. |
 | 3. Flood pass fusion | Legacy two-pass flood vs inline stats vs filtered component matching. | Needed to separate full-pass fusion savings from smaller matching-filter effects. | Inline stats: `0` mismatches, `64.72%` faster. Filtered: `0` mismatches, `1.66%` faster. | Inline flood canonized; legacy/filtered variants retired. |
 | 4. Dense flood candidate phase | Inline flood and run-map leads plus dense/spatial/run-length flood candidates. | Test new flood implementations against warmed inline control. | Dense-stats was fastest; all candidates differed on one `gray:h:i` row. Targeted legacy check showed dense/spatial/run-length matched legacy while inline was the odd one out. | Dense-stats canonized as the next flood control. |
-| 5. Hybrid flood phase | Dense-stats and run-map leads plus scanline labeling, indexed containment lookup, and squared-distance geometry permutations. | Combine best ideas from prior variants while avoiding fallback/rescue paths. | Repeated full fresh runs found scanline-stats and scanline-squared equivalent; indexed variants mismatched. | `scanline-stats` and `scanline-squared` selected for head-to-head confirmation. |
+| 5. Hybrid flood phase | Dense-stats and run-map leads plus scanline labeling, indexed containment lookup, and squared-distance geometry permutations. | Combine best ideas from prior variants while avoiding fallback/rescue paths. | Repeated full fresh runs found scanline-stats and scanline-squared equivalent; indexed variants mismatched. | `scanline-squared` confirmed as the flood replacement. |
 | 6. Throughput instrumentation phase | Real Workers, half-CPU default workers, Worker warmup, sync hot paths, flood memory-lane scheduler, and scheduler-wait reporting. | Multi-worker runs initially measured memory-bandwidth stampede rather than detector cost. | Full `12`-Worker runs with flood limit `6` restored flood avg to `~5–7 ms` and reported wait separately. | Keep scheduler-wait telemetry; tune lane limit separately from algorithm ranking. |
 
 ## Evidence ledger
@@ -259,18 +259,51 @@ p98 flood scheduler wait: ~1.6 ms/row
 
 **Conclusion.** This run confirms that `scanline-squared` is safe and faster than `dense-stats`, but it does **not** confirm `scanline-squared` over `scanline-stats`. It preserved output over all `10,962` comparisons, reduced flood-control-equivalent time by `13,783.27 ms` (`17.44%`), lowered detector p98 from `22.86 ms` to `20.09 ms`, and lowered queued p98 from `22.90 ms` to `20.32 ms`. The reduced active variant set also substantially lowered scheduler contention, confirming that the broad bake-off should not be used as the ongoing default confirmation workload.
 
+### Experiment F — corrected scanline head-to-head confirmation
+
+**Question.** Between the two safe scanline variants, which should replace `dense-stats` when matcher and eliminated flood variants are disabled?
+
+**Report.** `tools/bench/reports/study/study-binary-prefilter-signals.summary.json`, generated `2026-04-25T12:48:29.797Z` from full report `tools/bench/reports/full/study/study-binary-prefilter-signals.json` at `6a1876bc1052c9bd0d142e4a641b96bb146cc167`, dirty=`true`.
+
+**Corpus and command.** `203` assets (`60` positive, `143` negative), all `54` binary view identities, `10,962` asset/view comparisons per active detector pattern.
+
+```bash
+bun run --cwd tools/bench bench study binary-prefilter-signals \
+  --view-set all \
+  --refresh-cache
+```
+
+The corrected confirmation run measured only `dense-stats`, `scanline-stats`, and `scanline-squared`. Matcher patterns and eliminated flood hybrids were disabled, so the run answers the flood-only decision directly with `32,886` fresh cache writes.
+
+| Variant | Avg | p95 | p98 | p99 | Max | Queued avg / p98 | Saved vs `dense-stats` | Improvement | Output equal | Mismatched views | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| `dense-stats` | 6.94 ms | 15.01 ms | 20.93 ms | 27.09 ms | 83.91 ms | 8.33 / 22.37 ms | — | — | control | 0 | Replaced control. |
+| `scanline-stats` | 5.70 ms | 12.84 ms | 18.50 ms | 25.08 ms | 64.53 ms | 7.21 / 20.31 ms | 13,571.67 ms | 17.83% | `true` | 0 | Safe but slower than `scanline-squared`. |
+| `scanline-squared` | 5.64 ms | 12.50 ms | 17.88 ms | 23.96 ms | 59.06 ms | 7.17 / 20.07 ms | 14,309.98 ms | 18.80% | `true` | 0 | Confirmed replacement. |
+
+**Scheduler result.** With three flood patterns active and matcher disabled:
+
+```text
+floodSchedulerLimit: 6
+total flood scheduler wait: 48,463.58 ms
+scanline-stats wait avg / p98: 1.50 / 6.16 ms
+scanline-squared wait avg / p98: 1.53 / 6.29 ms
+```
+
+**Conclusion.** `scanline-squared` is confirmed as the flood replacement. It preserved output over all `10,962` comparisons, beat `scanline-stats` on every reported detector timing percentile, improved over `dense-stats` by `14,309.98 ms` (`18.80%`), lowered detector p98 from `20.93 ms` to `17.88 ms`, and lowered queued p98 from `22.37 ms` to `20.07 ms`.
+
 ## Current variant status
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
 | `run-map` | Matcher | — | Canonical matcher lead; disabled during flood-only confirmation. |
-| `dense-stats` | Flood | — | Current flood control for the scanline head-to-head confirmation. |
+| `dense-stats` | Flood | — | Replaced by `scanline-squared` after corrected head-to-head confirmation; retained as historical/control evidence. |
 | `dense-index` | Flood | `dense-stats` | Disabled for confirmation; faster but `17` mismatched views. |
 | `dense-squared` | Flood | `dense-stats` | Disabled for confirmation; safe but weaker than scanline candidates. |
 | `dense-index-squared` | Flood | `dense-stats` | Disabled for confirmation; faster but `17` mismatched views. |
-| `scanline-stats` | Flood | `dense-stats` | Active head-to-head confirmation candidate; safe in prior full runs. |
+| `scanline-stats` | Flood | `dense-stats` | Safe but slower than `scanline-squared` in the corrected confirmation. |
 | `scanline-index` | Flood | `dense-stats` | Disabled for confirmation; faster but `17` mismatched views. |
-| `scanline-squared` | Flood | `dense-stats` | Active head-to-head confirmation candidate; safe and faster than `dense-stats` in the over-narrowed confirmation. |
+| `scanline-squared` | Flood | `dense-stats` | Confirmed replacement: `0` mismatches, `18.80%` faster, lower detector p98 and queued p98 than `dense-stats`, and faster than `scanline-stats`. |
 | `scanline-index-squared` | Flood | `dense-stats` | Disabled for confirmation; fastest but `17` mismatched views. |
 
 ## Disabled and binned variants
@@ -351,7 +384,7 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 
 ## Next work
 
-1. Run the corrected clean head-to-head confirmation with only `dense-stats`, `scanline-stats`, and `scanline-squared`; matcher patterns are disabled for this flood-only decision.
+1. Promote `scanline-squared` behind the flood control abstraction; the corrected head-to-head confirmation preserved equivalence and beat `scanline-stats`.
 2. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) to tune throughput versus scheduler wait without changing algorithm rankings.
 3. Investigate the `17` indexed-lookup mismatches. Indexed variants are fast enough to revisit only if equivalence can be restored.
 4. Revisit shared run-length artifacts as a separate combined flood+matcher study after the flood control is settled.
