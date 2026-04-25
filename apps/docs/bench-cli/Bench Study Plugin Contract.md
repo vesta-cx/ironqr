@@ -307,6 +307,19 @@ Study-specific flags could include:
 - Use OpenTUI as the progress UI. Support `--no-progress` for CI and log-only runs.
 - Keep plugin progress API minimal.
 
+Current study OpenTUI behavior:
+
+- Study mode renders study-specific panels instead of accuracy widgets.
+- The top row has two separate bordered timing widgets:
+  - `Study view timings` for view/path average durations.
+  - `Study detector timings` for detector and candidate average durations.
+- `tab` switches focus between the timing widgets; the focused widget has a white border.
+- Plain `↑/↓` scrolls the focused widget by a page.
+- `option/alt + ↑/↓` and `j/k` scroll the focused widget by one row.
+- Study timing samples may carry a group field (`view` or `detector`) so charts do not share scroll state or row sets.
+- The study footer is intentionally compact: current asset/work messages belong in the study panels, while the footer is reserved for global status and key hints.
+- The renderer refreshes continuously and requests immediate renders after key input, so active study runs should not look idle just because one CPU-bound asset is still inside scanner work.
+
 ### Slice 5 — first real plugin
 - Rebuild the view study as `view-proposals` with `view-order` as a compatibility alias.
 - Produce `tools/bench/reports/study-view-proposals.json` plus timestamped snapshots.

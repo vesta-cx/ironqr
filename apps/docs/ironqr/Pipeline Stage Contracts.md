@@ -71,6 +71,8 @@ Proposal sources should include at least:
 - transform-aware matcher
 - quad-style photo fallback detector
 
+The matcher should use row/column run-map-backed cross-checks rather than repeated pixel walking. This keeps the same finder-ratio semantics while making the matcher cheap enough to be the default detector path. Any extra matcher pruning must prove identical finder output or include a fallback path; cheap center filters alone are not a safe replacement.
+
 Output should be proposals, not winners.
 
 ### Contract note

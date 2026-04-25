@@ -137,6 +137,39 @@ Active matcher-candidate study revision:
 | `matcher-seeded-rescue-estimate` | Count how many row-scan/flood finder centers could seed matcher refinement/rescue. | No, evidence-count only | Keeps the stylized-QR rescue question visible without pretending to time an implementation. |
 | `matcher-fused-polarity-traversal-prototype` | Measure one shared-plane traversal that classifies normal-dark and inverted-dark centers together. | No | Candidate `d`; answers whether normal+inverted fusion is worth deeper work. |
 
+## Matcher refinement checkpoint
+
+The matcher-specific iteration added per-detector timing and then promoted one candidate to production:
+
+1. Per-view proposal summaries now split detector time into row-scan, flood, matcher, and dedupe buckets.
+2. `binary-prefilter-signals` emits those buckets to the study report and the live detector timing chart.
+3. The first matcher candidate made row/column run maps and used them for matcher cross-checks instead of repeatedly walking pixels.
+4. The study compares candidate `FinderEvidence` signatures against the control matcher: source, center, module sizes, and score rounded to three decimals.
+5. After the 25-asset equality run, the run-map matcher became the production/default matcher control in `packages/ironqr/src/pipeline/proposals.ts`.
+
+Durable 25-asset checkpoint evidence from the run generated at `2026-04-25T02:22:24.459Z` on commit `fb8c1508d86f1d21fdeee384ec8cf8d54c62639a`:
+
+| Measurement | Value |
+| --- | ---: |
+| Assets | 25 (`8` positive, `17` negative) |
+| View rows | 1,350 (`25 × 54`) |
+| Detector time | 205,798.40 ms |
+| Matcher control time | 151,921.40 ms |
+| Run-map matcher candidate time | 24,769.57 ms |
+| Run-map matcher improvement | 83.7% |
+| Run-map matcher output equality | `true` |
+| Run-map mismatched views | 0 |
+| Center-pruned matcher candidate time | 3,042.27 ms |
+| Center-pruned matcher output equality | `false` |
+| Center-pruned mismatched views | 1,104 |
+
+Interpretation:
+
+- Run-map cross-checks are the right default: they preserve matcher output while removing most of the matcher cost.
+- Center pruning is too aggressive as a hard gate. It rejected enough candidate centers to change outputs in most views. If revisited, it should likely become prioritization plus fallback, not an exclusion filter.
+- Fused polarity traversal and row/flood seeded rescue stayed non-output-producing because they only count/classify possible work. They do not yet emit matcher `FinderEvidence[]`, so they cannot prove equivalence.
+- Future study runs are expected to be faster because the production matcher control now uses run maps by default.
+
 Detector hotspots by view:
 
 | View | Detector time | Proposals | Row finders | Matcher finders | Avg dark ratio | Avg H transitions | Avg V transitions |
@@ -247,6 +280,8 @@ Full refined experiment still needed for prefilter gating:
 
 Do not ship production prefilter gating from this run. Required next evidence:
 
-- implement behavior-equivalent shared run/component detector candidate `b` and rerun the 25-asset smoke;
-- rerun after signal rows are joined to `view-proposals` decode/structure evidence;
-- verify any candidate thresholds against unique positive successes and false-positive risk.
+- rerun `binary-prefilter-signals` after the run-map matcher promotion to quantify the new control cost across the same 25-asset sample and the full corpus;
+- rerun `view-proposals` so proposal ranking, structure, cluster, and decode outcomes are measured against the faster matcher default;
+- if center pruning is revisited, report both a fast-first candidate and a fallback-to-full-matcher candidate so speed and output equivalence are evaluated together;
+- make fused polarity traversal output-producing before using it for a production decision: it must emit finder lists for normal and inverted views and prove equality against the default matcher;
+- verify any candidate prefilter thresholds against unique positive successes and false-positive risk.
