@@ -25,7 +25,7 @@ type OpenTuiPanel = {
 const CHART_PANEL_ROWS = 18;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
-const PANEL_TITLE_ROWS = 1;
+const PANEL_TITLE_ROWS = 0;
 const PANEL_BODY_BOTTOM_GUTTER_ROWS = 0;
 const LEFT_COLUMN_RATIO = 0.42;
 const ROOT_HORIZONTAL_PADDING = 8;
@@ -913,6 +913,7 @@ const createPanel = (
     borderStyle: 'rounded',
     borderColor: options.accent,
     backgroundColor: THEME.panel,
+    title: ` ${options.title.toUpperCase()} `,
     paddingLeft: 1,
     paddingRight: 1,
     ...(options.position === undefined ? {} : { position: options.position }),
@@ -924,17 +925,6 @@ const createPanel = (
     ...boxOptions,
     ...(options.height === undefined ? {} : { height: options.height }),
     ...(options.flexGrow === undefined ? {} : { flexGrow: options.flexGrow }),
-  });
-  const title = new TextRenderable(renderer, {
-    id: `bench-dashboard-${options.id}-title`,
-    content: ` ${options.title.toUpperCase()} `,
-    fg: options.accent,
-    bg: 'transparent',
-    selectable: true,
-    width: '100%',
-    height: 1,
-    flexGrow: 0,
-    flexShrink: 0,
   });
   const body = new TextRenderable(renderer, {
     id: `bench-dashboard-${options.id}-body`,
@@ -948,7 +938,6 @@ const createPanel = (
     wrapMode: 'none',
     truncate: true,
   });
-  box.add(title);
   box.add(body);
   return { box, body };
 };
