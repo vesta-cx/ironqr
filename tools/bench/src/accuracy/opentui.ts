@@ -1381,11 +1381,32 @@ const renderStudyFooterStatus = (dashboard: BenchDashboardModel): string => {
     'bench study',
     `stage=${dashboard.stage}`,
     `jobs=${studyJobProgress(dashboard)}`,
+    `eta=${studyFreshEta(dashboard, rowCache)}`,
     `assets=${dashboard.completedJobs}/${dashboard.totalJobs}`,
     `workers=${dashboard.workerCount || '-'}`,
     `asset-cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
     `row-cache=c${rowCache.cached}/f${rowCache.fresh}`,
   ].join(' | ');
+};
+
+const studyFreshEta = (
+  dashboard: BenchDashboardModel,
+  rowCache: { readonly cached: number; readonly fresh: number },
+): string => {
+  const plannedFresh = Math.max(0, dashboard.studyTotalUnits - rowCache.cached);
+  const remainingFresh = Math.max(0, plannedFresh - rowCache.fresh);
+  if (remainingFresh === 0) return 'done';
+  if (rowCache.fresh === 0 || dashboard.studyFreshStartedAtMs === null) return 'warming';
+  const elapsedMs = Math.max(1, Date.now() - dashboard.studyFreshStartedAtMs);
+  const msPerFreshUnit = elapsedMs / rowCache.fresh;
+  return `${formatCompactDuration(remainingFresh * msPerFreshUnit)} left @ ${formatCompactRate(rowCache.fresh, elapsedMs)}`;
+};
+
+const formatCompactRate = (completed: number, elapsedMs: number): string => {
+  const perSecond = completed / Math.max(1, elapsedMs / 1000);
+  if (perSecond >= 10) return `${perSecond.toFixed(0)}/s`;
+  if (perSecond >= 1) return `${perSecond.toFixed(1)}/s`;
+  return `${(perSecond * 60).toFixed(1)}/m`;
 };
 
 const studyTimingCacheTotals = (dashboard: BenchDashboardModel) => {
