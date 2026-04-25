@@ -103,6 +103,8 @@ export const createBenchProgressReporter = (options: {
 
   const pendingStudyTimings: StudyTimingEvent[] = [];
   const pendingMessages: string[] = [];
+  let pendingStudyTimingCursor = 0;
+  let pendingMessageCursor = 0;
   let dashboardFlushTimer: NodeJS.Timeout | null = null;
 
   const scheduleDashboardFlush = (): void => {
@@ -114,16 +116,22 @@ export const createBenchProgressReporter = (options: {
     dashboardFlushTimer = null;
     const startedAt = performance.now();
     let processed = 0;
-    while (pendingMessages.length > 0) {
-      const message = pendingMessages.shift();
+    while (pendingMessageCursor < pendingMessages.length) {
+      const message = pendingMessages[pendingMessageCursor];
+      pendingMessageCursor += 1;
       if (message === undefined) break;
       dashboard.message = `${options.commandName}: ${message}`;
       pushStudyEvent(dashboard, message);
       processed += 1;
       if (!drain && shouldPauseDashboardFlush(startedAt, processed)) break;
     }
-    while (pendingMessages.length === 0 && pendingStudyTimings.length > 0) {
-      const studyTiming = pendingStudyTimings.shift();
+    compactProcessedDashboardEvents();
+    while (
+      pendingMessageCursor >= pendingMessages.length &&
+      pendingStudyTimingCursor < pendingStudyTimings.length
+    ) {
+      const studyTiming = pendingStudyTimings[pendingStudyTimingCursor];
+      pendingStudyTimingCursor += 1;
       if (studyTiming === undefined) break;
       onBenchRunStudyTiming(dashboard, studyTiming);
       if (!studyTiming.cached) {
@@ -133,8 +141,24 @@ export const createBenchProgressReporter = (options: {
       if (!drain && shouldPauseDashboardFlush(startedAt, processed)) break;
     }
     if (processed > 0) queueRender();
-    if (!drain && (pendingMessages.length > 0 || pendingStudyTimings.length > 0)) {
+    compactProcessedDashboardEvents();
+    if (
+      !drain &&
+      (pendingMessageCursor < pendingMessages.length ||
+        pendingStudyTimingCursor < pendingStudyTimings.length)
+    ) {
       scheduleDashboardFlush();
+    }
+  };
+
+  const compactProcessedDashboardEvents = (): void => {
+    if (pendingMessageCursor > 0 && pendingMessageCursor >= pendingMessages.length) {
+      pendingMessages.length = 0;
+      pendingMessageCursor = 0;
+    }
+    if (pendingStudyTimingCursor > 0 && pendingStudyTimingCursor >= pendingStudyTimings.length) {
+      pendingStudyTimings.length = 0;
+      pendingStudyTimingCursor = 0;
     }
   };
 
