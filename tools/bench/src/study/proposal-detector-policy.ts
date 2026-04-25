@@ -195,7 +195,14 @@ const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
   },
 ];
 
-const DEFAULT_POLICY_IDS = POLICY_DEFINITIONS.map((policy) => policy.id);
+const DEFAULT_POLICY_IDS: readonly PolicyId[] = [
+  'no-flood',
+  'row-only',
+  'matcher-only',
+  'matcher-no-row-overlap',
+  'row-first-fallback-on-no-proposals',
+];
+const ALL_POLICY_IDS = POLICY_DEFINITIONS.map((policy) => policy.id);
 
 const parseConfig = ({
   flags,
@@ -212,7 +219,7 @@ const parseConfig = ({
     policyFlag.length === 0
       ? DEFAULT_POLICY_IDS
       : policyFlag.split(',').map((id) => id.trim() as PolicyId);
-  const known = new Set(DEFAULT_POLICY_IDS);
+  const known = new Set(ALL_POLICY_IDS);
   for (const policy of policies)
     if (!known.has(policy)) throw new Error(`unknown proposal detector policy: ${policy}`);
   return {
@@ -470,8 +477,11 @@ const summarizePolicyResults = ({
   ProposalDetectorPolicyConfig,
   ProposalDetectorPolicyAssetResult
 >): ProposalDetectorPolicySummary => {
-  const controlSuccessAssetIds = successfulPositiveAssetIds('full-current', results);
-  const control = summarizeOnePolicy('full-current', results, controlSuccessAssetIds);
+  const controlPolicyId: PolicyId = config.policies.includes('full-current')
+    ? 'full-current'
+    : (config.policies[0] ?? 'no-flood');
+  const controlSuccessAssetIds = successfulPositiveAssetIds(controlPolicyId, results);
+  const control = summarizeOnePolicy(controlPolicyId, results, controlSuccessAssetIds);
   const policies = config.policies.map((policyId) =>
     summarizeOnePolicy(policyId, results, controlSuccessAssetIds),
   );
@@ -482,7 +492,7 @@ const summarizePolicyResults = ({
     cache,
     policies,
     comparisons: policies
-      .filter((policy) => policy.policyId !== 'full-current')
+      .filter((policy) => policy.policyId !== control.policyId)
       .map((policy) => compareToControl(policy, control)),
     recommendation: [
       'Use full-current as the proposal-generation control. Do not promote no-flood, staged fallback, or matcher overlap suppression unless positive proposal coverage and negative proposal behavior match the control.',

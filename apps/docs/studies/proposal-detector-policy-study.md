@@ -168,3 +168,5 @@ For proposal generation, flood is removable: `no-flood` matched `full-current` o
 The fastest full-current coverage-preserving policy is `row-first-fallback-on-no-proposals`; it avoids matcher on all but one asset and cuts scan time by `76.70%`, but it emits fewer proposals than `full-current`, so treat it as the next policy candidate rather than an immediate production default.
 
 Matcher overlap suppression is promising at proposal level, but should not be promoted without proposal-identity or decode-level confirmation.
+
+Future default policy-study runs should bin the slow flood-bearing permutations (`full-current`, `row-plus-flood`) unless they are explicitly requested as historical controls. The next performance study should focus on proposal assembly itself using `no-flood` as the detector-policy baseline.

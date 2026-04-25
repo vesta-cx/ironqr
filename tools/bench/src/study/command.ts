@@ -29,6 +29,7 @@ import {
   thresholdStatsCacheStudyPlugin,
 } from './image-processing.js';
 import { proposalDetectorPolicyStudyPlugin } from './proposal-detector-policy.js';
+import { proposalGenerationVariantsStudyPlugin } from './proposal-generation-variants.js';
 import { createStudyPluginRegistry } from './registry.js';
 import type {
   StudyCacheHandle,
@@ -93,6 +94,7 @@ export const createDefaultStudyRegistry = () =>
     { plugin: sharedBinaryDetectorArtifactsStudyPlugin },
     { plugin: thresholdStatsCacheStudyPlugin },
     { plugin: proposalDetectorPolicyStudyPlugin },
+    { plugin: proposalGenerationVariantsStudyPlugin },
     { plugin: viewProposalsStudyPlugin },
     { plugin: viewOrderStudyPlugin },
   ]);

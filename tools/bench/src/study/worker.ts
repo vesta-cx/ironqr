@@ -11,6 +11,7 @@ import {
   warmImageProcessingStudyWorker,
 } from './image-processing.js';
 import { proposalDetectorPolicyStudyPlugin } from './proposal-detector-policy.js';
+import { proposalGenerationVariantsStudyPlugin } from './proposal-generation-variants.js';
 import type { StudyCacheHandle } from './types.js';
 import type { StudyCacheWrite, StudyWorkerRequest, StudyWorkerResponse } from './worker-types.js';
 
@@ -24,6 +25,7 @@ const plugins = new Map(
     sharedBinaryDetectorArtifactsStudyPlugin,
     thresholdStatsCacheStudyPlugin,
     proposalDetectorPolicyStudyPlugin,
+    proposalGenerationVariantsStudyPlugin,
   ].map((plugin) => [plugin.id, plugin] as const),
 );
 

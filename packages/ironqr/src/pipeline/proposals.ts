@@ -12,6 +12,8 @@ import { type BinaryView, type BinaryViewId, readBinaryPixel, type ViewBank } fr
 const MAX_FINDER_EVIDENCE_TOTAL = 12;
 const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
 const MAX_TRIPLE_COMBINATIONS = 120;
+const TOP_EVIDENCE_32 = 32;
+const TOP_EVIDENCE_48 = 48;
 const FINDER_RATIO_TOLERANCE = 0.9;
 const QUIET_ZONE_DISTANCE_MODULES = 5.25;
 
@@ -225,6 +227,12 @@ export interface FinderEvidenceDetectionPolicy {
   readonly suppressMatcherOverlappingRowScan?: boolean;
 }
 
+export type ProposalAssemblyVariant =
+  | 'sort-all'
+  | 'streaming-topk'
+  | 'top48-streaming'
+  | 'top32-streaming';
+
 /**
  * Per-view proposal-generation options.
  */
@@ -233,6 +241,8 @@ export interface ProposalViewGenerationOptions {
   readonly maxProposalsPerView?: number;
   /** Detector-family policy for proposal studies. Defaults to the production stack. */
   readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
+  /** Proposal assembly variant for performance studies. Defaults to current exhaustive sorting. */
+  readonly assemblyVariant?: ProposalAssemblyVariant;
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
 }
@@ -287,7 +297,12 @@ export const generateProposalBatchForView = (
 ): ProposalViewBatch => {
   const maxPerView = options.maxProposalsPerView ?? DEFAULT_MAX_PROPOSALS_PER_VIEW;
   const binaryView = viewBank.getBinaryView(binaryViewId);
-  const batch = generateProposalsForView(binaryView, maxPerView, options.detectorPolicy);
+  const batch = generateProposalsForView(
+    binaryView,
+    maxPerView,
+    options.detectorPolicy,
+    options.assemblyVariant,
+  );
   emitProposalViewGenerated(batch.summary, options.traceSink);
   for (const proposal of batch.proposals) {
     emitProposalGenerated(proposal, options.traceSink);
@@ -409,6 +424,7 @@ const generateProposalsForView = (
   binaryView: BinaryView,
   maxPerView: number,
   detectorPolicy?: FinderEvidenceDetectionPolicy,
+  assemblyVariant: ProposalAssemblyVariant = 'sort-all',
 ): ProposalViewBatch => {
   const startedAt = nowMs();
 
@@ -420,7 +436,7 @@ const generateProposalsForView = (
   const triples =
     detection.evidence.length < 3
       ? []
-      : assembleFinderTriples(detection.evidence, MAX_TRIPLE_COMBINATIONS);
+      : assembleFinderTriples(detection.evidence, MAX_TRIPLE_COMBINATIONS, assemblyVariant);
   const tripleAssemblyDurationMs = nowMs() - tripleAssemblyStartedAt;
 
   const proposalConstructionStartedAt = nowMs();
@@ -535,8 +551,18 @@ export const detectFinderEvidenceWithSummary = (
 const assembleFinderTriples = (
   evidence: readonly FinderEvidence[],
   maxTriples: number,
+  variant: ProposalAssemblyVariant = 'sort-all',
 ): readonly FinderTripleCandidate[] => {
-  return buildFinderTriples(evidence, maxTriples);
+  return buildFinderTriples(evidenceForAssemblyVariant(evidence, variant), maxTriples, variant);
+};
+
+const evidenceForAssemblyVariant = (
+  evidence: readonly FinderEvidence[],
+  variant: ProposalAssemblyVariant,
+): readonly FinderEvidence[] => {
+  if (variant === 'top48-streaming') return evidence.slice(0, TOP_EVIDENCE_48);
+  if (variant === 'top32-streaming') return evidence.slice(0, TOP_EVIDENCE_32);
+  return evidence;
 };
 
 const proposalsFromFinderTriples = (
@@ -737,8 +763,36 @@ const computePenalties = (binaryView: BinaryView, geometry: GridResolution | nul
 const buildFinderTriples = (
   evidence: readonly FinderEvidence[],
   maxCombinations: number,
+  variant: ProposalAssemblyVariant = 'sort-all',
+): readonly FinderTripleCandidate[] => {
+  if (variant === 'sort-all') return buildFinderTriplesBySorting(evidence, maxCombinations);
+  return buildFinderTriplesStreamingTopK(evidence, maxCombinations);
+};
+
+const buildFinderTriplesBySorting = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
 ): readonly FinderTripleCandidate[] => {
   const scored: FinderTripleCandidate[] = [];
+  forEachScoredTriple(evidence, (candidate) => scored.push(candidate));
+  return scored.sort(compareTripleCandidates).slice(0, maxCombinations);
+};
+
+const buildFinderTriplesStreamingTopK = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
+): readonly FinderTripleCandidate[] => {
+  const top: FinderTripleCandidate[] = [];
+  forEachScoredTriple(evidence, (candidate) =>
+    insertTopTripleCandidate(top, candidate, maxCombinations),
+  );
+  return top;
+};
+
+const forEachScoredTriple = (
+  evidence: readonly FinderEvidence[],
+  visit: (candidate: FinderTripleCandidate) => void,
+): void => {
   for (let i = 0; i < evidence.length - 2; i += 1) {
     for (let j = i + 1; j < evidence.length - 1; j += 1) {
       for (let k = j + 1; k < evidence.length; k += 1) {
@@ -750,13 +804,30 @@ const buildFinderTriples = (
         const detectorBias =
           ((a.score ?? 0) + (b.score ?? 0) + (c.score ?? 0)) / 3 +
           (sourceBonus(a.source) + sourceBonus(b.source) + sourceBonus(c.source)) / 3;
-        scored.push({ finders: [a, b, c], seedScore: score + detectorBias });
+        visit({ finders: [a, b, c], seedScore: score + detectorBias });
       }
     }
   }
-
-  return scored.sort((left, right) => right.seedScore - left.seedScore).slice(0, maxCombinations);
 };
+
+const insertTopTripleCandidate = (
+  top: FinderTripleCandidate[],
+  candidate: FinderTripleCandidate,
+  maxCombinations: number,
+): void => {
+  const insertAt = top.findIndex((existing) => compareTripleCandidates(candidate, existing) < 0);
+  if (insertAt === -1) {
+    if (top.length < maxCombinations) top.push(candidate);
+    return;
+  }
+  top.splice(insertAt, 0, candidate);
+  if (top.length > maxCombinations) top.pop();
+};
+
+const compareTripleCandidates = (
+  left: FinderTripleCandidate,
+  right: FinderTripleCandidate,
+): number => right.seedScore - left.seedScore;
 
 const scoreTripleGeometry = (
   a: FinderEvidence,
