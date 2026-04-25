@@ -113,7 +113,7 @@ const availableStudyWorkerSlots = (): number => {
 
 const defaultStudyWorkerCount = (): number => {
   const available = typeof os.availableParallelism === 'function' ? os.availableParallelism() : 4;
-  return Math.max(1, Math.min(availableStudyWorkerSlots(), Math.floor(available * 0.9)));
+  return Math.max(1, Math.min(availableStudyWorkerSlots(), Math.floor(available * 0.5)));
 };
 
 const resolveStudyWorkerCount = (requested?: number): number => {
