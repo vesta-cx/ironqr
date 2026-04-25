@@ -465,6 +465,7 @@ Processed summaries should include:
 - `floodMatrix` — current flood lead and active flood candidates only;
 - `detectorLatency` — global detector latency distributions by detector id, including `avgMs`, `p85Ms`, `p95Ms`, `p98Ms`, `p99Ms`, `maxMs`, scheduler-wait fields, and queued wall-time fields when a memory-lane scheduler is active;
 - `detectorUnits` — per detector/view latency distributions with the same percentile fields plus job/cache/output/equivalence counts;
+- `detectorOverlap` — row/flood/matcher emitted counts, retained counts after cross-detector dedupe, and removal/retention percentages;
 - `exploredAvenues` — durable ledger of tested/proposed optimization paths;
 - `conclusions` — evidence-backed decisions;
 - `questionCoverage` — what the run answers and what remains out of scope.
@@ -493,5 +494,6 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 1. Promote `scanline-squared` behind the production flood control abstraction.
 2. Run the next fresh detector timing pass with `--refresh-cache` to repopulate stable `run-map` cache rows with the canonized packed/scalar implementation and measure all four detector families plus `legacy-flood`/`legacy-matcher` historical controls.
 3. After the historical-control run, disable `legacy-flood` and `legacy-matcher` again so default studies only retain production detector families.
-4. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
+4. Use `detectorOverlap` from the historical-control run to decide whether `row-scan` or any other detector family contributes retained evidence after dedupe before proposing disablement.
+5. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
 4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.

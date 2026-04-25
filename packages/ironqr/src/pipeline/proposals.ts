@@ -212,6 +212,9 @@ export interface ProposalViewBatch {
 
 export interface FinderEvidenceDetection {
   readonly evidence: readonly FinderEvidence[];
+  readonly rowScan: readonly FinderEvidence[];
+  readonly flood: readonly FinderEvidence[];
+  readonly matcher: readonly FinderEvidence[];
   readonly summary: FinderEvidenceSummary;
 }
 
@@ -491,6 +494,9 @@ export const detectFinderEvidenceWithSummary = (
   const dedupeDurationMs = nowMs() - dedupeStartedAt;
   return {
     evidence,
+    rowScan,
+    flood,
+    matcher,
     summary: {
       rowScanCount: rowScan.length,
       floodCount: flood.length,

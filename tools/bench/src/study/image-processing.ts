@@ -234,8 +234,37 @@ interface FloodCandidateMeasurement {
   readonly units: readonly DetectorUnitMeasurement[];
 }
 
+interface DetectorFamilyOverlapMeasurement {
+  readonly viewId: BinaryViewId;
+  readonly rowScanCount: number;
+  readonly floodCount: number;
+  readonly matcherCount: number;
+  readonly dedupedCount: number;
+  readonly rowScanRetainedCount: number;
+  readonly floodRetainedCount: number;
+  readonly matcherRetainedCount: number;
+  readonly dedupeRemovedCount: number;
+}
+
+interface DetectorFamilyOverlapSummary {
+  readonly views: number;
+  readonly rowScanCount: number;
+  readonly floodCount: number;
+  readonly matcherCount: number;
+  readonly dedupedCount: number;
+  readonly rowScanRetainedCount: number;
+  readonly floodRetainedCount: number;
+  readonly matcherRetainedCount: number;
+  readonly dedupeRemovedCount: number;
+  readonly rowScanRetentionPct: number;
+  readonly floodRetentionPct: number;
+  readonly matcherRetentionPct: number;
+  readonly dedupeRemovalPct: number;
+}
+
 interface MatcherCandidateMeasurement {
   readonly variants: readonly DetectorVariantMeasurement[];
+  readonly detectorOverlap: readonly DetectorFamilyOverlapMeasurement[];
   readonly units: readonly DetectorUnitMeasurement[];
   readonly controlMatcherMs: number;
   readonly legacyControlMs: number;
@@ -292,6 +321,7 @@ interface ImageProcessingSummary extends Record<string, unknown> {
   readonly recommendations: readonly string[];
   readonly detectorCandidates: readonly DetectorVariantSummary[];
   readonly detectorLatency: readonly DetectorUnitSummary[];
+  readonly detectorOverlap: DetectorFamilyOverlapSummary;
   readonly detectorUnits: readonly DetectorUnitSummary[];
 }
 
@@ -1083,6 +1113,7 @@ const cachedMatcherMeasurement = (
   units: readonly DetectorUnitMeasurement[],
 ): MatcherCandidateMeasurement => ({
   variants: [...variants.values()],
+  detectorOverlap: [],
   units,
   controlMatcherMs: round(controlMatcherMs),
   legacyControlMs: 0,
@@ -2238,7 +2269,10 @@ const measureFinderFamilyRows = async (
   viewId: BinaryViewId,
   preloadedRows: ReadonlySet<string>,
   log: (message: string) => void,
-): Promise<{ readonly units: readonly DetectorUnitMeasurement[] }> => {
+): Promise<{
+  readonly units: readonly DetectorUnitMeasurement[];
+  readonly overlap: DetectorFamilyOverlapMeasurement;
+}> => {
   let detection: ReturnType<typeof detectFinderEvidenceWithSummary> | null = null;
   const getDetection = (): ReturnType<typeof detectFinderEvidenceWithSummary> => {
     detection ??= detectFinderEvidenceWithSummary(view);
@@ -2289,7 +2323,25 @@ const measureFinderFamilyRows = async (
       row.measurement.cached,
     );
   }
+  const result = getDetection();
+  const retainedBySource = (source: FinderEvidence['source']): number =>
+    result.evidence.filter((entry) => entry.source === source).length;
   return {
+    overlap: {
+      viewId,
+      rowScanCount: result.rowScan.length,
+      floodCount: result.flood.length,
+      matcherCount: result.matcher.length,
+      dedupedCount: result.evidence.length,
+      rowScanRetainedCount: retainedBySource('row-scan'),
+      floodRetainedCount: retainedBySource('flood'),
+      matcherRetainedCount: retainedBySource('matcher'),
+      dedupeRemovedCount:
+        result.rowScan.length +
+        result.flood.length +
+        result.matcher.length -
+        result.evidence.length,
+    },
     units: rows.map((row) =>
       detectorUnit(
         detectorTimingId(viewId, row.variantId, row.area),
@@ -2338,6 +2390,7 @@ const measureMatcherCandidateVariants = async (
   let controlMatcherMs = 0;
   const variants = new Map<string, DetectorVariantMeasurement>();
   const units: DetectorUnitMeasurement[] = [];
+  const detectorOverlap: DetectorFamilyOverlapMeasurement[] = [];
 
   for (const viewId of viewIds) {
     throwIfStudyAborted(signal);
@@ -2351,6 +2404,7 @@ const measureMatcherCandidateVariants = async (
       log,
     );
     units.push(...finderDetection.units);
+    detectorOverlap.push(finderDetection.overlap);
     const control = await measureVariant(asset, cache, 'run-map', viewId, preloadedRows, () =>
       detectMatcherFinders(view, view.width, view.height),
     );
@@ -2412,6 +2466,7 @@ const measureMatcherCandidateVariants = async (
 
   return {
     variants: [...variants.values()],
+    detectorOverlap,
     units,
     controlMatcherMs: round(controlMatcherMs),
     legacyControlMs: 0,
@@ -2924,6 +2979,7 @@ const summarizeImageProcessingStudy = ({
   const totals: MutableTotals = emptyTotals();
   const detectorVariantRows = new Map<string, DetectorVariantMeasurement>();
   const detectorUnits: DetectorUnitMeasurement[] = [];
+  const detectorOverlapRows: DetectorFamilyOverlapMeasurement[] = [];
 
   for (const result of results) {
     totals.pixelCount += result.pixelCount;
@@ -3003,6 +3059,7 @@ const summarizeImageProcessingStudy = ({
       totals.matcherFusedLightCenterCount += result.matcherCandidates.fusedLightCenterCount;
       totals.matcherSharedPlaneCount += result.matcherCandidates.sharedPlaneCount;
       detectorUnits.push(...result.matcherCandidates.units);
+      detectorOverlapRows.push(...result.matcherCandidates.detectorOverlap);
       for (const variant of result.matcherCandidates.variants) {
         mergeDetectorVariant(detectorVariantRows, variant);
       }
@@ -3090,6 +3147,7 @@ const summarizeImageProcessingStudy = ({
   const detectorCandidates = summarizeDetectorVariants(detectorVariantRows, finalizedTotals);
   const detectorLatency = summarizeDetectorUnits(detectorUnits, (unit) => unit.variantId);
   const detectorUnitRows = summarizeDetectorUnits(detectorUnits, (unit) => unit.id);
+  const detectorOverlap = summarizeDetectorOverlap(detectorOverlapRows);
   const variants = buildVariantSummaries(config, finalizedTotals, detectorCandidates);
 
   return {
@@ -3107,6 +3165,7 @@ const summarizeImageProcessingStudy = ({
     recommendations: buildRecommendations(perView, perScalar, finalizedTotals),
     detectorCandidates,
     detectorLatency,
+    detectorOverlap,
     detectorUnits: detectorUnitRows,
   };
 };
@@ -3340,6 +3399,43 @@ const summarizeDetectorVariants = (
       ...queuedLatencySummary(variant.queuedSamples),
     };
   });
+
+const summarizeDetectorOverlap = (
+  rows: readonly DetectorFamilyOverlapMeasurement[],
+): DetectorFamilyOverlapSummary => {
+  const totals = rows.reduce(
+    (acc, row) => ({
+      views: acc.views + 1,
+      rowScanCount: acc.rowScanCount + row.rowScanCount,
+      floodCount: acc.floodCount + row.floodCount,
+      matcherCount: acc.matcherCount + row.matcherCount,
+      dedupedCount: acc.dedupedCount + row.dedupedCount,
+      rowScanRetainedCount: acc.rowScanRetainedCount + row.rowScanRetainedCount,
+      floodRetainedCount: acc.floodRetainedCount + row.floodRetainedCount,
+      matcherRetainedCount: acc.matcherRetainedCount + row.matcherRetainedCount,
+      dedupeRemovedCount: acc.dedupeRemovedCount + row.dedupeRemovedCount,
+    }),
+    {
+      views: 0,
+      rowScanCount: 0,
+      floodCount: 0,
+      matcherCount: 0,
+      dedupedCount: 0,
+      rowScanRetainedCount: 0,
+      floodRetainedCount: 0,
+      matcherRetainedCount: 0,
+      dedupeRemovedCount: 0,
+    },
+  );
+  const inputCount = totals.rowScanCount + totals.floodCount + totals.matcherCount;
+  return {
+    ...totals,
+    rowScanRetentionPct: percent(totals.rowScanRetainedCount, totals.rowScanCount),
+    floodRetentionPct: percent(totals.floodRetainedCount, totals.floodCount),
+    matcherRetentionPct: percent(totals.matcherRetainedCount, totals.matcherCount),
+    dedupeRemovalPct: percent(totals.dedupeRemovedCount, inputCount),
+  };
+};
 
 const summarizeDetectorUnits = (
   units: readonly DetectorUnitMeasurement[],
