@@ -70,9 +70,14 @@ describe('bench cli args', () => {
   });
 
   it('rejects partially numeric worker and iteration counts', () => {
-    expect(() => parseArgs(['accuracy', '--workers=2abc'])).toThrow('positive integer');
-    expect(() => parseArgs(['accuracy', '--workers', '1.5'])).toThrow('positive integer');
+    expect(() => parseArgs(['accuracy', '--workers=2abc'])).toThrow('non-negative integer');
+    expect(() => parseArgs(['accuracy', '--workers', '1.5'])).toThrow('non-negative integer');
     expect(() => parseArgs(['performance', '--iterations=1.5'])).toThrow('positive integer');
+  });
+
+  it('accepts zero study workers to run on the main thread', () => {
+    const { options } = parseArgs(['study', 'binary-prefilter-signals', '--workers=0']);
+    expect(options.workers).toBe(0);
   });
 
   it('parses targeted cache refresh', () => {

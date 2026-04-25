@@ -33,6 +33,13 @@ const parsePositiveInteger = (value: string, flag: string): number => {
   return Number(value);
 };
 
+const parseWorkerCount = (value: string, flag: string): number => {
+  if (!/^(0|[1-9]\d*)$/.test(value)) {
+    throw new Error(`${flag} must be a non-negative integer, got: ${value}`);
+  }
+  return Number(value);
+};
+
 const parseStudyFlagValue = (value: string): string | number | boolean => {
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -191,12 +198,12 @@ export const parseArgs = (
     if (arg === '--workers') {
       const next = rest[index + 1];
       if (!next) throw new Error('--workers requires a value');
-      workers = parsePositiveInteger(next, '--workers');
+      workers = parseWorkerCount(next, '--workers');
       index += 1;
       continue;
     }
     if (arg.startsWith('--workers=')) {
-      workers = parsePositiveInteger(arg.slice('--workers='.length), '--workers');
+      workers = parseWorkerCount(arg.slice('--workers='.length), '--workers');
       continue;
     }
     if (arg === '--iterations') {

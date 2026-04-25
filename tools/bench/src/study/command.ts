@@ -119,9 +119,9 @@ const defaultStudyWorkerCount = (): number => {
 const resolveStudyWorkerCount = (requested?: number): number => {
   const maxWorkers = availableStudyWorkerSlots();
   if (requested === undefined) return defaultStudyWorkerCount();
-  if (!Number.isSafeInteger(requested) || requested < 1 || requested > maxWorkers) {
+  if (!Number.isSafeInteger(requested) || requested < 0 || requested > maxWorkers) {
     throw new Error(
-      `Study worker count must be an integer from 1 to ${maxWorkers}, got ${requested}`,
+      `Study worker count must be an integer from 0 to ${maxWorkers}, got ${requested}`,
     );
   }
   return requested;
@@ -578,6 +578,7 @@ const runPlugin = async (input: {
     ...(input.studyFlags ?? {}),
   };
   if (isGenericStudyPlugin(input.plugin)) {
+    const runAsset = input.plugin.runAsset;
     const summarize = input.plugin.summarize;
     const renderReport = input.plugin.renderReport;
     const config = input.plugin.parseConfig?.({ flags, assets: input.assets }) ?? {};
@@ -635,24 +636,31 @@ const runPlugin = async (input: {
       assetsToRun.push(...input.assets);
     }
 
-    const studyWorkerPool = createStudyWorkerPool(input.workerCount, {
-      log: input.log,
-      cache: input.cache,
-    });
+    const useWorkerPool = input.workerCount > 0;
+    const studyWorkerPool = useWorkerPool
+      ? createStudyWorkerPool(input.workerCount, {
+          log: input.log,
+          cache: input.cache,
+        })
+      : null;
     const assetsById = new Map(input.assets.map((asset) => [asset.id, asset] as const));
     const abortStudyWorkers = (): void => {
-      void studyWorkerPool.close();
+      void studyWorkerPool?.close();
     };
     input.signal?.addEventListener('abort', abortStudyWorkers, { once: true });
-    input.progress.onMessage(`study workers starting: ${input.workerCount}`);
-    await yieldToProgressRenderer();
-    await studyWorkerPool.ready();
-    if (input.signal?.aborted) throw input.signal.reason ?? new Error('Study interrupted.');
-    input.progress.onMessage(`study workers ready: ${input.workerCount}`);
+    if (studyWorkerPool) {
+      input.progress.onMessage(`study workers starting: ${input.workerCount}`);
+      await yieldToProgressRenderer();
+      await studyWorkerPool.ready();
+      if (input.signal?.aborted) throw input.signal.reason ?? new Error('Study interrupted.');
+      input.progress.onMessage(`study workers ready: ${input.workerCount}`);
+    } else {
+      input.progress.onMessage('study workers disabled: running assets on main thread');
+    }
     try {
       const run = await mapConcurrentPartial(
         assetsToRun,
-        input.workerCount,
+        Math.max(1, input.workerCount),
         async (asset, index) => {
           if (!readCachedAsset)
             input.progress.onAssetPrepared(asset.id, index + 1, input.assets.length);
@@ -697,17 +705,29 @@ const runPlugin = async (input: {
           });
           input.progress.onMessage(`study asset started ${asset.id}`);
           await yieldToProgressRenderer();
-          const execution = await studyWorkerPool.run({
-            repoRoot: input.repoRoot,
-            plugin: input.plugin,
-            config,
-            asset,
-            cacheFile: input.cacheFile,
-            cacheEnabled: input.cache.summary().enabled,
-            refreshCache: input.refreshCache,
-          });
-          await applyStudyCacheWrites(input.cache, assetsById, execution.cacheWrites);
-          const result = execution.result;
+          const result = studyWorkerPool
+            ? await (async () => {
+                const execution = await studyWorkerPool.run({
+                  repoRoot: input.repoRoot,
+                  plugin: input.plugin,
+                  config,
+                  asset,
+                  cacheFile: input.cacheFile,
+                  cacheEnabled: input.cache.summary().enabled,
+                  refreshCache: input.refreshCache,
+                });
+                await applyStudyCacheWrites(input.cache, assetsById, execution.cacheWrites);
+                return execution.result;
+              })()
+            : await runAsset({
+                repoRoot: input.repoRoot,
+                asset,
+                config,
+                reports: input.reports,
+                cache: input.cache,
+                ...(input.signal === undefined ? {} : { signal: input.signal }),
+                log: input.log,
+              });
           if (!input.plugin.usesInternalCache) await input.cache.write(asset, cacheKey, result);
           const resultWasCached =
             result !== null &&
@@ -752,7 +772,7 @@ const runPlugin = async (input: {
       };
     } finally {
       input.signal?.removeEventListener('abort', abortStudyWorkers);
-      await studyWorkerPool.close();
+      await studyWorkerPool?.close();
     }
   }
 
