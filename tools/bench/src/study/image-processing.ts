@@ -18,7 +18,7 @@ import {
 } from '../../../../packages/ironqr/src/pipeline/views.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
 import { normalizeDecodedText } from '../shared/text.js';
-import type { StudyPlugin, StudySummaryInput } from './types.js';
+import type { StudyCacheHandle, StudyPlugin, StudySummaryInput } from './types.js';
 
 type ImageProcessingFocus =
   | 'binary-bit-hot-path'
@@ -354,6 +354,7 @@ function makeImageProcessingStudyPlugin(input: {
     title: input.title,
     description: input.description,
     version: STUDY_VERSION,
+    usesInternalCache: input.focus === 'binary-prefilter-signals',
     flags: [
       {
         name: 'max-assets',
@@ -392,7 +393,7 @@ function makeImageProcessingStudyPlugin(input: {
       decode: config.decode,
       metrics: 'materialization,proposal,signals,stats,fusion,decode',
     }),
-    runAsset: async ({ asset, config, signal, log }) => {
+    runAsset: async ({ asset, config, cache, signal, log }) => {
       if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
       const image = await asset.loadImage();
       const normalized = createNormalizedImage(image);
@@ -417,7 +418,14 @@ function makeImageProcessingStudyPlugin(input: {
 
       if (config.focus === 'binary-prefilter-signals') {
         const floodStartedAt = performance.now();
-        floodCandidates = await measureFloodCandidateVariants(viewBank, viewIds, asset.id, log);
+        floodCandidates = await measureFloodCandidateVariants(
+          viewBank,
+          viewIds,
+          asset.id,
+          asset,
+          cache,
+          log,
+        );
         proposalGenerationMs = round(performance.now() - floodStartedAt);
       } else {
         const proposalStartedAt = performance.now();
@@ -621,15 +629,37 @@ const measureFloodCandidateVariants = async (
   viewBank: ViewBank,
   viewIds: readonly BinaryViewId[],
   assetId: string,
+  asset: Parameters<StudyCacheHandle['read']>[0],
+  cache: Pick<StudyCacheHandle, 'read' | 'write'>,
   log: (message: string) => void,
 ): Promise<FloodCandidateMeasurement> => {
   let controlMs = 0;
 
   for (const viewId of viewIds) {
+    const cacheKey = detectorVariantCacheKey('inline-flood-control', viewId);
+    const cached = await cache.read(asset, cacheKey);
+    if (isDetectorVariantMeasurement(cached)) {
+      controlMs += cached.durationMs;
+      logStudyTiming(
+        log,
+        detectorTimingId(viewId, 'inline', 'flood'),
+        0,
+        'detector',
+        cached.outputCount,
+      );
+      log(`${assetId}: flood control cache hit ${viewId} inline=${cached.outputCount}`);
+      continue;
+    }
+
     const view = viewBank.getBinaryView(viewId);
     const controlStartedAt = performance.now();
     const controlOutput = detectFloodFinders(view, view.width, view.height);
     const controlElapsed = performance.now() - controlStartedAt;
+    const measurement = {
+      durationMs: round(controlElapsed),
+      outputCount: controlOutput.length,
+    };
+    await cache.write(asset, cacheKey, measurement);
     controlMs += controlElapsed;
     logStudyTiming(
       log,
@@ -644,6 +674,17 @@ const measureFloodCandidateVariants = async (
 
   return { controlMs: round(controlMs) };
 };
+
+const detectorVariantCacheKey = (variantId: string, viewId: BinaryViewId): string =>
+  JSON.stringify({ kind: 'detector-variant', version: 1, variantId, viewId });
+
+const isDetectorVariantMeasurement = (
+  value: unknown,
+): value is { readonly durationMs: number; readonly outputCount: number } =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as { durationMs?: unknown }).durationMs === 'number' &&
+  typeof (value as { outputCount?: unknown }).outputCount === 'number';
 
 const measureBinaryReadVariants = async (
   viewBank: ReturnType<typeof createViewBank>,

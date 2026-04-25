@@ -11,6 +11,8 @@ Settled controls:
 
 The active study should contain only the current controls plus genuinely new candidates that could beat them. Exhausted references like legacy flood, filtered flood, and center-signal matcher are not active variants.
 
+The study uses detector-variant cache keys (`variantId + viewId + asset hash`) instead of one coarse whole-asset cache entry. Adding a new variant should run only that variant for each asset/view while reusing cached measurements for the current control. Retired variants stay in the historical evidence ledger but are excluded from active summary matrices.
+
 ## Scope and safety bar
 
 The unit of evidence is an asset/view detector-output comparison. With `--view-set all` on the full corpus, each candidate is compared over:
@@ -39,7 +41,8 @@ For each selected asset/view:
    - center x/y
    - horizontal/vertical module sizes
    - score
-5. record timing and output counts.
+5. record timing and output counts;
+6. cache each detector variant independently by variant id and view id.
 
 The first implementation was intentionally broad and exploratory: passive binary signals, proposal generation, matcher candidates, flood timing, and materialization candidates all lived together. That found hotspots, but it made production decisions hard to justify. We refined it into isolated detector-equivalence experiments: matcher first, flood second, then only follow-up candidates against the new controls.
 
@@ -51,7 +54,7 @@ The first implementation was intentionally broad and exploratory: passive binary
 | 1. Matcher exploration | Run-map, center-pruned, seeded, and fused matcher candidates. | Prototype variants mixed correctness and headroom; run-map needed a clean legacy comparison. | Center/seed variants mismatched; run-map looked promising. | Narrowed to legacy matcher vs run-map matcher. |
 | 2. Matcher equivalence | Only legacy matcher vs run-map matcher. | Needed a direct regression proof for the default matcher. | `0` mismatches over `10,962` comparisons; `88.93%` faster. | Run-map matcher canonized; legacy matcher removed. |
 | 3. Flood equivalence | Legacy two-pass flood vs inline stats vs filtered component matching. | Needed to distinguish the large pass-fusion win from smaller matching-filter effects. | Inline stats: `0` mismatches, `64.72%` faster. Filtered: `0` mismatches, only `1.66%` faster over old control. | Inline flood canonized; legacy/filtered variants retired from active study. |
-| 4. Current phase | Inline flood and run-map matcher controls only, until a new better candidate is implemented. | Avoid wasting runtime on exhausted controls/candidates. | Pending. | Add only new candidates that can plausibly beat the running lead. |
+| 4. Current phase | Inline flood and run-map matcher controls only, until a new better candidate is implemented. | Avoid wasting runtime on exhausted controls/candidates. | Variant-level cache runs only missing measurements; summaries exclude binned variants. | Add only new candidates that can plausibly beat the running lead. |
 
 ## Evidence ledger
 
@@ -121,7 +124,7 @@ Processed summaries should include:
 
 - `headline` — control timing and equality summary;
 - `variants` — current controls and genuinely new active candidates only;
-- `floodMatrix` — current flood control and active flood candidates;
+- `floodMatrix` — current flood control and active flood candidates only;
 - `exploredAvenues` — durable ledger of tested/proposed optimization paths;
 - `conclusions` — evidence-backed decisions;
 - `questionCoverage` — what the run answers and what remains out of scope.

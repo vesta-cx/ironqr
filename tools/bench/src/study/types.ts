@@ -56,6 +56,7 @@ export interface StudyAssetInput<Config extends object> {
   readonly asset: CorpusBenchAsset;
   readonly config: Config;
   readonly reports: StudyReportReaders;
+  readonly cache: StudyCacheHandle<unknown>;
   readonly signal?: AbortSignal;
   readonly log: (message: string) => void;
 }
@@ -101,6 +102,8 @@ export interface StudyPlugin<
   engines?(config: Config): readonly AccuracyEngineDescriptor[];
   /** Scanner or observability dimensions relevant to generic cache keys and report metadata. */
   observability?(config: Config): Record<string, unknown>;
+  /** Skip runner-owned whole-asset cache so plugin can cache reusable sub-results itself. */
+  readonly usesInternalCache?: boolean;
 
   /** Legacy escape hatch for plugins that need to own their whole execution loop. */
   run?(context: StudyPluginContext): Promise<StudyPluginResult<Summary>>;

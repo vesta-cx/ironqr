@@ -131,6 +131,9 @@ export interface StudyPlugin<Summary extends object, Config extends object, Asse
   engines?(config: Config): readonly AccuracyEngineDescriptor[];
   observability?(config: Config): Record<string, unknown>;
 
+  // Skip whole-asset cache when the plugin caches reusable sub-results itself.
+  readonly usesInternalCache?: boolean;
+
   // Escape hatch for experiments that must own their full execution loop.
   run?(context: StudyPluginContext): Promise<StudyPluginResult<Summary>>;
 }

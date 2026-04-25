@@ -531,7 +531,9 @@ const runPlugin = async (input: {
           engines: engines.map((engine) => ({ id: engine.id, version: engine.adapterVersion })),
           observability,
         });
-        const cached = await input.cache.read(asset, cacheKey);
+        const cached = input.plugin.usesInternalCache
+          ? null
+          : await input.cache.read(asset, cacheKey);
         if (cached !== null) {
           input.progress.onScanStarted({
             engineId: input.plugin.id,
@@ -566,10 +568,11 @@ const runPlugin = async (input: {
           asset,
           config,
           reports: input.reports,
+          cache: input.cache,
           ...(input.signal === undefined ? {} : { signal: input.signal }),
           log: input.log,
         });
-        await input.cache.write(asset, cacheKey, result);
+        if (!input.plugin.usesInternalCache) await input.cache.write(asset, cacheKey, result);
         input.progress.onScanFinished({
           engineId: input.plugin.id,
           assetId: asset.id,
