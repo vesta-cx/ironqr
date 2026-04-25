@@ -168,7 +168,7 @@ export const reviewStagedAssets = async (
     await updateStagedRemoteAsset(
       options.stageDir,
       buildReviewedAsset(asset, {
-        suggestedLabel: qrCount === 0 ? 'non-qr-negative' : 'qr-positive',
+        suggestedLabel: qrCount === 0 ? 'qr-neg' : 'qr-pos',
         review: {
           status: 'approved',
           reviewer: options.reviewer,

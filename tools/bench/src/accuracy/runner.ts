@@ -1,8 +1,10 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { type BenchCorpusAsset, loadBenchCorpusAssets } from '../core/corpus.js';
+import { describeAccuracyEngine, resolveAccuracyEngines } from '../core/engines.js';
+import { abortReason, mapConcurrentPartial } from '../core/runner.js';
 import { getDefaultAccuracyCachePath, openAccuracyCacheStore } from './cache.js';
-import { describeAccuracyEngine, listAccuracyEngines } from './engines.js';
 import { createAccuracyProgressReporter } from './progress.js';
 import { expectedTextsFor, scoreNegativeScan, scorePositiveScan } from './scoring.js';
 import type {
@@ -10,87 +12,22 @@ import type {
   AccuracyBenchmarkOptions,
   AccuracyBenchmarkResult,
   AccuracyEngine,
-  AccuracyEngineDescriptor,
   AccuracyEngineRunOptions,
   AccuracyEngineSummary,
   AccuracyScanResult,
   EngineAssetResult,
-  EngineFailureReason,
 } from './types.js';
 import { createAccuracyWorkerPool } from './worker-pool.js';
 
 const REPORTS_DIRECTORY = path.join('tools', 'bench', 'reports');
 const DEFAULT_REPORT_FILE = path.join(REPORTS_DIRECTORY, 'accuracy.json');
 const DEFAULT_WORKER_LIMIT = 8;
-const CORPUS_MANIFEST_VERSION = 1;
-
 export const normalizeAccuracyEngineRunOptions = (
   options?: AccuracyEngineRunOptions,
 ): AccuracyEngineRunOptions => ({
   verbose: options?.verbose ?? false,
   ironqrTraceMode: options?.ironqrTraceMode ?? 'off',
 });
-
-interface CorpusAsset {
-  readonly id: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
-  readonly sha256: string;
-  readonly relativePath: string;
-  readonly review: {
-    readonly status: string;
-  };
-  readonly groundTruth?: {
-    readonly codes: readonly { readonly text: string }[];
-  };
-}
-
-interface CorpusManifest {
-  readonly version: number;
-  readonly assets: readonly CorpusAsset[];
-}
-
-const readBenchCorpusManifest = async (repoRoot: string): Promise<CorpusManifest> => {
-  const filePath = path.join(repoRoot, 'corpus', 'data', 'manifest.json');
-  const parsed: unknown = JSON.parse(await readFile(filePath, 'utf8'));
-  if (!isCorpusManifest(parsed)) {
-    throw new Error(`Invalid corpus manifest: ${filePath}`);
-  }
-  if (parsed.version > CORPUS_MANIFEST_VERSION) {
-    throw new Error(
-      `Incompatible corpus manifest version: ${parsed.version}; bench supports ${CORPUS_MANIFEST_VERSION}.`,
-    );
-  }
-  return parsed;
-};
-
-const isCorpusManifest = (value: unknown): value is CorpusManifest => {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<CorpusManifest>;
-  return typeof candidate.version === 'number' && Array.isArray(candidate.assets);
-};
-
-const mapConcurrent = async <Input, Output>(
-  values: readonly Input[],
-  concurrency: number,
-  map: (value: Input, index: number) => Promise<Output>,
-): Promise<readonly Output[]> => {
-  if (values.length === 0) return [];
-  const results = new Array<Output>(values.length);
-  let nextIndex = 0;
-
-  const worker = async (): Promise<void> => {
-    while (nextIndex < values.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      const value = values[currentIndex];
-      if (value === undefined) continue;
-      results[currentIndex] = await map(value, currentIndex);
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, () => worker()));
-  return results;
-};
 
 const roundDurationMs = (value: number): number => Math.round(value * 100) / 100;
 
@@ -109,49 +46,7 @@ const resolveWorkerCount = (requested?: number): number => {
   return requested;
 };
 
-const unexpectedFailureScan = (
-  error: unknown,
-  failureReason: EngineFailureReason = 'engine_error',
-): AccuracyScanResult => ({
-  status: 'error',
-  attempted: true,
-  succeeded: false,
-  results: [],
-  failureReason,
-  error: error instanceof Error ? error.message : String(error),
-});
-
-export const inspectAccuracyEngines = (): readonly AccuracyEngineDescriptor[] => {
-  return listAccuracyEngines().map(describeAccuracyEngine);
-};
-
-export const resolveAccuracyEngines = (
-  engineIds: readonly string[] = [],
-): readonly AccuracyEngine[] => {
-  const engines = listAccuracyEngines();
-  if (engineIds.length === 0) {
-    return engines.filter((engine) => engine.availability().available);
-  }
-
-  const requested = new Set(engineIds);
-  const selected = engines.filter((engine) => requested.has(engine.id));
-  if (selected.length !== requested.size) {
-    const found = new Set(selected.map((engine) => engine.id));
-    const missing = engineIds.filter((engineId) => !found.has(engineId));
-    throw new Error(`Unknown accuracy engine(s): ${missing.join(', ')}`);
-  }
-
-  const unavailable = selected.filter((engine) => !engine.availability().available);
-  if (unavailable.length > 0) {
-    throw new Error(
-      `Unavailable accuracy engine(s): ${unavailable
-        .map((engine) => `${engine.id}: ${engine.availability().reason ?? 'unavailable'}`)
-        .join('; ')}`,
-    );
-  }
-
-  return selected;
-};
+export { inspectAccuracyEngines, resolveAccuracyEngines } from '../core/engines.js';
 
 const summarizeEngine = (
   engineId: string,
@@ -160,8 +55,8 @@ const summarizeEngine = (
   const results = assets.flatMap((asset) =>
     asset.results.filter((result) => result.engineId === engineId),
   );
-  const positives = results.filter((result) => result.label === 'qr-positive');
-  const negatives = results.filter((result) => result.label === 'non-qr-negative');
+  const positives = results.filter((result) => result.label === 'qr-pos');
+  const negatives = results.filter((result) => result.label === 'qr-neg');
   const fullPasses = positives.filter((result) => result.outcome === 'pass').length;
   const partialPasses = positives.filter((result) => result.outcome === 'partial-pass').length;
   const positiveFailures = positives.length - fullPasses - partialPasses;
@@ -202,7 +97,7 @@ export const isCacheableEngineResult = (
 };
 
 const cacheRunKey = (
-  asset: CorpusAsset,
+  asset: BenchCorpusAsset,
   expectedTexts: readonly string[],
   runOptions: AccuracyEngineRunOptions,
 ): string => {
@@ -216,13 +111,15 @@ const cacheRunKey = (
 
 const toEngineAssetResult = (
   engineId: string,
-  label: CorpusAsset['label'],
+  label: BenchCorpusAsset['label'],
   expectedTexts: readonly string[],
   scan: AccuracyScanResult,
   durationMs: number,
   cached: boolean,
+  imageLoadDurationMs: number | null = null,
+  totalJobDurationMs = durationMs,
 ): EngineAssetResult => {
-  if (label === 'qr-positive') {
+  if (label === 'qr-pos') {
     const scored = scorePositiveScan(expectedTexts, scan);
     return {
       engineId,
@@ -233,6 +130,8 @@ const toEngineAssetResult = (
       failureReason: scored.failureReason,
       error: scored.error,
       durationMs,
+      imageLoadDurationMs,
+      totalJobDurationMs,
       cached,
       diagnostics: scan.diagnostics ?? null,
     };
@@ -248,6 +147,8 @@ const toEngineAssetResult = (
     failureReason: scored.failureReason,
     error: scored.error,
     durationMs,
+    imageLoadDurationMs,
+    totalJobDurationMs,
     cached,
     diagnostics: scan.diagnostics ?? null,
   };
@@ -258,18 +159,105 @@ const stripDiagnosticsForCache = (scan: AccuracyScanResult): AccuracyScanResult 
   diagnostics: null,
 });
 
+const runEngineInProcess = async (
+  asset: BenchCorpusAsset,
+  engine: AccuracyEngine,
+  progress: ReturnType<typeof createAccuracyProgressReporter>,
+  runOptions: AccuracyEngineRunOptions,
+  cacheable: boolean,
+): Promise<{
+  readonly scan: AccuracyScanResult;
+  readonly durationMs: number;
+  readonly imageLoadDurationMs: number | null;
+  readonly totalJobDurationMs: number;
+}> => {
+  progress.onScanStarted({
+    engineId: engine.id,
+    assetId: asset.id,
+    relativePath: asset.relativePath,
+    label: asset.label,
+    cached: false,
+    cacheable,
+  });
+  let imageLoadDurationMs: number | null = null;
+  const startedAt = performance.now();
+  const scan = await engine.scan(
+    {
+      ...asset,
+      loadImage: async () => {
+        progress.onImageLoadStarted({
+          engineId: engine.id,
+          assetId: asset.id,
+          relativePath: asset.relativePath,
+          label: asset.label,
+        });
+        const imageStartedAt = performance.now();
+        const image = await asset.loadImage();
+        imageLoadDurationMs = roundDurationMs(performance.now() - imageStartedAt);
+        progress.onImageLoadFinished({
+          engineId: engine.id,
+          assetId: asset.id,
+          width: image.width,
+          height: image.height,
+        });
+        return image;
+      },
+    },
+    runOptions,
+  );
+  const totalJobDurationMs = roundDurationMs(performance.now() - startedAt);
+  return {
+    scan,
+    durationMs: roundDurationMs(totalJobDurationMs - (imageLoadDurationMs ?? 0)),
+    imageLoadDurationMs,
+    totalJobDurationMs,
+  };
+};
+
+const runEngineInWorker = async (
+  asset: BenchCorpusAsset,
+  engine: AccuracyEngine,
+  workerPool: ReturnType<typeof createAccuracyWorkerPool>,
+  runOptions: AccuracyEngineRunOptions,
+  expectedTexts: readonly string[],
+  cacheable: boolean,
+): Promise<{
+  readonly scan: AccuracyScanResult;
+  readonly durationMs: number;
+  readonly imageLoadDurationMs: number | null;
+  readonly totalJobDurationMs: number;
+}> => {
+  const job = {
+    engineId: engine.id,
+    cacheable,
+    asset: {
+      id: asset.id,
+      label: asset.label,
+      sha256: asset.sha256,
+      imagePath: asset.imagePath,
+      relativePath: asset.relativePath,
+      expectedTexts,
+    },
+    runOptions,
+  };
+  return workerPool.run(job).catch(async (firstError) => {
+    return workerPool.run(job).catch((secondError) => {
+      throw new Error(
+        `Accuracy worker repeatedly failed for ${engine.id}/${asset.id}: ${String(firstError)}; ${String(secondError)}`,
+      );
+    });
+  });
+};
+
 const scoreAssetForEngine = async (
-  asset: CorpusAsset,
-  repoRoot: string,
+  asset: BenchCorpusAsset,
   engine: AccuracyEngine,
   cache: Awaited<ReturnType<typeof openAccuracyCacheStore>>,
   workerPool: ReturnType<typeof createAccuracyWorkerPool>,
   progress: ReturnType<typeof createAccuracyProgressReporter>,
   runOptions: AccuracyEngineRunOptions,
 ): Promise<EngineAssetResult> => {
-  const expectedTexts = expectedTextsFor({
-    expectedTexts: asset.groundTruth?.codes.map((code) => code.text) ?? [],
-  });
+  const expectedTexts = expectedTextsFor({ expectedTexts: asset.expectedTexts });
   const runKey = cacheRunKey(asset, expectedTexts, runOptions);
   const cacheLookupAsset = {
     id: asset.id,
@@ -295,6 +283,8 @@ const scoreAssetForEngine = async (
       cached.scan,
       cached.durationMs,
       true,
+      null,
+      cached.durationMs,
     );
     progress.onScanFinished({
       engineId: engine.id,
@@ -306,24 +296,11 @@ const scoreAssetForEngine = async (
     return result;
   }
 
-  const execution = await workerPool
-    .run({
-      engineId: engine.id,
-      cacheable: cache.isEnabledFor(engine),
-      asset: {
-        id: asset.id,
-        label: asset.label,
-        sha256: asset.sha256,
-        imagePath: path.join(repoRoot, 'corpus', 'data', asset.relativePath),
-        relativePath: asset.relativePath,
-        expectedTexts,
-      },
-      runOptions,
-    })
-    .catch((error) => ({
-      scan: unexpectedFailureScan(error),
-      durationMs: 0,
-    }));
+  const cacheable = cache.isEnabledFor(engine);
+  const execution =
+    engine.execution?.workerSafe === false
+      ? await runEngineInProcess(asset, engine, progress, runOptions, cacheable)
+      : await runEngineInWorker(asset, engine, workerPool, runOptions, expectedTexts, cacheable);
 
   const result = toEngineAssetResult(
     engine.id,
@@ -332,6 +309,8 @@ const scoreAssetForEngine = async (
     execution.scan,
     execution.durationMs,
     false,
+    execution.imageLoadDurationMs,
+    execution.totalJobDurationMs,
   );
   const wroteToCache = isCacheableEngineResult(engine, cache, result);
   if (wroteToCache) {
@@ -373,8 +352,9 @@ export const runAccuracyBenchmark = async (
   const cacheFile = options.cache?.file ?? getDefaultAccuracyCachePath(repoRoot);
   const progress = createAccuracyProgressReporter({
     enabled: options.progress?.enabled ?? true,
-    mode: options.progress?.mode ?? 'auto',
-    verbose: options.progress?.verbose ?? options.observability?.verbose ?? false,
+    ...(options.execution?.requestStop === undefined
+      ? {}
+      : { requestStop: options.execution.requestStop }),
   });
   progress.onManifestStarted();
   let cache: Awaited<ReturnType<typeof openAccuracyCacheStore>> | null = null;
@@ -387,24 +367,23 @@ export const runAccuracyBenchmark = async (
       enabled: options.cache?.enabled ?? true,
       refresh: options.cache?.refresh ?? false,
       disabledEngineIds: options.cache?.disabledEngineIds ?? [],
+      refreshEngineIds: options.cache?.refreshEngineIds ?? [],
     });
     workerPool = createAccuracyWorkerPool(workerCount, progress);
     const activeCache = cache;
     const activeWorkerPool = workerPool;
-    const manifest = await readBenchCorpusManifest(repoRoot);
-    const approvedAssets = manifest.assets.filter((asset) => asset.review.status === 'approved');
-    const positiveCount = approvedAssets.filter((asset) => asset.label === 'qr-positive').length;
-    const negativeCount = approvedAssets.length - positiveCount;
+    const corpus = await loadBenchCorpusAssets(repoRoot, options.selection);
+    const { assets, positiveCount, negativeCount, selection } = corpus;
+    progress.onMessage(`seed=${selection.seed ?? 'none'}`);
     progress.onManifestLoaded(
-      approvedAssets.length,
+      assets.length,
       engines.map((engine) => engine.id),
       options.cache?.enabled ?? true,
       { positiveCount, negativeCount },
     );
-    progress.onAssetsStarted(approvedAssets.length);
-    const assets = approvedAssets.map((asset, index) => {
-      progress.onAssetPrepared(asset.id, index + 1, approvedAssets.length);
-      return asset;
+    progress.onAssetsStarted(assets.length);
+    assets.forEach((asset, index) => {
+      progress.onAssetPrepared(asset.id, index + 1, assets.length);
     });
 
     progress.onBenchmarkStarted(
@@ -414,33 +393,53 @@ export const runAccuracyBenchmark = async (
     );
     const runOptions = normalizeAccuracyEngineRunOptions(options.observability);
 
-    const assetResults = await mapConcurrent<CorpusAsset, AccuracyAssetResult>(
+    const partialRun = await mapConcurrentPartial<BenchCorpusAsset, AccuracyAssetResult>(
       assets,
       assetConcurrency,
-      async (asset): Promise<AccuracyAssetResult> => ({
-        assetId: asset.id,
-        label: asset.label,
-        relativePath: asset.relativePath,
-        expectedTexts: expectedTextsFor({
-          expectedTexts: asset.groundTruth?.codes.map((code) => code.text) ?? [],
-        }),
-        results: await Promise.all(
-          engines.map((engine) =>
-            scoreAssetForEngine(
-              asset,
-              repoRoot,
-              engine,
-              activeCache,
-              activeWorkerPool,
-              progress,
-              runOptions,
+      async (asset): Promise<AccuracyAssetResult> => {
+        return {
+          assetId: asset.id,
+          sha256: asset.sha256,
+          label: asset.label,
+          relativePath: asset.relativePath,
+          expectedTexts: expectedTextsFor({ expectedTexts: asset.expectedTexts }),
+          results: await Promise.all(
+            engines.map((engine) =>
+              scoreAssetForEngine(
+                asset,
+                engine,
+                activeCache,
+                activeWorkerPool,
+                progress,
+                runOptions,
+              ),
             ),
           ),
-        ),
-      }),
+        };
+      },
+      options.execution?.signal === undefined ? {} : { signal: options.execution.signal },
     );
+    const assetResults = partialRun.completed;
+    const status = partialRun.interrupted
+      ? 'interrupted'
+      : partialRun.error !== null
+        ? 'errored'
+        : 'passed';
+    const partial =
+      status === 'passed'
+        ? undefined
+        : {
+            reason: partialRun.interrupted
+              ? abortReason(options.execution?.signal)
+              : String(partialRun.error),
+            completedAssetCount: partialRun.completedCount,
+            pendingAssetCount: partialRun.pendingCount,
+            completedJobCount: partialRun.completedCount * engines.length,
+            pendingJobCount: partialRun.pendingCount * engines.length,
+          };
 
     result = {
+      repoRoot,
       reportFile,
       corpusAssetCount: assets.length,
       positiveCount,
@@ -448,7 +447,25 @@ export const runAccuracyBenchmark = async (
       engines: engines.map(describeAccuracyEngine),
       assets: assetResults,
       summaries: engines.map((engine) => summarizeEngine(engine.id, assetResults)),
+      selection: {
+        seed: selection.seed ?? null,
+        filters: {
+          assetIds: selection.assetIds,
+          labels: selection.labels,
+          maxAssets: selection.maxAssets,
+        },
+      },
+      options: {
+        workers: workerCount,
+        progressEnabled: options.progress?.enabled ?? true,
+        cacheEnabled: options.cache?.enabled ?? true,
+        refreshCache: options.cache?.refresh ?? false,
+        refreshEngineIds: options.cache?.refreshEngineIds ?? [],
+        observability: runOptions,
+      },
       cache: activeCache.summary(),
+      status,
+      ...(partial === undefined ? {} : { partial }),
     };
   } catch (error) {
     runError = error;

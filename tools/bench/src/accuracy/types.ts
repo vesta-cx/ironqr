@@ -1,17 +1,10 @@
+import type { ScanMetricsSink } from '../../../../packages/ironqr/src/contracts/scan.js';
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
-import type { BenchImageData } from '../shared/image.js';
+import type { BenchCorpusAsset, CorpusAssetLabel } from '../core/corpus.js';
+import type { BenchReportStatus, PartialRunSummary } from '../core/reports.js';
 
-export type CorpusAssetLabel = 'qr-positive' | 'non-qr-negative';
-
-export interface CorpusBenchAsset {
-  readonly id: string;
-  readonly label: CorpusAssetLabel;
-  readonly sha256: string;
-  readonly imagePath: string;
-  readonly relativePath: string;
-  readonly expectedTexts: readonly string[];
-  readonly loadImage: () => Promise<BenchImageData>;
-}
+export type { CorpusAssetLabel } from '../core/corpus.js';
+export type CorpusBenchAsset = BenchCorpusAsset;
 
 export type EngineFailureReason =
   | 'failed_to_find_finders'
@@ -125,6 +118,7 @@ export interface AccuracyEngineCachePolicy {
 export interface AccuracyEngineRunOptions {
   readonly verbose?: boolean;
   readonly ironqrTraceMode?: IronqrTraceMode;
+  readonly metricsSink?: ScanMetricsSink;
 }
 
 export interface AccuracyEngine {
@@ -132,6 +126,9 @@ export interface AccuracyEngine {
   readonly kind: 'first-party' | 'third-party';
   readonly capabilities: AccuracyEngineCapabilities;
   readonly cache: AccuracyEngineCachePolicy;
+  readonly execution?: {
+    readonly workerSafe?: boolean;
+  };
   availability: () => AccuracyEngineAvailability;
   scan: (
     asset: CorpusBenchAsset,
@@ -173,12 +170,15 @@ export interface EngineAssetResult {
   readonly failureReason: EngineFailureReason | null;
   readonly error: string | null;
   readonly durationMs: number;
+  readonly imageLoadDurationMs: number | null;
+  readonly totalJobDurationMs: number;
   readonly cached: boolean;
   readonly diagnostics?: AccuracyScanDiagnostics | null;
 }
 
 export interface AccuracyAssetResult {
   readonly assetId: string;
+  readonly sha256: string;
   readonly label: CorpusAssetLabel;
   readonly relativePath: string;
   readonly expectedTexts: readonly string[];
@@ -204,7 +204,12 @@ export interface AccuracyEngineSummary {
 }
 
 export type AccuracyEngineDescriptor = Pick<AccuracyEngine, 'id' | 'kind' | 'capabilities'> &
-  AccuracyEngineAvailability;
+  AccuracyEngineAvailability & {
+    readonly adapterVersion: string;
+    readonly packageName: string;
+    readonly packageVersion: string | null;
+    readonly runtimeVersion: string;
+  };
 
 export interface AccuracyBenchmarkCacheSummary {
   readonly enabled: boolean;
@@ -214,22 +219,27 @@ export interface AccuracyBenchmarkCacheSummary {
   readonly writes: number;
 }
 
-export type AccuracyProgressMode = 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
-
 export interface AccuracyBenchmarkOptions {
   readonly cache?: {
     readonly enabled?: boolean;
     readonly refresh?: boolean;
     readonly file?: string;
     readonly disabledEngineIds?: readonly string[];
+    readonly refreshEngineIds?: readonly string[];
   };
   readonly progress?: {
     readonly enabled?: boolean;
-    readonly mode?: AccuracyProgressMode;
-    readonly verbose?: boolean;
   };
   readonly execution?: {
     readonly workers?: number;
+    readonly signal?: AbortSignal;
+    readonly requestStop?: () => void;
+  };
+  readonly selection?: {
+    readonly assetIds?: readonly string[];
+    readonly labels?: readonly CorpusAssetLabel[];
+    readonly maxAssets?: number;
+    readonly seed?: string;
   };
   readonly observability?: {
     readonly verbose?: boolean;
@@ -237,7 +247,26 @@ export interface AccuracyBenchmarkOptions {
   };
 }
 
+export interface AccuracyBenchmarkSelectionSummary {
+  readonly seed: string | null;
+  readonly filters: {
+    readonly assetIds: readonly string[];
+    readonly labels: readonly CorpusAssetLabel[];
+    readonly maxAssets: number | null;
+  };
+}
+
+export interface AccuracyBenchmarkRunOptionsSummary {
+  readonly workers: number;
+  readonly progressEnabled: boolean;
+  readonly cacheEnabled: boolean;
+  readonly refreshCache: boolean;
+  readonly refreshEngineIds: readonly string[];
+  readonly observability: AccuracyEngineRunOptions;
+}
+
 export interface AccuracyBenchmarkResult {
+  readonly repoRoot: string;
   readonly reportFile: string;
   readonly corpusAssetCount: number;
   readonly positiveCount: number;
@@ -245,5 +274,9 @@ export interface AccuracyBenchmarkResult {
   readonly engines: readonly AccuracyEngineDescriptor[];
   readonly assets: readonly AccuracyAssetResult[];
   readonly summaries: readonly AccuracyEngineSummary[];
+  readonly selection: AccuracyBenchmarkSelectionSummary;
+  readonly options: AccuracyBenchmarkRunOptionsSummary;
   readonly cache: AccuracyBenchmarkCacheSummary;
+  readonly status: BenchReportStatus;
+  readonly partial?: PartialRunSummary;
 }

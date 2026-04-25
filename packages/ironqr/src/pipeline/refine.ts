@@ -5,6 +5,7 @@ import {
   resolveGridFromCorrespondences,
 } from './geometry.js';
 import type { FinderTripleProposal } from './proposals.js';
+import { type BinaryView, isDarkPixel } from './views.js';
 
 /**
  * Locates alignment-pattern correspondences suggested by a geometry candidate.
@@ -21,7 +22,7 @@ import type { FinderTripleProposal } from './proposals.js';
  */
 export const locateAlignmentPatternCorrespondences = (
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): readonly ExtraCorrespondence[] => {
@@ -102,7 +103,7 @@ export const locateAlignmentPatternCorrespondences = (
  */
 export const refineGeometryByFitness = (
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): GridResolution => {
@@ -132,7 +133,7 @@ export const refineGeometryByFitness = (
  */
 export const selectTopCornerNudges = (
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   maxCandidates: number,
@@ -160,7 +161,7 @@ export const selectTopCornerNudges = (
 export const refineGeometryWithAlignment = (
   proposal: FinderTripleProposal,
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): GridResolution | null => {
@@ -269,7 +270,7 @@ const generateCornerNudges = (geometry: GridResolution): readonly GridResolution
 
 const structuralFitness = (
   geometry: GridResolution,
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
 ): number => {
@@ -312,7 +313,7 @@ const ALIGNMENT_PATTERN_PROBES = [
 ] as const;
 
 const scoreAlignmentPattern = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   centerX: number,
@@ -377,7 +378,7 @@ const isPointInsideImage = (
 };
 
 const sample = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   x: number,
@@ -387,5 +388,10 @@ const sample = (
   const px = Math.round(x);
   const py = Math.round(y);
   if (px < 0 || py < 0 || px >= width || py >= height) return false;
-  return (binary[py * width + px] ?? 255) === 0;
+  const index = py * width + px;
+  if (isBinaryViewInput(binary)) return isDarkPixel(binary, index);
+  return (binary[index] ?? 255) === 0;
 };
+
+const isBinaryViewInput = (value: Uint8Array | BinaryView): value is BinaryView =>
+  !(value instanceof Uint8Array);

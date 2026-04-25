@@ -63,7 +63,23 @@ export interface SlowScan {
   readonly durationMs: number;
 }
 
+export interface StudyTimingStats {
+  readonly id: string;
+  totalMs: number;
+  count: number;
+  freshCount: number;
+  cachedCount: number;
+  freshTotalMs: number;
+  maxMs: number;
+  freshMaxMs: number;
+  lastMs: number;
+  outputCount: number;
+  samples: number[];
+  freshSamples: number[];
+}
+
 export interface BenchDashboardModel {
+  commandName: string;
   stage: DashboardStage;
   message: string;
   assetCount: number;
@@ -72,6 +88,10 @@ export interface BenchDashboardModel {
   preparedAssets: number;
   totalJobs: number;
   completedJobs: number;
+  studyTotalUnits: number;
+  studyCompletedUnits: number;
+  studyFreshStartedAtMs: number | null;
+  studyFreshUpdatedAtMs: number | null;
   workerCount: number;
   cacheEnabled: boolean;
   readonly engineOrder: string[];
@@ -79,6 +99,9 @@ export interface BenchDashboardModel {
   readonly activeScans: Map<string, ActiveScan>;
   readonly recentScans: RecentScan[];
   readonly slowestFreshScans: SlowScan[];
+  readonly studyEvents: string[];
+  readonly studyTimings: Map<string, StudyTimingStats>;
+  readonly studyDetectorTimings: Map<string, StudyTimingStats>;
 }
 
 export const MAX_SLOWEST_FRESH_SCANS = 8;
@@ -107,6 +130,7 @@ const createTimingBuckets = (): TimingBuckets => ({
 });
 
 export const createBenchDashboardModel = (): BenchDashboardModel => ({
+  commandName: 'accuracy',
   stage: 'manifest',
   message: 'starting',
   assetCount: 0,
@@ -115,6 +139,10 @@ export const createBenchDashboardModel = (): BenchDashboardModel => ({
   preparedAssets: 0,
   totalJobs: 0,
   completedJobs: 0,
+  studyTotalUnits: 0,
+  studyCompletedUnits: 0,
+  studyFreshStartedAtMs: null,
+  studyFreshUpdatedAtMs: null,
   workerCount: 0,
   cacheEnabled: false,
   engineOrder: [],
@@ -122,6 +150,9 @@ export const createBenchDashboardModel = (): BenchDashboardModel => ({
   activeScans: new Map(),
   recentScans: [],
   slowestFreshScans: [],
+  studyEvents: [],
+  studyTimings: new Map(),
+  studyDetectorTimings: new Map(),
 });
 
 export const ensureDashboardEngine = (
@@ -207,6 +238,16 @@ export const onDashboardBenchmarkStarted = (
   model.totalJobs = assetCount * engineIds.length;
   model.message = `running ${model.totalJobs} engine jobs across ${workerCount} workers`;
   for (const engineId of engineIds) ensureDashboardEngine(model, engineId);
+};
+
+export const onDashboardStudyUnitsPlanned = (
+  model: BenchDashboardModel,
+  totalUnits: number,
+): void => {
+  model.studyTotalUnits = Math.max(0, totalUnits);
+  model.studyCompletedUnits = 0;
+  model.studyFreshStartedAtMs = null;
+  model.studyFreshUpdatedAtMs = null;
 };
 
 export const onDashboardScanStarted = (
@@ -310,13 +351,69 @@ export const onDashboardScanFinished = (
   model.activeScans.delete(activeScanKey(event.engineId, event.assetId));
 };
 
+export const onDashboardStudyTiming = (
+  model: BenchDashboardModel,
+  event: {
+    readonly id: string;
+    readonly durationMs: number;
+    readonly group?: 'view' | 'detector';
+    readonly outputCount?: number;
+    readonly cached?: boolean;
+  },
+): void => {
+  if (!event.id.trim() || !Number.isFinite(event.durationMs) || event.durationMs < 0) return;
+  const outputCount =
+    event.outputCount === undefined || !Number.isFinite(event.outputCount) || event.outputCount < 0
+      ? 0
+      : event.outputCount;
+  model.studyCompletedUnits += 1;
+  if (!event.cached) {
+    const nowMs = Date.now();
+    model.studyFreshStartedAtMs ??= nowMs;
+    model.studyFreshUpdatedAtMs = nowMs;
+  }
+  const timings = event.group === 'detector' ? model.studyDetectorTimings : model.studyTimings;
+  const existing = timings.get(event.id);
+  if (existing) {
+    existing.totalMs += event.durationMs;
+    existing.count += 1;
+    if (event.cached) {
+      existing.cachedCount += 1;
+    } else {
+      existing.freshCount += 1;
+      existing.freshTotalMs += event.durationMs;
+      existing.freshMaxMs = Math.max(existing.freshMaxMs, event.durationMs);
+      existing.freshSamples.push(event.durationMs);
+    }
+    existing.maxMs = Math.max(existing.maxMs, event.durationMs);
+    existing.lastMs = event.durationMs;
+    existing.outputCount += outputCount;
+    existing.samples.push(event.durationMs);
+    return;
+  }
+  timings.set(event.id, {
+    id: event.id,
+    totalMs: event.durationMs,
+    count: 1,
+    freshCount: event.cached ? 0 : 1,
+    cachedCount: event.cached ? 1 : 0,
+    freshTotalMs: event.cached ? 0 : event.durationMs,
+    maxMs: event.durationMs,
+    freshMaxMs: event.cached ? 0 : event.durationMs,
+    lastMs: event.durationMs,
+    outputCount,
+    samples: [event.durationMs],
+    freshSamples: event.cached ? [] : [event.durationMs],
+  });
+};
+
 export const onDashboardDone = (model: BenchDashboardModel): void => {
   model.stage = 'done';
   model.message = 'complete';
 };
 
 export const classifyTimingBucket = (result: EngineAssetResult): TimingBucketKey => {
-  if (result.label === 'qr-positive') {
+  if (result.label === 'qr-pos') {
     return result.outcome === 'pass' || result.outcome === 'partial-pass'
       ? 'positive-pass'
       : 'positive-fail';
@@ -332,7 +429,7 @@ export const averageTimingMs = (bucket: TimingBucketStats): number | null => {
 export const timingBucketKeys = (): readonly TimingBucketKey[] => TIMING_BUCKETS;
 
 const recordOutcome = (engine: DashboardEngineStats, result: EngineAssetResult): void => {
-  if (result.label === 'qr-positive') {
+  if (result.label === 'qr-pos') {
     if (result.outcome === 'pass') engine.qrPass += 1;
     else if (result.outcome === 'partial-pass') engine.qrPartial += 1;
     else if (result.outcome === 'fail-no-decode') engine.qrNoDecode += 1;

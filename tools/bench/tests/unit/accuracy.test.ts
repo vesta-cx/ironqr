@@ -89,13 +89,15 @@ describe('accuracy scoring', () => {
     expect(
       statusCodeForResult({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'fail-no-decode',
         decodedTexts: [],
         matchedTexts: [],
         failureReason: 'failed_to_decode',
         error: null,
         durationMs: 12.5,
+        imageLoadDurationMs: null,
+        totalJobDurationMs: 12.5,
         cached: false,
       }),
     ).toBe('no-decode');
@@ -140,13 +142,15 @@ describe('accuracy cacheability policy', () => {
 
   const result = (outcome: EngineAssetResult['outcome']): EngineAssetResult => ({
     engineId: passOnlyEngine.id,
-    label: outcome === 'false-positive' ? 'non-qr-negative' : 'qr-positive',
+    label: outcome === 'false-positive' ? 'qr-neg' : 'qr-pos',
     outcome,
     decodedTexts: [],
     matchedTexts: [],
     failureReason: null,
     error: null,
     durationMs: 1,
+    imageLoadDurationMs: null,
+    totalJobDurationMs: 1,
     cached: false,
   });
 

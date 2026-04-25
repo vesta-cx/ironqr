@@ -1,0 +1,544 @@
+{
+  "kind": "accuracy-report",
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-24T20:09:02.756Z",
+  "status": "passed",
+  "verdicts": {
+    "pass": {
+      "status": "passed",
+      "description": "ironqr includes all baseline passes and has zero false positives."
+    },
+    "regression": {
+      "status": "passed",
+      "description": "Accuracy summary did not regress versus previous report."
+    }
+  },
+  "benchmark": {
+    "name": "Accuracy Benchmark",
+    "description": "Compares `ironqr` correctness against every target baseline engine on the selected corpus. This report answers where `ironqr` is ahead of, tied with, or behind other engines. Start with `summary.ironqr`, then inspect `summary.gaps` for baseline passes that `ironqr` missed and `ironqr` wins that baselines missed. Use `details.assets` for per-asset decoded text, expected text, matched text, and error details."
+  },
+  "command": {
+    "name": "accuracy",
+    "argv": [
+      "accuracy",
+      "--max-assets",
+      "1",
+      "--no-cache",
+      "--no-progress",
+      "--seed",
+      "final-plan-smoke"
+    ]
+  },
+  "repo": {
+    "root": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract",
+    "commit": "41e791eb870bf5a5f9ea5e5191c9aeaefa062ad1",
+    "dirty": true
+  },
+  "corpus": {
+    "manifestPath": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract/corpus/data/manifest.json",
+    "assetCount": 1,
+    "positiveCount": 0,
+    "negativeCount": 1,
+    "manifestHash": "31ab431b97593203b91c07b233adef31be26c62efd42a70598dcc22400fde3c2",
+    "assetIds": ["asset-533596df736205b1"]
+  },
+  "selection": {
+    "seed": "final-plan-smoke",
+    "filters": {
+      "assetIds": [],
+      "labels": [],
+      "maxAssets": 1
+    }
+  },
+  "engines": [
+    {
+      "id": "ironqr",
+      "adapterVersion": "live-pass-v1",
+      "packageName": "ironqr",
+      "packageVersion": "0.0.0",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "jsqr",
+      "adapterVersion": "adapter-v1",
+      "packageName": "jsqr",
+      "packageVersion": "1.4.0",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "zxing",
+      "adapterVersion": "adapter-v1",
+      "packageName": "@zxing/library",
+      "packageVersion": "0.21.3",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "zxing-cpp",
+      "adapterVersion": "adapter-v1",
+      "packageName": "zxing-wasm",
+      "packageVersion": "3.0.2",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "quirc",
+      "adapterVersion": "adapter-v1",
+      "packageName": "quirc",
+      "packageVersion": "1.0.0-alpha.4",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "zbar",
+      "adapterVersion": "adapter-v1",
+      "packageName": "@undecaf/zbar-wasm",
+      "packageVersion": "0.11.0",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "opencv",
+      "adapterVersion": "adapter-v2-single",
+      "packageName": "@techstark/opencv-js",
+      "packageVersion": "4.12.0-release.1",
+      "runtimeVersion": "bun 1.3.11"
+    },
+    {
+      "id": "opencv-multi",
+      "adapterVersion": "adapter-v1-multi",
+      "packageName": "@techstark/opencv-js",
+      "packageVersion": "4.12.0-release.1",
+      "runtimeVersion": "bun 1.3.11"
+    }
+  ],
+  "options": {
+    "workers": 8,
+    "progressEnabled": false,
+    "cacheEnabled": false,
+    "refreshCache": false,
+    "refreshEngineIds": [],
+    "observability": {
+      "verbose": false,
+      "ironqrTraceMode": "off"
+    }
+  },
+  "summary": {
+    "ironqr": {
+      "engineId": "ironqr",
+      "positiveCount": 0,
+      "negativeCount": 1,
+      "fullPasses": 0,
+      "partialPasses": 0,
+      "positiveFailures": 0,
+      "falsePositives": 0,
+      "negativeErrors": 0,
+      "fullPassRate": 1,
+      "anyPassRate": 1,
+      "falsePositiveRate": 0,
+      "totalDurationMs": 27802.62,
+      "averageDurationMs": 27802.62,
+      "cachedAssets": 0,
+      "freshAssets": 1
+    },
+    "baselines": [
+      {
+        "engineId": "jsqr",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 311.4,
+        "averageDurationMs": 311.4,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "zxing",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 136.18,
+        "averageDurationMs": 136.18,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "zxing-cpp",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 259.78,
+        "averageDurationMs": 259.78,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "quirc",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 282.62,
+        "averageDurationMs": 282.62,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "zbar",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 156.92,
+        "averageDurationMs": 156.92,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "opencv",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 719.59,
+        "averageDurationMs": 719.59,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      },
+      {
+        "engineId": "opencv-multi",
+        "positiveCount": 0,
+        "negativeCount": 1,
+        "fullPasses": 0,
+        "partialPasses": 0,
+        "positiveFailures": 0,
+        "falsePositives": 0,
+        "negativeErrors": 0,
+        "fullPassRate": 1,
+        "anyPassRate": 1,
+        "falsePositiveRate": 0,
+        "totalDurationMs": 717.93,
+        "averageDurationMs": 717.93,
+        "cachedAssets": 0,
+        "freshAssets": 1
+      }
+    ],
+    "gaps": {
+      "ironqrMissedBaselineHitCount": 0,
+      "ironqrHitBaselineMissedCount": 0,
+      "topIronqrMissedBaselineHits": [],
+      "topIronqrHitBaselineMisses": []
+    },
+    "pass": {
+      "status": "passed",
+      "description": "ironqr includes all baseline passes and has zero false positives."
+    },
+    "regression": {
+      "status": "passed",
+      "description": "Accuracy summary did not regress versus previous report."
+    },
+    "cache": {
+      "enabled": false,
+      "file": null,
+      "hits": 0,
+      "misses": 0,
+      "writes": 0
+    },
+    "partial": null
+  },
+  "details": {
+    "engines": [
+      {
+        "id": "ironqr",
+        "kind": "first-party",
+        "capabilities": {
+          "multiCode": true,
+          "inversion": "native",
+          "rotation": "native",
+          "runtime": "js"
+        },
+        "adapterVersion": "live-pass-v1",
+        "packageName": "ironqr",
+        "packageVersion": "0.0.0",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "jsqr",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": false,
+          "inversion": "native",
+          "rotation": "native",
+          "runtime": "js"
+        },
+        "adapterVersion": "adapter-v1",
+        "packageName": "jsqr",
+        "packageVersion": "1.4.0",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "zxing",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": false,
+          "inversion": "caller",
+          "rotation": "native",
+          "runtime": "js"
+        },
+        "adapterVersion": "adapter-v1",
+        "packageName": "@zxing/library",
+        "packageVersion": "0.21.3",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "zxing-cpp",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": true,
+          "inversion": "native",
+          "rotation": "native",
+          "runtime": "wasm"
+        },
+        "adapterVersion": "adapter-v1",
+        "packageName": "zxing-wasm",
+        "packageVersion": "3.0.2",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "quirc",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": true,
+          "inversion": "none",
+          "rotation": "native",
+          "runtime": "wasm"
+        },
+        "adapterVersion": "adapter-v1",
+        "packageName": "quirc",
+        "packageVersion": "1.0.0-alpha.4",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "zbar",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": true,
+          "inversion": "native",
+          "rotation": "native",
+          "runtime": "wasm"
+        },
+        "adapterVersion": "adapter-v1",
+        "packageName": "@undecaf/zbar-wasm",
+        "packageVersion": "0.11.0",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "opencv",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": false,
+          "inversion": "none",
+          "rotation": "native",
+          "runtime": "wasm"
+        },
+        "adapterVersion": "adapter-v2-single",
+        "packageName": "@techstark/opencv-js",
+        "packageVersion": "4.12.0-release.1",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      },
+      {
+        "id": "opencv-multi",
+        "kind": "third-party",
+        "capabilities": {
+          "multiCode": true,
+          "inversion": "none",
+          "rotation": "native",
+          "runtime": "wasm"
+        },
+        "adapterVersion": "adapter-v1-multi",
+        "packageName": "@techstark/opencv-js",
+        "packageVersion": "4.12.0-release.1",
+        "runtimeVersion": "bun 1.3.11",
+        "available": true,
+        "reason": null
+      }
+    ],
+    "assets": [
+      {
+        "assetId": "asset-533596df736205b1",
+        "sha256": "fdb3a4dec0eccf1d6525c7bf85f798f07b2b9aaecc26eb7f140e29697cce69ac",
+        "label": "qr-neg",
+        "relativePath": "assets/asset-533596df736205b1.webp",
+        "expectedTexts": [],
+        "results": [
+          {
+            "engineId": "ironqr",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 27802.62,
+            "imageLoadDurationMs": 63.64,
+            "totalJobDurationMs": 27866.26,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "jsqr",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 311.4,
+            "imageLoadDurationMs": 53.35,
+            "totalJobDurationMs": 364.75,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "zxing",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 136.18,
+            "imageLoadDurationMs": 177.01,
+            "totalJobDurationMs": 313.19,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "zxing-cpp",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 259.78,
+            "imageLoadDurationMs": 15.25,
+            "totalJobDurationMs": 275.03,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "quirc",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 282.62,
+            "imageLoadDurationMs": 4.31,
+            "totalJobDurationMs": 286.93,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "zbar",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 156.92,
+            "imageLoadDurationMs": 20.75,
+            "totalJobDurationMs": 177.67,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "opencv",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 719.59,
+            "imageLoadDurationMs": null,
+            "totalJobDurationMs": 719.59,
+            "cached": false,
+            "diagnostics": null
+          },
+          {
+            "engineId": "opencv-multi",
+            "label": "qr-neg",
+            "outcome": "pass",
+            "decodedTexts": [],
+            "matchedTexts": [],
+            "failureReason": null,
+            "error": null,
+            "durationMs": 717.93,
+            "imageLoadDurationMs": null,
+            "totalJobDurationMs": 717.93,
+            "cached": false,
+            "diagnostics": null
+          }
+        ]
+      }
+    ],
+    "gaps": {
+      "ironqrMissedBaselineHit": [],
+      "ironqrHitBaselineMissed": []
+    },
+    "partial": null
+  }
+}

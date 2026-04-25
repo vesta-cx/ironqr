@@ -204,7 +204,7 @@ export const getGeneratedAssetPath = (
 export const buildGeneratedAssetRecord = async (options: {
   readonly repoRoot: string;
   readonly outputPath: string;
-  readonly label: 'qr-positive' | 'non-qr-negative';
+  readonly label: 'qr-pos' | 'qr-neg';
   readonly provenance: CorpusAsset['provenance'];
   readonly review: CorpusAsset['review'];
   readonly groundTruth: NonNullable<CorpusAsset['groundTruth']>;

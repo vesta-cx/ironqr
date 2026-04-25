@@ -7,11 +7,12 @@ import {
   type GridResolution,
 } from './geometry.js';
 import type { TraceSink } from './trace.js';
-import type { BinaryView, BinaryViewId, ViewBank } from './views.js';
+import { type BinaryView, type BinaryViewId, readBinaryPixel, type ViewBank } from './views.js';
 
 const MAX_FINDER_EVIDENCE_TOTAL = 12;
 const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
 const MAX_TRIPLE_COMBINATIONS = 120;
+const DEFAULT_PROPOSAL_ASSEMBLY_VARIANT: ProposalAssemblyVariant = 'no-allocation-score';
 const FINDER_RATIO_TOLERANCE = 0.9;
 const QUIET_ZONE_DISTANCE_MODULES = 5.25;
 
@@ -138,6 +139,7 @@ export interface RankedProposalCandidate {
 interface FinderTripleCandidate {
   readonly finders: readonly [FinderEvidence, FinderEvidence, FinderEvidence];
   readonly seedScore: number;
+  readonly order: number;
 }
 
 /**
@@ -154,6 +156,14 @@ export interface FinderEvidenceSummary {
   readonly dedupedCount: number;
   /** Whether flood/matcher detectors were used for this view. */
   readonly expensiveDetectorsRan: boolean;
+  /** Row-scan detector duration for this view. */
+  readonly rowScanDurationMs: number;
+  /** Flood-fill detector duration for this view. */
+  readonly floodDurationMs: number;
+  /** Template matcher detector duration for this view. */
+  readonly matcherDurationMs: number;
+  /** Cross-detector evidence dedupe/capping duration for this view. */
+  readonly dedupeDurationMs: number;
 }
 
 /**
@@ -202,10 +212,39 @@ export interface ProposalViewBatch {
   readonly summary: ProposalViewGenerationSummary;
 }
 
-interface FinderEvidenceDetection {
+export interface FinderEvidenceDetection {
   readonly evidence: readonly FinderEvidence[];
+  readonly rowScan: readonly FinderEvidence[];
+  readonly flood: readonly FinderEvidence[];
+  readonly matcher: readonly FinderEvidence[];
   readonly summary: FinderEvidenceSummary;
 }
+
+export type FinderDetectorFamily = 'row-scan' | 'flood' | 'matcher';
+
+export interface FinderEvidenceDetectionPolicy {
+  readonly enabledFamilies?: readonly FinderDetectorFamily[];
+  readonly suppressMatcherOverlappingRowScan?: boolean;
+}
+
+export type ProposalAssemblyVariant =
+  | 'sort-all'
+  | 'streaming-topk'
+  | 'fixed-array-topk'
+  | 'min-heap-topk'
+  | 'distance-matrix-sort-all'
+  | 'distance-matrix-streaming'
+  | 'no-allocation-score';
+
+export type ProposalGeometryVariant =
+  | 'baseline'
+  | 'aspect-penalty'
+  | 'aspect-reject-conservative'
+  | 'scale-consistency-penalty'
+  | 'aspect-scale-penalty'
+  | 'timing-corridor-penalty'
+  | 'timing-corridor-reject-conservative'
+  | 'aspect-timing-penalty';
 
 /**
  * Per-view proposal-generation options.
@@ -213,6 +252,12 @@ interface FinderEvidenceDetection {
 export interface ProposalViewGenerationOptions {
   /** Maximum proposals retained for this binary view. */
   readonly maxProposalsPerView?: number;
+  /** Detector-family policy for proposal studies. Defaults to the production stack. */
+  readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
+  /** Proposal assembly variant for performance studies. Defaults to the canonical production variant. */
+  readonly assemblyVariant?: ProposalAssemblyVariant;
+  /** Finder-triple geometry scoring/filtering variant for proposal-quality studies. */
+  readonly geometryVariant?: ProposalGeometryVariant;
   /** Optional trace sink. */
   readonly traceSink?: TraceSink;
 }
@@ -267,7 +312,13 @@ export const generateProposalBatchForView = (
 ): ProposalViewBatch => {
   const maxPerView = options.maxProposalsPerView ?? DEFAULT_MAX_PROPOSALS_PER_VIEW;
   const binaryView = viewBank.getBinaryView(binaryViewId);
-  const batch = generateProposalsForView(binaryView, maxPerView);
+  const batch = generateProposalsForView(
+    binaryView,
+    maxPerView,
+    options.detectorPolicy,
+    options.assemblyVariant,
+    options.geometryVariant,
+  );
   emitProposalViewGenerated(batch.summary, options.traceSink);
   for (const proposal of batch.proposals) {
     emitProposalGenerated(proposal, options.traceSink);
@@ -388,18 +439,27 @@ export const detectBestFinderEvidence = (
 const generateProposalsForView = (
   binaryView: BinaryView,
   maxPerView: number,
+  detectorPolicy?: FinderEvidenceDetectionPolicy,
+  assemblyVariant: ProposalAssemblyVariant = DEFAULT_PROPOSAL_ASSEMBLY_VARIANT,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
 ): ProposalViewBatch => {
   const startedAt = nowMs();
 
   const detectorStartedAt = nowMs();
-  const detection = detectFinderEvidenceWithSummary(binaryView);
+  const detection = detectFinderEvidenceWithSummary(binaryView, detectorPolicy);
   const detectorDurationMs = nowMs() - detectorStartedAt;
 
   const tripleAssemblyStartedAt = nowMs();
   const triples =
     detection.evidence.length < 3
       ? []
-      : assembleFinderTriples(detection.evidence, MAX_TRIPLE_COMBINATIONS);
+      : assembleFinderTriples(
+          detection.evidence,
+          MAX_TRIPLE_COMBINATIONS,
+          assemblyVariant,
+          geometryVariant,
+          binaryView,
+        );
   const tripleAssemblyDurationMs = nowMs() - tripleAssemblyStartedAt;
 
   const proposalConstructionStartedAt = nowMs();
@@ -445,6 +505,10 @@ const emitProposalViewGenerated = (
     matcherFinderCount: summary.finderEvidence.matcherCount,
     dedupedFinderCount: summary.finderEvidence.dedupedCount,
     expensiveDetectorsRan: summary.finderEvidence.expensiveDetectorsRan,
+    rowScanDurationMs: summary.finderEvidence.rowScanDurationMs,
+    floodDurationMs: summary.finderEvidence.floodDurationMs,
+    matcherDurationMs: summary.finderEvidence.matcherDurationMs,
+    dedupeDurationMs: summary.finderEvidence.dedupeDurationMs,
     tripleCount: summary.tripleCount,
     proposalCount: summary.proposalCount,
     durationMs: summary.durationMs,
@@ -454,27 +518,55 @@ const emitProposalViewGenerated = (
   });
 };
 
-const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidenceDetection => {
-  const rowScan = detectRowScanFinders(binaryView.binary, binaryView.width, binaryView.height);
-  const expensiveDetectorsRan = shouldRunExpensiveDetectors(binaryView, rowScan);
-  const flood = expensiveDetectorsRan
-    ? detectFloodFinders(binaryView.binary, binaryView.width, binaryView.height)
+export const detectFinderEvidenceWithSummary = (
+  binaryView: BinaryView,
+  policy: FinderEvidenceDetectionPolicy = {},
+): FinderEvidenceDetection => {
+  const enabledFamilies = new Set(policy.enabledFamilies ?? ['row-scan', 'flood', 'matcher']);
+  const rowScanStartedAt = nowMs();
+  const rowScan = enabledFamilies.has('row-scan')
+    ? detectRowScanFinders(binaryView, binaryView.width, binaryView.height)
     : [];
-  const matcher = expensiveDetectorsRan
-    ? detectMatcherFinders(binaryView.binary, binaryView.width, binaryView.height)
-    : [];
+  const rowScanDurationMs = nowMs() - rowScanStartedAt;
+  const expensiveDetectorsRan =
+    (enabledFamilies.has('flood') || enabledFamilies.has('matcher')) &&
+    shouldRunExpensiveDetectors(binaryView, rowScan);
+  const floodStartedAt = nowMs();
+  const flood =
+    expensiveDetectorsRan && enabledFamilies.has('flood')
+      ? detectFloodFinders(binaryView, binaryView.width, binaryView.height)
+      : [];
+  const floodDurationMs = nowMs() - floodStartedAt;
+  const matcherStartedAt = nowMs();
+  const matcherRaw =
+    expensiveDetectorsRan && enabledFamilies.has('matcher')
+      ? detectMatcherFinders(binaryView, binaryView.width, binaryView.height)
+      : [];
+  const matcher = policy.suppressMatcherOverlappingRowScan
+    ? matcherRaw.filter((entry) => !overlapsFinderEvidence(entry, rowScan))
+    : matcherRaw;
+  const matcherDurationMs = nowMs() - matcherStartedAt;
+  const dedupeStartedAt = nowMs();
   const evidence = dedupeFinderEvidence([...rowScan, ...flood, ...matcher]).slice(
     0,
     MAX_FINDER_EVIDENCE_TOTAL,
   );
+  const dedupeDurationMs = nowMs() - dedupeStartedAt;
   return {
     evidence,
+    rowScan,
+    flood,
+    matcher,
     summary: {
       rowScanCount: rowScan.length,
       floodCount: flood.length,
       matcherCount: matcher.length,
       dedupedCount: evidence.length,
       expensiveDetectorsRan,
+      rowScanDurationMs,
+      floodDurationMs,
+      matcherDurationMs,
+      dedupeDurationMs,
     },
   } satisfies FinderEvidenceDetection;
 };
@@ -482,9 +574,23 @@ const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidence
 const assembleFinderTriples = (
   evidence: readonly FinderEvidence[],
   maxTriples: number,
+  variant: ProposalAssemblyVariant = DEFAULT_PROPOSAL_ASSEMBLY_VARIANT,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
 ): readonly FinderTripleCandidate[] => {
-  return buildFinderTriples(evidence, maxTriples);
+  return buildFinderTriples(
+    evidenceForAssemblyVariant(evidence, variant),
+    maxTriples,
+    variant,
+    geometryVariant,
+    binaryView,
+  );
 };
+
+const evidenceForAssemblyVariant = (
+  evidence: readonly FinderEvidence[],
+  _variant: ProposalAssemblyVariant,
+): readonly FinderEvidence[] => evidence;
 
 const proposalsFromFinderTriples = (
   binaryView: BinaryView,
@@ -684,42 +790,378 @@ const computePenalties = (binaryView: BinaryView, geometry: GridResolution | nul
 const buildFinderTriples = (
   evidence: readonly FinderEvidence[],
   maxCombinations: number,
+  variant: ProposalAssemblyVariant = DEFAULT_PROPOSAL_ASSEMBLY_VARIANT,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): readonly FinderTripleCandidate[] => {
+  if (variant === 'streaming-topk') {
+    return buildFinderTriplesStreamingTopK(
+      evidence,
+      maxCombinations,
+      geometryVariant,
+      false,
+      binaryView,
+    );
+  }
+  if (variant === 'fixed-array-topk') {
+    return buildFinderTriplesFixedArrayTopK(evidence, maxCombinations, geometryVariant, binaryView);
+  }
+  if (variant === 'min-heap-topk') {
+    return buildFinderTriplesMinHeapTopK(evidence, maxCombinations, geometryVariant, binaryView);
+  }
+  if (variant === 'distance-matrix-sort-all') {
+    return buildFinderTriplesBySorting(
+      evidence,
+      maxCombinations,
+      geometryVariant,
+      true,
+      false,
+      binaryView,
+    );
+  }
+  if (variant === 'distance-matrix-streaming') {
+    return buildFinderTriplesStreamingTopK(
+      evidence,
+      maxCombinations,
+      geometryVariant,
+      true,
+      binaryView,
+    );
+  }
+  if (variant === 'no-allocation-score') {
+    return buildFinderTriplesBySorting(
+      evidence,
+      maxCombinations,
+      geometryVariant,
+      false,
+      true,
+      binaryView,
+    );
+  }
+  return buildFinderTriplesBySorting(
+    evidence,
+    maxCombinations,
+    geometryVariant,
+    false,
+    false,
+    binaryView,
+  );
+};
+
+const buildFinderTriplesBySorting = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  useDistanceMatrix = false,
+  useNoAllocationScore = false,
+  binaryView?: BinaryView,
 ): readonly FinderTripleCandidate[] => {
   const scored: FinderTripleCandidate[] = [];
+  forEachScoredTriple(
+    evidence,
+    { geometryVariant, useDistanceMatrix, useNoAllocationScore, binaryView },
+    (candidate) => scored.push(candidate),
+  );
+  return scored.sort(compareTripleCandidates).slice(0, maxCombinations);
+};
+
+const buildFinderTriplesStreamingTopK = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  useDistanceMatrix = false,
+  binaryView?: BinaryView,
+): readonly FinderTripleCandidate[] => {
+  const top: FinderTripleCandidate[] = [];
+  forEachScoredTriple(evidence, { geometryVariant, useDistanceMatrix, binaryView }, (candidate) =>
+    insertTopTripleCandidate(top, candidate, maxCombinations),
+  );
+  return top;
+};
+
+const buildFinderTriplesFixedArrayTopK = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): readonly FinderTripleCandidate[] => {
+  const top = new Array<FinderTripleCandidate | undefined>(maxCombinations);
+  let topLength = 0;
+  forEachScoredTriple(evidence, { geometryVariant, binaryView }, (candidate) => {
+    if (topLength === 0) {
+      top[0] = candidate;
+      topLength = 1;
+      return;
+    }
+    let insertAt = topLength;
+    while (insertAt > 0 && compareTripleCandidates(candidate, top[insertAt - 1]!) < 0) {
+      insertAt -= 1;
+    }
+    if (insertAt >= maxCombinations) return;
+    const nextLength = Math.min(maxCombinations, topLength + 1);
+    for (let index = nextLength - 1; index > insertAt; index -= 1) {
+      top[index] = top[index - 1];
+    }
+    top[insertAt] = candidate;
+    topLength = nextLength;
+  });
+  return top.slice(0, topLength) as FinderTripleCandidate[];
+};
+
+const buildFinderTriplesMinHeapTopK = (
+  evidence: readonly FinderEvidence[],
+  maxCombinations: number,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): readonly FinderTripleCandidate[] => {
+  const heap: FinderTripleCandidate[] = [];
+  forEachScoredTriple(evidence, { geometryVariant, binaryView }, (candidate) => {
+    if (heap.length < maxCombinations) {
+      heapPushWorstFirst(heap, candidate);
+      return;
+    }
+    if (compareTripleCandidates(candidate, heap[0]!) < 0) {
+      heap[0] = candidate;
+      heapSinkWorstFirst(heap, 0);
+    }
+  });
+  return heap.sort(compareTripleCandidates);
+};
+
+const forEachScoredTriple = (
+  evidence: readonly FinderEvidence[],
+  options: {
+    readonly geometryVariant?: ProposalGeometryVariant;
+    readonly useDistanceMatrix?: boolean;
+    readonly useNoAllocationScore?: boolean;
+    readonly binaryView?: BinaryView | undefined;
+  },
+  visit: (candidate: FinderTripleCandidate) => void,
+): void => {
+  const distances = options.useDistanceMatrix ? buildFinderDistanceMatrix(evidence) : null;
+  let order = 0;
   for (let i = 0; i < evidence.length - 2; i += 1) {
     for (let j = i + 1; j < evidence.length - 1; j += 1) {
       for (let k = j + 1; k < evidence.length; k += 1) {
         const a = evidence[i]!;
         const b = evidence[j]!;
         const c = evidence[k]!;
-        const score = scoreTripleGeometry(a, b, c);
-        if (score === null) continue;
+        const score = scoreTripleForVariant(a, b, c, i, j, k, distances, options);
+        if (score === null) {
+          order += 1;
+          continue;
+        }
         const detectorBias =
           ((a.score ?? 0) + (b.score ?? 0) + (c.score ?? 0)) / 3 +
           (sourceBonus(a.source) + sourceBonus(b.source) + sourceBonus(c.source)) / 3;
-        scored.push({ finders: [a, b, c], seedScore: score + detectorBias });
+        visit({ finders: [a, b, c], seedScore: score + detectorBias, order });
+        order += 1;
       }
     }
   }
-
-  return scored.sort((left, right) => right.seedScore - left.seedScore).slice(0, maxCombinations);
 };
+
+const scoreTripleForVariant = (
+  a: FinderEvidence,
+  b: FinderEvidence,
+  c: FinderEvidence,
+  i: number,
+  j: number,
+  k: number,
+  distances: Float64Array | null,
+  options: {
+    readonly geometryVariant?: ProposalGeometryVariant;
+    readonly useDistanceMatrix?: boolean;
+    readonly useNoAllocationScore?: boolean;
+    readonly binaryView?: BinaryView | undefined;
+  },
+): number | null => {
+  const geometryVariant = options.geometryVariant ?? 'baseline';
+  if (distances) {
+    const count = distanceMatrixRowCount(distances);
+    return scoreTripleGeometryFromLengths(
+      a,
+      b,
+      c,
+      distances[distanceMatrixIndex(i, j, count)]!,
+      distances[distanceMatrixIndex(i, k, count)]!,
+      distances[distanceMatrixIndex(j, k, count)]!,
+      geometryVariant,
+      options.binaryView,
+    );
+  }
+  if (options.useNoAllocationScore) {
+    return scoreTripleGeometryNoAllocation(a, b, c, geometryVariant, options.binaryView);
+  }
+  return scoreTripleGeometry(a, b, c, geometryVariant, options.binaryView);
+};
+
+const insertTopTripleCandidate = (
+  top: FinderTripleCandidate[],
+  candidate: FinderTripleCandidate,
+  maxCombinations: number,
+): void => {
+  const insertAt = top.findIndex((existing) => compareTripleCandidates(candidate, existing) < 0);
+  if (insertAt === -1) {
+    if (top.length < maxCombinations) top.push(candidate);
+    return;
+  }
+  top.splice(insertAt, 0, candidate);
+  if (top.length > maxCombinations) top.pop();
+};
+
+const compareTripleCandidates = (
+  left: FinderTripleCandidate,
+  right: FinderTripleCandidate,
+): number => right.seedScore - left.seedScore || left.order - right.order;
+
+const compareWorstFirst = (left: FinderTripleCandidate, right: FinderTripleCandidate): number =>
+  right.seedScore - left.seedScore || left.order - right.order;
+
+const heapPushWorstFirst = (
+  heap: FinderTripleCandidate[],
+  candidate: FinderTripleCandidate,
+): void => {
+  heap.push(candidate);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (compareWorstFirst(heap[index]!, heap[parent]!) <= 0) break;
+    swapHeapEntries(heap, index, parent);
+    index = parent;
+  }
+};
+
+const heapSinkWorstFirst = (heap: FinderTripleCandidate[], startIndex: number): void => {
+  let index = startIndex;
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    let largest = index;
+    if (left < heap.length && compareWorstFirst(heap[left]!, heap[largest]!) > 0) largest = left;
+    if (right < heap.length && compareWorstFirst(heap[right]!, heap[largest]!) > 0) largest = right;
+    if (largest === index) return;
+    swapHeapEntries(heap, index, largest);
+    index = largest;
+  }
+};
+
+const swapHeapEntries = (heap: FinderTripleCandidate[], left: number, right: number): void => {
+  const value = heap[left]!;
+  heap[left] = heap[right]!;
+  heap[right] = value;
+};
+
+const buildFinderDistanceMatrix = (evidence: readonly FinderEvidence[]): Float64Array => {
+  const count = evidence.length;
+  const distances = new Float64Array((count * (count - 1)) / 2 + 1);
+  distances[distances.length - 1] = count;
+  for (let i = 0; i < count - 1; i += 1) {
+    for (let j = i + 1; j < count; j += 1) {
+      distances[distanceMatrixIndex(i, j, count)] = distance(evidence[i]!, evidence[j]!);
+    }
+  }
+  return distances;
+};
+
+const distanceMatrixRowCount = (distances: Float64Array): number =>
+  distances[distances.length - 1]!;
+
+const distanceMatrixIndex = (left: number, right: number, count: number): number => {
+  const i = Math.min(left, right);
+  const j = Math.max(left, right);
+  return (i * (2 * count - i - 1)) / 2 + (j - i - 1);
+};
+
+interface TripleSide {
+  readonly left: FinderEvidence;
+  readonly right: FinderEvidence;
+  readonly length: number;
+  readonly opposite: FinderEvidence;
+}
 
 const scoreTripleGeometry = (
   a: FinderEvidence,
   b: FinderEvidence,
   c: FinderEvidence,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
 ): number | null => {
   const lengths = [
-    { pair: [a, b] as const, length: distance(a, b), opposite: c },
-    { pair: [a, c] as const, length: distance(a, c), opposite: b },
-    { pair: [b, c] as const, length: distance(b, c), opposite: a },
+    { left: a, right: b, length: distance(a, b), opposite: c },
+    { left: a, right: c, length: distance(a, c), opposite: b },
+    { left: b, right: c, length: distance(b, c), opposite: a },
   ].sort((left, right) => right.length - left.length);
-  const hyp = lengths[0]!;
-  const leg1 = lengths[1]!;
-  const leg2 = lengths[2]!;
+  return scoreTripleGeometryFromSides(
+    a,
+    b,
+    c,
+    lengths[0]!,
+    lengths[1]!,
+    lengths[2]!,
+    geometryVariant,
+    binaryView,
+  );
+};
+
+const scoreTripleGeometryNoAllocation = (
+  a: FinderEvidence,
+  b: FinderEvidence,
+  c: FinderEvidence,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): number | null =>
+  scoreTripleGeometryFromLengths(
+    a,
+    b,
+    c,
+    distance(a, b),
+    distance(a, c),
+    distance(b, c),
+    geometryVariant,
+    binaryView,
+  );
+
+const scoreTripleGeometryFromLengths = (
+  a: FinderEvidence,
+  b: FinderEvidence,
+  c: FinderEvidence,
+  ab: number,
+  ac: number,
+  bc: number,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): number | null => {
+  const abSide = { left: a, right: b, length: ab, opposite: c } satisfies TripleSide;
+  const acSide = { left: a, right: c, length: ac, opposite: b } satisfies TripleSide;
+  const bcSide = { left: b, right: c, length: bc, opposite: a } satisfies TripleSide;
+  if (ab >= ac && ab >= bc) {
+    return ac >= bc
+      ? scoreTripleGeometryFromSides(a, b, c, abSide, acSide, bcSide, geometryVariant, binaryView)
+      : scoreTripleGeometryFromSides(a, b, c, abSide, bcSide, acSide, geometryVariant, binaryView);
+  }
+  if (ac >= bc) {
+    return ab >= bc
+      ? scoreTripleGeometryFromSides(a, b, c, acSide, abSide, bcSide, geometryVariant, binaryView)
+      : scoreTripleGeometryFromSides(a, b, c, acSide, bcSide, abSide, geometryVariant, binaryView);
+  }
+  return ab >= ac
+    ? scoreTripleGeometryFromSides(a, b, c, bcSide, abSide, acSide, geometryVariant, binaryView)
+    : scoreTripleGeometryFromSides(a, b, c, bcSide, acSide, abSide, geometryVariant, binaryView);
+};
+
+const scoreTripleGeometryFromSides = (
+  a: FinderEvidence,
+  b: FinderEvidence,
+  c: FinderEvidence,
+  hyp: TripleSide,
+  leg1: TripleSide,
+  leg2: TripleSide,
+  geometryVariant: ProposalGeometryVariant = 'baseline',
+  binaryView?: BinaryView,
+): number | null => {
   const topLeft = hyp.opposite;
-  const armA = leg1.pair[0] === topLeft || leg1.pair[1] === topLeft ? leg1 : leg2;
+  const armA = leg1.left === topLeft || leg1.right === topLeft ? leg1 : leg2;
   const armB = armA === leg1 ? leg2 : leg1;
   const sizeRatio =
     Math.max(a.moduleSize, b.moduleSize, c.moduleSize) /
@@ -734,13 +1176,230 @@ const scoreTripleGeometry = (
   const version = Math.max(1, Math.min(40, Math.round((averageLeg / averageModule - 10) / 4)));
   const expectedLeg = averageModule * (version * 4 + 10);
   const versionPlausibility = 1 - Math.abs(averageLeg - expectedLeg) / Math.max(1, expectedLeg);
-  return asymmetry + pythagorean + versionPlausibility + (2 - sizeRatio);
+  const viabilityAdjustment = geometryViabilityAdjustment(
+    topLeft,
+    armA,
+    armB,
+    geometryVariant,
+    binaryView,
+  );
+  if (viabilityAdjustment === null) return null;
+  return asymmetry + pythagorean + versionPlausibility + (2 - sizeRatio) + viabilityAdjustment;
 };
 
-const detectRowScanFinders = (
-  binary: Uint8Array,
+const geometryViabilityAdjustment = (
+  topLeft: FinderEvidence,
+  armA: TripleSide,
+  armB: TripleSide,
+  variant: ProposalGeometryVariant,
+  binaryView?: BinaryView,
+): number | null => {
+  if (variant === 'baseline') return 0;
+  const armAEnd = oppositeSideEndpoint(armA, topLeft);
+  const armBEnd = oppositeSideEndpoint(armB, topLeft);
+  const aspectPenalty =
+    aspectCompatibilityPenalty(topLeft, armAEnd) + aspectCompatibilityPenalty(topLeft, armBEnd);
+  const scalePenalty =
+    scaleConsistencyPenalty(topLeft, armAEnd) + scaleConsistencyPenalty(topLeft, armBEnd);
+  const timingPenalty =
+    binaryView === undefined ? 0 : timingCorridorPenalty(binaryView, topLeft, armAEnd, armBEnd);
+  if (variant === 'aspect-reject-conservative') {
+    return isExtremeAspectContradiction(topLeft, armAEnd) ||
+      isExtremeAspectContradiction(topLeft, armBEnd)
+      ? null
+      : 0;
+  }
+  if (variant === 'timing-corridor-reject-conservative') {
+    return timingPenalty > 0.9 ? null : -timingPenalty;
+  }
+  if (variant === 'aspect-penalty') return -aspectPenalty;
+  if (variant === 'scale-consistency-penalty') return -scalePenalty;
+  if (variant === 'timing-corridor-penalty') return -timingPenalty;
+  if (variant === 'aspect-timing-penalty') return -(aspectPenalty + timingPenalty);
+  return -(aspectPenalty + scalePenalty);
+};
+
+const oppositeSideEndpoint = (side: TripleSide, endpoint: FinderEvidence): FinderEvidence =>
+  side.left === endpoint ? side.right : side.left;
+
+const finderLogAspect = (finder: FinderEvidence): number =>
+  Math.log(Math.max(1e-6, finder.hModuleSize) / Math.max(1e-6, finder.vModuleSize));
+
+const aspectCompatibilityPenalty = (left: FinderEvidence, right: FinderEvidence): number => {
+  const leftAspect = finderLogAspect(left);
+  const rightAspect = finderLogAspect(right);
+  if (leftAspect * rightAspect >= 0) return Math.min(0.4, Math.abs(leftAspect - rightAspect) * 0.1);
+  const contradiction = Math.min(Math.abs(leftAspect), Math.abs(rightAspect));
+  return contradiction < 0.18 ? 0 : Math.min(1.2, Math.abs(leftAspect - rightAspect) * 0.5);
+};
+
+const isExtremeAspectContradiction = (left: FinderEvidence, right: FinderEvidence): boolean => {
+  const leftAspect = finderLogAspect(left);
+  const rightAspect = finderLogAspect(right);
+  return (
+    leftAspect * rightAspect < 0 &&
+    Math.min(Math.abs(leftAspect), Math.abs(rightAspect)) > 0.35 &&
+    Math.abs(leftAspect - rightAspect) > 0.9
+  );
+};
+
+const scaleConsistencyPenalty = (left: FinderEvidence, right: FinderEvidence): number => {
+  const modulePenalty = Math.abs(
+    Math.log(Math.max(1e-6, left.moduleSize) / Math.max(1e-6, right.moduleSize)),
+  );
+  const horizontalPenalty = Math.abs(
+    Math.log(Math.max(1e-6, left.hModuleSize) / Math.max(1e-6, right.hModuleSize)),
+  );
+  const verticalPenalty = Math.abs(
+    Math.log(Math.max(1e-6, left.vModuleSize) / Math.max(1e-6, right.vModuleSize)),
+  );
+  return Math.min(1.2, (modulePenalty + horizontalPenalty + verticalPenalty) / 6);
+};
+
+const timingCorridorPenalty = (
+  binaryView: BinaryView,
+  topLeft: FinderEvidence,
+  armAEnd: FinderEvidence,
+  armBEnd: FinderEvidence,
+): number => {
+  const moduleSize = Math.max(
+    1,
+    (topLeft.moduleSize + armAEnd.moduleSize + armBEnd.moduleSize) / 3,
+  );
+  const armAScore = sampleTimingCorridor(binaryView, topLeft, armAEnd, armBEnd, moduleSize);
+  const armBScore = sampleTimingCorridor(binaryView, topLeft, armBEnd, armAEnd, moduleSize);
+  return Math.max(0, 1 - (armAScore + armBScore) / 2);
+};
+
+const sampleTimingCorridor = (
+  binaryView: BinaryView,
+  startFinder: FinderEvidence,
+  endFinder: FinderEvidence,
+  interiorFinder: FinderEvidence,
+  moduleSize: number,
+): number => {
+  const along = normalise(
+    endFinder.centerX - startFinder.centerX,
+    endFinder.centerY - startFinder.centerY,
+  );
+  const inward = normalise(
+    interiorFinder.centerX - startFinder.centerX,
+    interiorFinder.centerY - startFinder.centerY,
+  );
+  if (along === null || inward === null) return 0;
+  const distanceBetweenFinders = distance(startFinder, endFinder);
+  const sampleCount = Math.floor(distanceBetweenFinders / moduleSize) - 8;
+  if (sampleCount < 5) return 0;
+  let transitions = 0;
+  let samples = 0;
+  let previousDark: boolean | null = null;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const offset = (index + 4) * moduleSize;
+    const pointX = startFinder.centerX + along.x * offset + inward.x * moduleSize * 3;
+    const pointY = startFinder.centerY + along.y * offset + inward.y * moduleSize * 3;
+    const pixel = sampleBinary(binaryView, pointX, pointY);
+    if (pixel === undefined) continue;
+    const dark = pixel === 0;
+    if (previousDark !== null && dark !== previousDark) transitions += 1;
+    previousDark = dark;
+    samples += 1;
+  }
+  if (samples < 5) return 0;
+  const transitionRate = transitions / Math.max(1, samples - 1);
+  return Math.max(0, 1 - Math.abs(transitionRate - 0.75) / 0.75);
+};
+
+export const detectRowScanFinders = (
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
+): FinderEvidence[] =>
+  detectRowScanFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      crossCheck(source, sourceWidth, sourceHeight, centerX, centerY, dx, dy, true),
+    true,
+  );
+
+export type RowScanVariant =
+  | 'row-scan-scalar-score'
+  | 'row-scan-u16'
+  | 'row-scan-u16-scalar-score'
+  | 'row-scan-packed-u16'
+  | 'row-scan-packed-u16-scalar-score';
+
+export const detectRowScanFindersWithVariant = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  variant: RowScanVariant,
+): FinderEvidence[] => {
+  if (variant === 'row-scan-scalar-score') {
+    return detectRowScanFindersWithCrossCheck(
+      binary,
+      width,
+      height,
+      (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+        crossCheck(source, sourceWidth, sourceHeight, centerX, centerY, dx, dy, true),
+      true,
+    );
+  }
+
+  const scalarScore = variant.includes('scalar-score');
+  if (variant.includes('packed') && width <= 0xffff && height <= 0xffff) {
+    const runs = buildPackedAxisRuns(binary, width, height, { fillHorizontal: false });
+    return detectRowScanFindersWithCrossCheck(
+      binary,
+      width,
+      height,
+      (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+        runMapPackedCrossCheck(
+          source,
+          sourceWidth,
+          sourceHeight,
+          runs,
+          centerX,
+          centerY,
+          dx,
+          dy,
+          scalarScore,
+        ),
+      scalarScore,
+    );
+  }
+
+  const runs = buildAxisRuns(binary, width, height, {
+    compactRuns: variant.includes('u16'),
+    fillHorizontal: false,
+  });
+  return detectRowScanFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      runMapCrossCheck(
+        source,
+        sourceWidth,
+        sourceHeight,
+        runs,
+        centerX,
+        centerY,
+        dx,
+        dy,
+        scalarScore,
+      ),
+    scalarScore,
+  );
+};
+
+const detectRowScanFindersWithCrossCheck = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  crossCheckFn: typeof crossCheck,
+  scalarScore = false,
 ): FinderEvidence[] => {
   const evidence: FinderEvidence[] = [];
   for (let row = 0; row < height; row += 1) {
@@ -759,7 +1418,16 @@ const detectRowScanFinders = (
       if (value === current) continue;
       runs[phase] = col - start;
       if (phase === 4) {
-        const candidate = createRowScanEvidence(binary, width, height, runs, col, row);
+        const candidate = createRowScanEvidence(
+          binary,
+          width,
+          height,
+          runs,
+          col,
+          row,
+          crossCheckFn,
+          scalarScore,
+        );
         if (candidate) evidence.push(candidate);
         runs[0] = runs[2];
         runs[1] = runs[3];
@@ -781,19 +1449,23 @@ const detectRowScanFinders = (
 };
 
 const createRowScanEvidence = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   runs: readonly [number, number, number, number, number],
   col: number,
   row: number,
+  crossCheckFn: typeof crossCheck,
+  scalarScore: boolean,
 ): FinderEvidence | null => {
-  const ratioScore = finderRatioScore(runs);
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(runs[0], runs[1], runs[2], runs[3], runs[4])
+    : finderRatioScore(runs);
   if (ratioScore <= 0) return null;
   const centerX = col - runs[4] - runs[3] - runs[2] / 2;
-  const vertical = crossCheck(binary, width, height, centerX, row, 0, 1);
+  const vertical = crossCheckFn(binary, width, height, centerX, row, 0, 1);
   if (!vertical) return null;
-  const horizontal = crossCheck(binary, width, height, centerX, vertical.centerY, 1, 0);
+  const horizontal = crossCheckFn(binary, width, height, centerX, vertical.centerY, 1, 0);
   if (!horizontal) return null;
   const moduleSize = (vertical.moduleSize + horizontal.moduleSize) / 2;
   return {
@@ -807,56 +1479,168 @@ const createRowScanEvidence = (
   };
 };
 
-const detectMatcherFinders = (
-  binary: Uint8Array,
+export const detectMatcherFinders = (
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
+): FinderEvidence[] =>
+  detectMatcherFindersWithRunMapVariant(binary, width, height, 'run-map-packed-u16-scalar-score');
+
+export type MatcherRunMapVariant =
+  | 'legacy-matcher'
+  | 'run-map-u16'
+  | 'run-map-u16-fill-horizontal'
+  | 'run-map-scalar-score'
+  | 'run-map-u16-scalar-score'
+  | 'run-map-packed-u16'
+  | 'run-map-packed-u16-fill-horizontal'
+  | 'run-map-packed-u16-scalar-score';
+
+export const detectMatcherFindersWithRunMapVariant = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  variant: MatcherRunMapVariant,
+): FinderEvidence[] => {
+  if (variant === 'legacy-matcher') {
+    return detectMatcherFindersWithCrossCheck(binary, width, height, crossCheck);
+  }
+
+  const compactRuns = variant.includes('u16');
+  const fillHorizontal = variant.includes('fill-horizontal');
+  const scalarScore = variant.includes('scalar-score');
+  if (variant.includes('packed') && width <= 0xffff && height <= 0xffff) {
+    const runs = buildPackedAxisRuns(binary, width, height, { fillHorizontal });
+    return detectMatcherFindersWithCrossCheck(
+      binary,
+      width,
+      height,
+      (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+        runMapPackedCrossCheck(
+          source,
+          sourceWidth,
+          sourceHeight,
+          runs,
+          centerX,
+          centerY,
+          dx,
+          dy,
+          scalarScore,
+        ),
+    );
+  }
+
+  const runs = buildAxisRuns(binary, width, height, { compactRuns, fillHorizontal });
+  return detectMatcherFindersWithCrossCheck(
+    binary,
+    width,
+    height,
+    (source, sourceWidth, sourceHeight, centerX, centerY, dx, dy) =>
+      runMapCrossCheck(
+        source,
+        sourceWidth,
+        sourceHeight,
+        runs,
+        centerX,
+        centerY,
+        dx,
+        dy,
+        scalarScore,
+      ),
+  );
+};
+
+const detectMatcherFindersWithCrossCheck = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  crossCheckFn: typeof crossCheck,
+  shouldCheckCenter: (
+    binary: Uint8Array | BinaryView,
+    width: number,
+    x: number,
+    y: number,
+  ) => boolean = isDarkCenter,
 ): FinderEvidence[] => {
   const evidence: FinderEvidence[] = [];
-  const step = Math.max(1, Math.floor(Math.min(width, height) / 180));
+  const step = matcherStep(width, height);
   for (let y = 2; y < height - 2; y += step) {
     for (let x = 2; x < width - 2; x += step) {
-      if (pixel(binary, width, x, y) !== 0) continue;
-      const horizontal = crossCheck(binary, width, height, x, y, 1, 0);
-      const vertical = crossCheck(binary, width, height, x, y, 0, 1);
-      if (!horizontal || !vertical) continue;
-      const moduleSize = (horizontal.moduleSize + vertical.moduleSize) / 2;
-      if (moduleSize < 0.8) continue;
-      evidence.push({
-        source: 'matcher',
-        centerX: horizontal.centerX,
-        centerY: vertical.centerY,
-        moduleSize,
-        hModuleSize: horizontal.moduleSize,
-        vModuleSize: vertical.moduleSize,
-        score: horizontal.score + vertical.score + 0.75,
-      });
+      if (!shouldCheckCenter(binary, width, x, y)) continue;
+      evidence.push(...matcherEvidenceAt(binary, width, height, x, y, crossCheckFn));
     }
   }
 
-  return clusterFinderEvidence(evidence)
-    .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
-    .slice(0, MAX_FINDER_EVIDENCE_TOTAL);
+  return finalizeMatcherEvidence(evidence);
 };
 
-const detectFloodFinders = (
-  binary: Uint8Array,
+const matcherStep = (width: number, height: number): number =>
+  Math.max(1, Math.floor(Math.min(width, height) / 180));
+
+const matcherEvidenceAt = (
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
+  x: number,
+  y: number,
+  crossCheckFn: typeof crossCheck,
 ): FinderEvidence[] => {
-  const labels = labelConnectedComponents(binary, width, height);
-  const components = collectComponentStats(labels, binary, width, height);
+  const horizontal = crossCheckFn(binary, width, height, x, y, 1, 0);
+  const vertical = crossCheckFn(binary, width, height, x, y, 0, 1);
+  if (!horizontal || !vertical) return [];
+  return matcherEvidenceFromChecks(horizontal, vertical);
+};
+
+const matcherEvidenceFromChecks = (
+  horizontal: NonNullable<ReturnType<typeof crossCheck>>,
+  vertical: NonNullable<ReturnType<typeof crossCheck>>,
+): FinderEvidence[] => {
+  const moduleSize = (horizontal.moduleSize + vertical.moduleSize) / 2;
+  if (moduleSize < 0.8) return [];
+  return [
+    {
+      source: 'matcher',
+      centerX: horizontal.centerX,
+      centerY: vertical.centerY,
+      moduleSize,
+      hModuleSize: horizontal.moduleSize,
+      vModuleSize: vertical.moduleSize,
+      score: horizontal.score + vertical.score + 0.75,
+    },
+  ];
+};
+
+const finalizeMatcherEvidence = (evidence: readonly FinderEvidence[]): FinderEvidence[] =>
+  clusterFinderEvidence(evidence)
+    .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+    .slice(0, MAX_FINDER_EVIDENCE_TOTAL);
+
+export const detectFloodFinders = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+): FinderEvidence[] =>
+  floodFindersFromComponents(labelConnectedComponentsWithStats(binary, width, height));
+
+const floodFindersFromComponents = (components: readonly ComponentStats[]): FinderEvidence[] => {
   const dark = components.filter((component) => component.color === 0);
   const light = components.filter((component) => component.color === 255);
+  return floodFindersFromComponentSets(dark, light, dark);
+};
+
+const floodFindersFromComponentSets = (
+  rings: readonly ComponentStats[],
+  gaps: readonly ComponentStats[],
+  stones: readonly ComponentStats[],
+): FinderEvidence[] => {
   const evidence: FinderEvidence[] = [];
 
-  for (const ring of dark) {
+  for (const ring of rings) {
+    if (!isPossibleFloodRing(ring)) continue;
     const ringWidth = ring.maxX - ring.minX + 1;
     const ringHeight = ring.maxY - ring.minY + 1;
-    const aspect = Math.max(ringWidth, ringHeight) / Math.max(1, Math.min(ringWidth, ringHeight));
-    if (ring.pixelCount < 16 || aspect > 1.7) continue;
 
-    const gap = light.find(
+    const gap = gaps.find(
       (candidate) =>
         candidate.minX > ring.minX &&
         candidate.maxX < ring.maxX &&
@@ -867,7 +1651,7 @@ const detectFloodFinders = (
     );
     if (!gap) continue;
 
-    const stone = dark.find(
+    const stone = stones.find(
       (candidate) =>
         candidate !== ring &&
         candidate.minX > gap.minX &&
@@ -898,14 +1682,29 @@ const detectFloodFinders = (
     .slice(0, MAX_FINDER_EVIDENCE_TOTAL);
 };
 
+const isPossibleFloodRing = (component: ComponentStats): boolean => {
+  const ringWidth = component.maxX - component.minX + 1;
+  const ringHeight = component.maxY - component.minY + 1;
+  const aspect = Math.max(ringWidth, ringHeight) / Math.max(1, Math.min(ringWidth, ringHeight));
+  return component.pixelCount >= 16 && aspect <= 1.7;
+};
+
+const isDarkCenter = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  x: number,
+  y: number,
+): boolean => pixel(binary, width, x, y) === 0;
+
 const crossCheck = (
-  binary: Uint8Array,
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
   centerX: number,
   centerY: number,
   dx: number,
   dy: number,
+  scalarScore = false,
 ): {
   readonly centerX: number;
   readonly centerY: number;
@@ -959,7 +1758,9 @@ const crossCheck = (
     cursorY += dy;
   }
 
-  const ratioScore = finderRatioScore(counts);
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(counts[0], counts[1], counts[2], counts[3], counts[4])
+    : finderRatioScore(counts);
   if (ratioScore <= 0) return null;
   const before = counts[0] + counts[1] + counts[2] / 2;
   const after = counts[4] + counts[3] + counts[2] / 2;
@@ -973,6 +1774,360 @@ const crossCheck = (
   };
 };
 
+type AxisRunArray = Uint16Array | Uint32Array;
+
+interface AxisRuns {
+  readonly horizontalStart: AxisRunArray;
+  readonly horizontalEnd: AxisRunArray;
+  readonly verticalStart: AxisRunArray;
+  readonly verticalEnd: AxisRunArray;
+}
+
+interface AxisRunOptions {
+  readonly compactRuns: boolean;
+  readonly fillHorizontal: boolean;
+}
+
+const axisRunArray = (
+  length: number,
+  coordinateLimit: number,
+  compactRuns: boolean,
+): AxisRunArray =>
+  compactRuns && coordinateLimit <= 0xffff ? new Uint16Array(length) : new Uint32Array(length);
+
+const buildAxisRuns = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  options: AxisRunOptions,
+): AxisRuns => {
+  const pixelCount = width * height;
+  const horizontalStart = axisRunArray(pixelCount, width, options.compactRuns);
+  const horizontalEnd = axisRunArray(pixelCount, width, options.compactRuns);
+  const verticalStart = axisRunArray(pixelCount, height, options.compactRuns);
+  const verticalEnd = axisRunArray(pixelCount, height, options.compactRuns);
+
+  for (let y = 0; y < height; y += 1) {
+    let x = 0;
+    while (x < width) {
+      const start = x;
+      const bit = pixel(binary, width, x, y);
+      while (x + 1 < width && pixel(binary, width, x + 1, y) === bit) x += 1;
+      const end = x;
+      const rowStart = y * width;
+      if (options.fillHorizontal) {
+        horizontalStart.fill(start, rowStart + start, rowStart + end + 1);
+        horizontalEnd.fill(end, rowStart + start, rowStart + end + 1);
+      } else {
+        for (let runX = start; runX <= end; runX += 1) {
+          const index = rowStart + runX;
+          horizontalStart[index] = start;
+          horizontalEnd[index] = end;
+        }
+      }
+      x += 1;
+    }
+  }
+
+  for (let x = 0; x < width; x += 1) {
+    let y = 0;
+    while (y < height) {
+      const start = y;
+      const bit = pixel(binary, width, x, y);
+      while (y + 1 < height && pixel(binary, width, x, y + 1) === bit) y += 1;
+      const end = y;
+      for (let runY = start; runY <= end; runY += 1) {
+        const index = runY * width + x;
+        verticalStart[index] = start;
+        verticalEnd[index] = end;
+      }
+      y += 1;
+    }
+  }
+
+  return { horizontalStart, horizontalEnd, verticalStart, verticalEnd };
+};
+
+interface PackedAxisRuns {
+  readonly horizontal: Uint32Array;
+  readonly vertical: Uint32Array;
+}
+
+const packRun = (start: number, end: number): number => start | (end << 16);
+const packedStart = (value: number): number => value & 0xffff;
+const packedEnd = (value: number): number => value >>> 16;
+
+const buildPackedAxisRuns = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  options: Pick<AxisRunOptions, 'fillHorizontal'>,
+): PackedAxisRuns => {
+  const pixelCount = width * height;
+  const horizontal = new Uint32Array(pixelCount);
+  const vertical = new Uint32Array(pixelCount);
+
+  for (let y = 0; y < height; y += 1) {
+    let x = 0;
+    while (x < width) {
+      const start = x;
+      const bit = pixel(binary, width, x, y);
+      while (x + 1 < width && pixel(binary, width, x + 1, y) === bit) x += 1;
+      const end = x;
+      const packed = packRun(start, end);
+      const rowStart = y * width;
+      if (options.fillHorizontal) horizontal.fill(packed, rowStart + start, rowStart + end + 1);
+      else for (let runX = start; runX <= end; runX += 1) horizontal[rowStart + runX] = packed;
+      x += 1;
+    }
+  }
+
+  for (let x = 0; x < width; x += 1) {
+    let y = 0;
+    while (y < height) {
+      const start = y;
+      const bit = pixel(binary, width, x, y);
+      while (y + 1 < height && pixel(binary, width, x, y + 1) === bit) y += 1;
+      const end = y;
+      const packed = packRun(start, end);
+      for (let runY = start; runY <= end; runY += 1) vertical[runY * width + x] = packed;
+      y += 1;
+    }
+  }
+
+  return { horizontal, vertical };
+};
+
+const runMapPackedCrossCheck = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: PackedAxisRuns,
+  centerX: number,
+  centerY: number,
+  dx: number,
+  dy: number,
+  scalarScore = false,
+): ReturnType<typeof crossCheck> => {
+  const x = Math.round(centerX);
+  const y = Math.round(centerY);
+  if (pixel(binary, width, x, y) !== 0) return null;
+  const horizontal = dx !== 0;
+  const index = y * width + x;
+  const centerRun = horizontal ? runs.horizontal[index] : runs.vertical[index];
+  const centerStart = packedStart(centerRun ?? 0);
+  const centerEnd = packedEnd(centerRun ?? 0);
+  const count2 = centerEnd - centerStart + 1;
+  const count1 = packedRunLengthBefore(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerStart,
+    255,
+  );
+  const count0 = packedRunLengthBefore(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerStart - count1,
+    0,
+  );
+  const count3 = packedRunLengthAfter(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerEnd,
+    255,
+  );
+  const count4 = packedRunLengthAfter(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerEnd + count3,
+    0,
+  );
+
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(count0, count1, count2, count3, count4)
+    : finderRatioScore([count0, count1, count2, count3, count4]);
+  if (ratioScore <= 0) return null;
+  const before = count0 + count1 + count2 / 2;
+  const after = count4 + count3 + count2 / 2;
+  return {
+    centerX: centerX + dx * ((after - before) / 2),
+    centerY: centerY + dy * ((after - before) / 2),
+    moduleSize: (count0 + count1 + count2 + count3 + count4) / 7,
+    score: ratioScore,
+  };
+};
+
+const packedRunLengthBefore = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: PackedAxisRuns,
+  x: number,
+  y: number,
+  horizontal: boolean,
+  beforeCoordinate: number,
+  expected: 0 | 255,
+): number => {
+  const coordinate = beforeCoordinate - 1;
+  if (coordinate < 0) return 0;
+  if (horizontal) {
+    if (pixel(binary, width, coordinate, y) !== expected) return 0;
+    return coordinate - packedStart(runs.horizontal[y * width + coordinate] ?? 0) + 1;
+  }
+  if (coordinate >= height || pixel(binary, width, x, coordinate) !== expected) return 0;
+  return coordinate - packedStart(runs.vertical[coordinate * width + x] ?? 0) + 1;
+};
+
+const packedRunLengthAfter = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: PackedAxisRuns,
+  x: number,
+  y: number,
+  horizontal: boolean,
+  afterCoordinate: number,
+  expected: 0 | 255,
+): number => {
+  const coordinate = afterCoordinate + 1;
+  if (horizontal) {
+    if (coordinate >= width || pixel(binary, width, coordinate, y) !== expected) return 0;
+    return packedEnd(runs.horizontal[y * width + coordinate] ?? 0) - coordinate + 1;
+  }
+  if (coordinate >= height || pixel(binary, width, x, coordinate) !== expected) return 0;
+  return packedEnd(runs.vertical[coordinate * width + x] ?? 0) - coordinate + 1;
+};
+
+const runMapCrossCheck = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: AxisRuns,
+  centerX: number,
+  centerY: number,
+  dx: number,
+  dy: number,
+  scalarScore = false,
+): ReturnType<typeof crossCheck> => {
+  const x = Math.round(centerX);
+  const y = Math.round(centerY);
+  if (pixel(binary, width, x, y) !== 0) return null;
+  const horizontal = dx !== 0;
+  const index = y * width + x;
+  const centerStart = (horizontal ? runs.horizontalStart[index] : runs.verticalStart[index]) ?? 0;
+  const centerEnd = (horizontal ? runs.horizontalEnd[index] : runs.verticalEnd[index]) ?? 0;
+  const counts: [number, number, number, number, number] = [
+    0,
+    0,
+    centerEnd - centerStart + 1,
+    0,
+    0,
+  ];
+
+  counts[1] = runLengthBefore(binary, width, height, runs, x, y, horizontal, centerStart, 255);
+  counts[0] = runLengthBefore(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerStart - counts[1],
+    0,
+  );
+  counts[3] = runLengthAfter(binary, width, height, runs, x, y, horizontal, centerEnd, 255);
+  counts[4] = runLengthAfter(
+    binary,
+    width,
+    height,
+    runs,
+    x,
+    y,
+    horizontal,
+    centerEnd + counts[3],
+    0,
+  );
+
+  const ratioScore = scalarScore
+    ? finderRatioScoreScalar(counts[0], counts[1], counts[2], counts[3], counts[4])
+    : finderRatioScore(counts);
+  if (ratioScore <= 0) return null;
+  const before = counts[0] + counts[1] + counts[2] / 2;
+  const after = counts[4] + counts[3] + counts[2] / 2;
+  const refinedX = centerX + dx * ((after - before) / 2);
+  const refinedY = centerY + dy * ((after - before) / 2);
+  return {
+    centerX: refinedX,
+    centerY: refinedY,
+    moduleSize: (counts[0] + counts[1] + counts[2] + counts[3] + counts[4]) / 7,
+    score: ratioScore,
+  };
+};
+
+const runLengthBefore = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: AxisRuns | Pick<AxisRuns, 'horizontalStart' | 'horizontalEnd'>,
+  x: number,
+  y: number,
+  horizontal: boolean,
+  beforeCoordinate: number,
+  expected: 0 | 255,
+): number => {
+  const coordinate = beforeCoordinate - 1;
+  if (coordinate < 0) return 0;
+  if (horizontal) {
+    if (pixel(binary, width, coordinate, y) !== expected) return 0;
+    return coordinate - (runs.horizontalStart[y * width + coordinate] ?? coordinate) + 1;
+  }
+  if (coordinate >= height || pixel(binary, width, x, coordinate) !== expected) return 0;
+  const verticalRuns = runs as AxisRuns;
+  return coordinate - (verticalRuns.verticalStart[coordinate * width + x] ?? coordinate) + 1;
+};
+
+const runLengthAfter = (
+  binary: Uint8Array | BinaryView,
+  width: number,
+  height: number,
+  runs: AxisRuns | Pick<AxisRuns, 'horizontalStart' | 'horizontalEnd'>,
+  x: number,
+  y: number,
+  horizontal: boolean,
+  afterCoordinate: number,
+  expected: 0 | 255,
+): number => {
+  const coordinate = afterCoordinate + 1;
+  if (horizontal) {
+    if (coordinate >= width || pixel(binary, width, coordinate, y) !== expected) return 0;
+    return (runs.horizontalEnd[y * width + coordinate] ?? coordinate) - coordinate + 1;
+  }
+  if (coordinate >= height || pixel(binary, width, x, coordinate) !== expected) return 0;
+  const verticalRuns = runs as AxisRuns;
+  return (verticalRuns.verticalEnd[coordinate * width + x] ?? coordinate) - coordinate + 1;
+};
+
 const finderRatioScore = (counts: readonly number[]): number => {
   const total = counts.reduce((sum, value) => sum + value, 0);
   if (total < 7) return 0;
@@ -982,6 +2137,25 @@ const finderRatioScore = (counts: readonly number[]): number => {
   for (let index = 0; index < 5; index += 1) {
     error += Math.abs((counts[index] ?? 0) - expected[index]! * moduleSize) / moduleSize;
   }
+  return error > FINDER_RATIO_TOLERANCE * 5 ? 0 : Math.max(0, 2.5 - error * 0.5);
+};
+
+const finderRatioScoreScalar = (
+  count0: number,
+  count1: number,
+  count2: number,
+  count3: number,
+  count4: number,
+): number => {
+  const total = count0 + count1 + count2 + count3 + count4;
+  if (total < 7) return 0;
+  const moduleSize = total / 7;
+  const error =
+    Math.abs(count0 - moduleSize) / moduleSize +
+    Math.abs(count1 - moduleSize) / moduleSize +
+    Math.abs(count2 - 3 * moduleSize) / moduleSize +
+    Math.abs(count3 - moduleSize) / moduleSize +
+    Math.abs(count4 - moduleSize) / moduleSize;
   return error > FINDER_RATIO_TOLERANCE * 5 ? 0 : Math.max(0, 2.5 - error * 0.5);
 };
 
@@ -1077,7 +2251,7 @@ const sampleBinary = (binaryView: BinaryView, x: number, y: number): number | un
   const px = Math.round(x);
   const py = Math.round(y);
   if (px < 0 || py < 0 || px >= binaryView.width || py >= binaryView.height) return undefined;
-  return binaryView.binary[py * binaryView.width + px];
+  return readBinaryPixel(binaryView, py * binaryView.width + px);
 };
 
 const dedupeRankedProposalCandidates = (
@@ -1115,6 +2289,16 @@ const proposalSignature = (proposal: ScanProposal): string => {
     .sort();
   return `${proposal.kind}:${proposal.estimatedVersions[0] ?? 0}:${points.join('|')}`;
 };
+
+const overlapsFinderEvidence = (
+  entry: FinderEvidence,
+  candidates: readonly FinderEvidence[],
+): boolean =>
+  candidates.some(
+    (candidate) =>
+      distance(entry, candidate) <
+      Math.max(2, Math.min(entry.moduleSize, candidate.moduleSize) * 2.2),
+  );
 
 const shouldRunExpensiveDetectors = (
   binaryView: BinaryView,
@@ -1245,120 +2429,97 @@ interface ComponentStats {
   readonly centroidY: number;
 }
 
-const labelConnectedComponents = (
-  binary: Uint8Array,
+const labelConnectedComponentsWithStats = (
+  binary: Uint8Array | BinaryView,
   width: number,
   height: number,
-): Int32Array => {
+): readonly ComponentStats[] => {
   const labels = new Int32Array(width * height);
+  const components: ComponentStats[] = [];
   let nextLabel = 1;
-  const queueX = new Int32Array(width * height);
-  const queueY = new Int32Array(width * height);
+  const queue = new Int32Array(width * height);
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
       if (labels[index] !== 0) continue;
-      const color = binary[index] ?? 255;
+      const color = pixelAtIndex(binary, index);
       let head = 0;
       let tail = 0;
-      queueX[tail] = x;
-      queueY[tail] = y;
+      let pixelCount = 0;
+      let minX = x;
+      let minY = y;
+      let maxX = x;
+      let maxY = y;
+      let sumX = 0;
+      let sumY = 0;
+      queue[tail] = index;
       tail += 1;
       labels[index] = nextLabel;
 
       while (head < tail) {
-        const cx = queueX[head] ?? 0;
-        const cy = queueY[head] ?? 0;
+        const currentIndex = queue[head] ?? 0;
         head += 1;
+        const cx = currentIndex % width;
+        const cy = Math.floor(currentIndex / width);
+        pixelCount += 1;
+        minX = Math.min(minX, cx);
+        minY = Math.min(minY, cy);
+        maxX = Math.max(maxX, cx);
+        maxY = Math.max(maxY, cy);
+        sumX += cx;
+        sumY += cy;
+
         const neighbors = [
-          [cx - 1, cy],
-          [cx + 1, cy],
-          [cx, cy - 1],
-          [cx, cy + 1],
-        ] as const;
-        for (const [nx, ny] of neighbors) {
-          if (!inside(nx, ny, width, height)) continue;
-          const neighborIndex = ny * width + nx;
-          if (labels[neighborIndex] !== 0 || (binary[neighborIndex] ?? 255) !== color) continue;
+          currentIndex - 1,
+          currentIndex + 1,
+          currentIndex - width,
+          currentIndex + width,
+        ];
+        for (const neighborIndex of neighbors) {
+          if (neighborIndex < 0 || neighborIndex >= labels.length) continue;
+          if (
+            (neighborIndex === currentIndex - 1 && cx === 0) ||
+            (neighborIndex === currentIndex + 1 && cx === width - 1)
+          )
+            continue;
+          if (labels[neighborIndex] !== 0 || pixelAtIndex(binary, neighborIndex) !== color)
+            continue;
           labels[neighborIndex] = nextLabel;
-          queueX[tail] = nx;
-          queueY[tail] = ny;
+          queue[tail] = neighborIndex;
           tail += 1;
         }
       }
 
+      components.push({
+        id: nextLabel,
+        color,
+        pixelCount,
+        minX,
+        minY,
+        maxX,
+        maxY,
+        centroidX: sumX / pixelCount,
+        centroidY: sumY / pixelCount,
+      });
       nextLabel += 1;
     }
   }
 
-  return labels;
+  return components;
 };
 
-const collectComponentStats = (
-  labels: Int32Array,
-  binary: Uint8Array,
-  width: number,
-  height: number,
-): readonly ComponentStats[] => {
-  const map = new Map<
-    number,
-    {
-      color: number;
-      pixelCount: number;
-      minX: number;
-      minY: number;
-      maxX: number;
-      maxY: number;
-      sumX: number;
-      sumY: number;
-    }
-  >();
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      const id = labels[index] ?? 0;
-      const existing = map.get(id);
-      if (existing) {
-        existing.pixelCount += 1;
-        existing.minX = Math.min(existing.minX, x);
-        existing.minY = Math.min(existing.minY, y);
-        existing.maxX = Math.max(existing.maxX, x);
-        existing.maxY = Math.max(existing.maxY, y);
-        existing.sumX += x;
-        existing.sumY += y;
-      } else {
-        map.set(id, {
-          color: binary[index] ?? 255,
-          pixelCount: 1,
-          minX: x,
-          minY: y,
-          maxX: x,
-          maxY: y,
-          sumX: x,
-          sumY: y,
-        });
-      }
-    }
-  }
-
-  return [...map.entries()].map(([id, value]) => ({
-    id,
-    color: value.color,
-    pixelCount: value.pixelCount,
-    minX: value.minX,
-    minY: value.minY,
-    maxX: value.maxX,
-    maxY: value.maxY,
-    centroidX: value.sumX / value.pixelCount,
-    centroidY: value.sumY / value.pixelCount,
-  }));
+const pixel = (binary: Uint8Array | BinaryView, width: number, x: number, y: number): number => {
+  return pixelAtIndex(binary, y * width + x);
 };
 
-const pixel = (binary: Uint8Array, width: number, x: number, y: number): number => {
-  return binary[y * width + x] ?? 255;
+const pixelAtIndex = (binary: Uint8Array | BinaryView, index: number): number => {
+  if (isBinaryViewInput(binary)) return readBinaryPixel(binary, index);
+  return binary[index] ?? 255;
 };
+
+const isBinaryViewInput = (value: Uint8Array | BinaryView): value is BinaryView =>
+  !(value instanceof Uint8Array);
 
 const inside = (x: number, y: number, width: number, height: number): boolean => {
   return x >= 0 && y >= 0 && x < width && y < height;

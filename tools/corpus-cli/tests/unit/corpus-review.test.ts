@@ -66,7 +66,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -117,7 +117,7 @@ describe('interactive staged review', () => {
       reviewer: 'mia',
     });
     expect(reviewed.confirmedLicense).toBe('Pixabay License');
-    expect(reviewed.suggestedLabel).toBe('qr-positive');
+    expect(reviewed.suggestedLabel).toBe('qr-pos');
     expect(reviewed.groundTruth).toEqual({
       qrCount: 1,
       codes: [{ text: 'https://example.com', kind: 'url' }],
@@ -136,7 +136,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -177,7 +177,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -226,7 +226,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -275,7 +275,7 @@ describe('interactive staged review', () => {
           yield {
             version: MAJOR_VERSION,
             id: 'stage-deadbeefcafef00d',
-            suggestedLabel: 'qr-positive' as const,
+            suggestedLabel: 'qr-pos' as const,
             imageFileName: 'image.webp',
             sourcePageUrl: 'http://127.0.0.1/internal',
             imageUrl: 'https://cdn.pixabay.com/first.png',
@@ -309,13 +309,13 @@ describe('interactive staged review', () => {
     expect(openedUrls).toEqual([]);
   });
 
-  it('marks approved zero-qr assets as non-qr-negative', async () => {
+  it('marks approved zero-qr assets as qr-neg', async () => {
     const repoRoot = await createRepoRoot();
     const staged = await scrapeRemoteAssets(
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -343,7 +343,7 @@ describe('interactive staged review', () => {
       staged.stageDir,
       staged.assets[0]?.id ?? 'missing',
     );
-    expect(reviewed.suggestedLabel).toBe('non-qr-negative');
+    expect(reviewed.suggestedLabel).toBe('qr-neg');
     expect(reviewed.groundTruth).toEqual({ qrCount: 0, codes: [] });
   });
 
@@ -355,7 +355,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -401,7 +401,7 @@ describe('interactive staged review', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       buildMockFetch(),
@@ -517,7 +517,7 @@ describe('license classifier', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),

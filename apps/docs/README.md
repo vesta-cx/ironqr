@@ -12,8 +12,12 @@ If a note documents one package's policy surface while referencing another tool,
 - [[ironqr/Ranked Proposal Pipeline]]
 - [[ironqr/Proposal Clusters]]
 - [[ironqr/Early Exit Heuristics]]
-- [[ironqr/View Study]]
 - [[ironqr/ScanFrame End-to-End]]
+
+## `tools/bench`
+- [[bench-cli/Benchmark Modes]]
+- [[bench-cli/Bench Study Plugin Contract]]
+- [[bench-cli/View Study]]
 
 ## `tools/corpus-cli`
 - [[corpus-cli/Generated Corpus]]

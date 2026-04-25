@@ -13,6 +13,7 @@ import {
   onDashboardBenchmarkStarted,
   onDashboardScanFinished,
   onDashboardScanStarted,
+  onDashboardStudyTiming,
 } from '../../src/accuracy/dashboard/model.js';
 import { renderScorecard } from '../../src/accuracy/dashboard/scorecard.js';
 import {
@@ -34,23 +35,23 @@ const result = (
   matchedTexts: [],
   failureReason: null,
   error: null,
+  imageLoadDurationMs: null,
+  totalJobDurationMs: overrides.durationMs,
   cached: false,
   ...overrides,
 });
 
 describe('bench dashboard progress renderer', () => {
-  it('renders dashboard widgets instead of the legacy engines/recent UI', async () => {
+  it('does not fall back to legacy plain progress logs', async () => {
     let output = '';
     const stderr = {
-      isTTY: true,
-      columns: 120,
-      rows: 40,
+      isTTY: false,
       write: (chunk: string) => {
         output += chunk;
         return true;
       },
     } as unknown as NodeJS.WriteStream;
-    const reporter = createAccuracyProgressReporter({ enabled: true, mode: 'dashboard', stderr });
+    const reporter = createAccuracyProgressReporter({ enabled: true, stderr });
     reporter.onManifestStarted();
     reporter.onManifestLoaded(2, ['ironqr'], true, { positiveCount: 1, negativeCount: 1 });
     reporter.onBenchmarkStarted(2, ['ironqr'], 1);
@@ -60,7 +61,7 @@ describe('bench dashboard progress renderer', () => {
       relativePath: 'assets/asset-1.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 1000,
       }),
@@ -68,14 +69,8 @@ describe('bench dashboard progress renderer', () => {
     });
     await Promise.resolve();
 
-    expect(output).toContain('avg fresh ms / asset');
-    expect(output).toContain('scorecard');
-    expect(output).toContain('active workers');
-    expect(output).toContain('recent scans');
-    expect(output).not.toContain('\nengines:\n');
-    expect(output).not.toContain('\nrecent:\n');
+    expect(output).toBe('');
     reporter.stop();
-    expect(output).toContain('stage=done');
   });
 });
 
@@ -93,31 +88,23 @@ describe('dashboard formatting', () => {
 
 describe('bench dashboard model', () => {
   it('classifies scan outcomes into timing buckets', () => {
+    expect(classifyTimingBucket(result({ label: 'qr-pos', outcome: 'pass', durationMs: 1 }))).toBe(
+      'positive-pass',
+    );
     expect(
-      classifyTimingBucket(result({ label: 'qr-positive', outcome: 'pass', durationMs: 1 })),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'partial-pass', durationMs: 1 })),
     ).toBe('positive-pass');
     expect(
-      classifyTimingBucket(
-        result({ label: 'qr-positive', outcome: 'partial-pass', durationMs: 1 }),
-      ),
-    ).toBe('positive-pass');
-    expect(
-      classifyTimingBucket(
-        result({ label: 'qr-positive', outcome: 'fail-no-decode', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'fail-no-decode', durationMs: 1 })),
     ).toBe('positive-fail');
     expect(
-      classifyTimingBucket(
-        result({ label: 'qr-positive', outcome: 'fail-mismatch', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-pos', outcome: 'fail-mismatch', durationMs: 1 })),
     ).toBe('positive-fail');
+    expect(classifyTimingBucket(result({ label: 'qr-neg', outcome: 'pass', durationMs: 1 }))).toBe(
+      'negative-pass',
+    );
     expect(
-      classifyTimingBucket(result({ label: 'non-qr-negative', outcome: 'pass', durationMs: 1 })),
-    ).toBe('negative-pass');
-    expect(
-      classifyTimingBucket(
-        result({ label: 'non-qr-negative', outcome: 'false-positive', durationMs: 1 }),
-      ),
+      classifyTimingBucket(result({ label: 'qr-neg', outcome: 'false-positive', durationMs: 1 })),
     ).toBe('negative-fail');
   });
 
@@ -130,7 +117,7 @@ describe('bench dashboard model', () => {
       relativePath: 'assets/asset-1.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 2000,
       }),
@@ -151,7 +138,7 @@ describe('bench dashboard model', () => {
       relativePath: 'assets/asset-2.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 50,
         cached: true,
@@ -193,7 +180,7 @@ describe('bench dashboard model', () => {
       engineId: 'ironqr',
       assetId: 'asset-1',
       relativePath: 'assets/asset-1.webp',
-      label: 'qr-positive',
+      label: 'qr-pos',
       cached: false,
       cacheable: true,
       nowMs: 100,
@@ -211,7 +198,7 @@ describe('bench dashboard model', () => {
         relativePath: `assets/asset-${index}.webp`,
         result: result({
           engineId: 'ironqr',
-          label: 'qr-positive',
+          label: 'qr-pos',
           outcome: 'fail-no-decode',
           durationMs: index,
         }),
@@ -252,7 +239,7 @@ describe('scorecard widget', () => {
       relativePath: 'assets/asset-1.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 2300,
       }),
@@ -264,7 +251,7 @@ describe('scorecard widget', () => {
       relativePath: 'assets/asset-2.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'fail-mismatch',
         durationMs: 12000,
       }),
@@ -276,7 +263,7 @@ describe('scorecard widget', () => {
       relativePath: 'assets/asset-3.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'non-qr-negative',
+        label: 'qr-neg',
         outcome: 'pass',
         durationMs: 1700,
       }),
@@ -288,7 +275,7 @@ describe('scorecard widget', () => {
       relativePath: 'assets/asset-4.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'non-qr-negative',
+        label: 'qr-neg',
         outcome: 'false-positive',
         durationMs: 500,
       }),
@@ -331,7 +318,7 @@ describe('table widgets', () => {
       relativePath: 'assets/asset-slow.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'fail-no-decode',
         durationMs: 12_000,
         matchedTexts: [],
@@ -350,6 +337,31 @@ describe('table widgets', () => {
     expect(renderRecentScans(model, { width: 100, maxRows: 0 }).join('\n')).toContain('none yet');
   });
 
+  it('ranks study timing rows by fresh samples when cached preload rows exist', () => {
+    const model = createBenchDashboardModel();
+    model.commandName = 'study';
+    onDashboardStudyTiming(model, {
+      id: 'det:f:dense:gray:h:i',
+      durationMs: 1000,
+      group: 'detector',
+      cached: true,
+    });
+    onDashboardStudyTiming(model, {
+      id: 'det:f:dense:gray:h:i',
+      durationMs: 10,
+      group: 'detector',
+      cached: false,
+    });
+
+    const output = renderSlowestFreshScans(model, {
+      width: 80,
+      studySlowestMetric: 'avg',
+    }).join('\n');
+    expect(output).toContain('10ms');
+    expect(output).toContain('c=1');
+    expect(output).not.toContain('505ms');
+  });
+
   it('renders two widgets side by side', () => {
     const output = renderSideBySide(['left', 'a'], ['right', 'b'], { width: 20, gap: 2 });
     expect(output).toEqual(['left       right', 'a          b']);
@@ -366,7 +378,7 @@ describe('timing chart widget', () => {
       relativePath: 'assets/asset-1.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 2300,
       }),
@@ -379,7 +391,7 @@ describe('timing chart widget', () => {
       relativePath: 'assets/asset-2.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'fail-no-decode',
         durationMs: 12_000,
       }),
@@ -392,7 +404,7 @@ describe('timing chart widget', () => {
       relativePath: 'assets/asset-3.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'non-qr-negative',
+        label: 'qr-neg',
         outcome: 'pass',
         durationMs: 1700,
       }),
@@ -407,7 +419,7 @@ describe('timing chart widget', () => {
     expect(output).toContain('2.3s 12s  1.7s  - ');
     expect(output).toContain('1    1    1    0');
     expect(output).toContain('c         0    0    0    0');
-    expect(output).toContain('···');
+    expect(output).not.toContain('░');
   });
 
   it('tracks cached timing buckets without including cached durations in fresh averages', () => {
@@ -426,7 +438,7 @@ describe('timing chart widget', () => {
       relativePath: 'assets/asset-cached.webp',
       result: result({
         engineId: 'ironqr',
-        label: 'qr-positive',
+        label: 'qr-pos',
         outcome: 'pass',
         durationMs: 50,
         cached: true,
@@ -437,7 +449,8 @@ describe('timing chart widget', () => {
 
     const output = renderTimingChart(model, { width: 80, barHeight: 4 }).join('\n');
     expect(output).toContain('c=cache hits');
-    expect(output).toContain('▒▒▒');
+    expect(output).toContain(' c ');
+    expect(output).not.toContain('▒');
     expect(output).toContain('n         1    0    0    0');
     expect(output).toContain('c         1    0    0    0');
     expect(output).toContain('avg        -    -    -    -');

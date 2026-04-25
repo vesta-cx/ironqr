@@ -26,9 +26,9 @@ const ENGINE_GAP = '    ';
 const ROW_LABEL_WIDTH = 10;
 const BAR_HEIGHT = 6;
 const FILLED_BAR = '███';
-const EMPTY_BAR = '░░░';
-const NO_SAMPLE_BAR = '···';
-const CACHE_ONLY_BAR = '▒▒▒';
+const EMPTY_BAR = '   ';
+const NO_SAMPLE_BAR = '   ';
+const CACHE_ONLY_BAR = ' c ';
 
 export const renderTimingChart = (
   model: BenchDashboardModel,

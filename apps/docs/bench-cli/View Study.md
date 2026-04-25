@@ -1,11 +1,11 @@
 # View Study
 
-Related: [[Proposal Clusters]], [[Ranked Proposal Pipeline]], [[Pipeline Stage Contracts]], [[Diagnostics and Benchmark Boundary]], [[Thresholding Research Notes]]
+Related: [[Proposal Clusters]], [[Ranked Proposal Pipeline]], [[Pipeline Stage Contracts]], [[Diagnostics and Benchmark Boundary]], [[Thresholding Research Notes]], [[Bench Study Plugin Contract]]
 
 ## Scope
 This note documents how `packages/ironqr` uses corpus evidence to choose proposal-view policy.
 
-The study tooling and reports may live in `tools/bench` and one-off scripts, but this note is about the `ironqr` policy surface they inform.
+The study tooling lives in `tools/bench` behind the pluggable contract described in [[Bench Study Plugin Contract]]. This note is about the `ironqr` policy surface that tooling informs. If a study needs extra proposal metadata or metrics, those should be added to `ironqr` behind explicit opt-in diagnostics flags so production scans stay cheap while consumers can still tune scanner policy.
 
 ## Goal
 Measure which binary views are actually useful for surfacing real QR candidates, so proposal and cluster representative order can be driven by corpus evidence instead of intuition.
@@ -50,9 +50,21 @@ A soft composite can still be useful as a tie-breaker, but only with guardrails.
 ## Runtime reality
 An exhaustive study is expensive because each asset can produce hundreds of ranked proposals. That is why the study code stores resumable cache state, partial progress, and per-proposal timings.
 
+## Running the study
+
+```sh
+bun run --cwd tools/bench bench study list
+bun run --cwd tools/bench bench study view-proposals --max-assets 25
+bun run --cwd tools/bench bench study view-proposals --asset asset-123 --top-k 18
+```
+
+`view-order` remains as a compatibility alias for `view-proposals`; new runs should use `view-proposals`. Avoid `--refresh-cache` on normal study runs because it forces cached control work to rerun; use it only when intentionally invalidating the selected cache domain.
+
 ## Files
-- report output: `tools/bench/reports/ironqr-view-study*.json`
-- resumable cache: `tools/bench/.cache/ironqr-view-study*.json`
+- latest full report output: `tools/bench/reports/full/study/study-view-proposals.json`
+- timestamped full report snapshots: `tools/bench/reports/full/study/runs/<timestamp>-<short-sha>/study-view-proposals.json`
+- processed summary output: `tools/bench/reports/study/study-view-proposals.summary.json`
+- resumable cache: `tools/bench/.cache/studies/view-proposals.json`
 
 ## Current adopted fast path
 The current proposal-generation fast path in `packages/ironqr/src/pipeline/views.ts` is based on the exhaustive 88-asset study that was used to replace the older heuristic family ordering.

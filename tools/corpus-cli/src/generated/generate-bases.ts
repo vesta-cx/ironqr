@@ -188,7 +188,7 @@ const main = async () => {
       const asset = await buildGeneratedAssetRecord({
         repoRoot: options.repoRoot,
         outputPath: tempOutputPath,
-        label: 'qr-positive',
+        label: 'qr-pos',
         provenance: [
           buildLocalGeneratedProvenance(
             options.qrProjectRoot,

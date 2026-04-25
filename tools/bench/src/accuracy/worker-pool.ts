@@ -13,12 +13,16 @@ interface AccuracyWorkerJob {
   readonly runOptions?: AccuracyEngineRunOptions;
 }
 
+interface AccuracyWorkerExecution {
+  readonly scan: AccuracyScanResult;
+  readonly durationMs: number;
+  readonly imageLoadDurationMs: number | null;
+  readonly totalJobDurationMs: number;
+}
+
 interface QueuedJob {
   readonly request: AccuracyWorkerRequest;
-  readonly resolve: (value: {
-    readonly scan: AccuracyScanResult;
-    readonly durationMs: number;
-  }) => void;
+  readonly resolve: (value: AccuracyWorkerExecution) => void;
   readonly reject: (reason?: unknown) => void;
 }
 
@@ -39,9 +43,7 @@ const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
 export interface AccuracyWorkerPool {
-  run: (
-    job: AccuracyWorkerJob,
-  ) => Promise<{ readonly scan: AccuracyScanResult; readonly durationMs: number }>;
+  run: (job: AccuracyWorkerJob) => Promise<AccuracyWorkerExecution>;
   close: () => Promise<void>;
 }
 
@@ -126,6 +128,8 @@ export const createAccuracyWorkerPool = (
           current.resolve({
             scan: message.scan,
             durationMs: message.durationMs,
+            imageLoadDurationMs: message.imageLoadDurationMs,
+            totalJobDurationMs: message.totalJobDurationMs,
           });
           dispatch();
           return;

@@ -10,6 +10,32 @@ Views are cheap. Full decode attempts are not.
 
 The pipeline should spend as much cheap work as needed to find good QR candidates, then spend expensive work only where the evidence is strongest.
 
+## End-to-end latency target
+Interactive video scanning targets one complete frame decision inside a 60 FPS frame budget:
+
+```text
+1000 ms / 60 fps = 16.67 ms per frame
+```
+
+That budget covers the full `scanFrame` path for a single frame: input normalization, view construction, proposal generation, clustering, structure/refinement, module sampling, decode, and returning either decoded QR payloads or a confident “no QR code found.” A candidate optimization is strategically valuable when it moves the measured end-to-end path toward this 16.67 ms budget or removes a bottleneck that blocks reaching it.
+
+Future temporal optimization may allow some frames to reuse prior-frame state or run slightly slower than realtime on occasional frames, but the durable baseline target remains a standalone 16.67 ms frame decision.
+
+## Effort / search-depth option
+IronQR should expose an explicit effort option that controls how hard the scanner searches before returning “no QR code found.” This lets callers choose latency vs. recall instead of baking one global policy into the pipeline.
+
+A likely shape:
+
+| Effort | Product intent | Search behavior |
+| --- | --- | --- |
+| `low` / `cheap` | Find easy QR codes very quickly in realtime video. | Use the cheapest/highest-yield views and detectors, tight proposal/decode budgets, and early exits after strong easy evidence. May miss stylized, low-contrast, damaged, or unusual QR codes. |
+| `balanced` | Default production mode. | Use the evidence-backed view order and budgets that preserve most corpus recall while still respecting interactive latency. |
+| `high` / `exhaustive` | Offline, diagnostic, or “try hard” scans. | Broaden views, detector candidates, rescue paths, and decode attempts. Optimizes recall and evidence collection over per-frame latency. |
+
+The effort option should be part of the public scan contract, not a hidden benchmark-only setting. It can map to internal knobs such as proposal-view count/order, detector families, cluster budgets, max representatives per cluster, structural failure limits, decode-attempt limits, and `continueAfterDecode` behavior.
+
+Study and benchmark modes may still force exhaustive settings when the question requires complete evidence. That is separate from production effort: studies measure what is possible; effort modes decide how much of that search a caller is willing to spend at runtime.
+
 ## Stage 0 — frame normalization
 ### What
 Convert supported input into one validated internal frame object.
@@ -70,6 +96,8 @@ Proposal sources should include at least:
 - connected-component / flood detector
 - transform-aware matcher
 - quad-style photo fallback detector
+
+The matcher should use row/column run-map-backed cross-checks rather than repeated pixel walking. This keeps the same finder-ratio semantics while making the matcher cheap enough to be the default detector path. Any extra matcher pruning must prove identical finder output or include a fallback path; cheap center filters alone are not a safe replacement.
 
 Output should be proposals, not winners.
 

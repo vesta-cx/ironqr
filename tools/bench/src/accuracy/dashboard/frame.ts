@@ -23,7 +23,7 @@ export const renderRunFooter = (dashboard: BenchDashboardModel): string => {
   }
 
   return [
-    `bench accuracy`,
+    `bench ${dashboard.commandName}`,
     `stage=${dashboard.stage}`,
     dashboard.message,
     `jobs=${dashboard.completedJobs}/${dashboard.totalJobs}`,
