@@ -574,16 +574,18 @@ function makeImageProcessingStudyPlugin(input: {
           preloadedDetectorRows,
           signal,
         );
-        matcherCandidates = await measureMatcherCandidateVariants(
-          viewBank,
-          viewIds,
-          asset.id,
-          asset,
-          cache,
-          log,
-          preloadedDetectorRows,
-          signal,
-        );
+        if (activeMatcherPatternIds().length > 0) {
+          matcherCandidates = await measureMatcherCandidateVariants(
+            viewBank,
+            viewIds,
+            asset.id,
+            asset,
+            cache,
+            log,
+            preloadedDetectorRows,
+            signal,
+          );
+        }
         proposalGenerationMs = round(performance.now() - detectorStartedAt);
       } else {
         const proposalStartedAt = performance.now();
@@ -793,10 +795,14 @@ const FLOOD_CONTROL_ID = 'dense-stats';
 
 const activeDetectorPatternIds = (): readonly string[] => [
   FLOOD_CONTROL_ID,
-  'run-map',
   ...ACTIVE_FLOOD_CANDIDATES.map((candidate) => candidate.id),
-  ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id),
+  ...activeMatcherPatternIds(),
 ];
+
+const activeMatcherPatternIds = (): readonly string[] =>
+  ACTIVE_MATCHER_CANDIDATES.length === 0
+    ? []
+    : ['run-map', ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id)];
 
 const retainedDetectorPatternIds = (): readonly string[] => [
   'inline-flood',
@@ -851,36 +857,42 @@ const readCachedDetectorAssetResult = async (
   const matcherVariants = new Map<string, DetectorVariantMeasurement>();
   const floodUnits: DetectorUnitMeasurement[] = [];
   const matcherUnits: DetectorUnitMeasurement[] = [];
+  const measureMatchers = activeMatcherPatternIds().length > 0;
 
   for (const viewId of viewIds) {
     await yieldToDashboard();
     const floodControl = await readVariantMeasurement(asset, cache, FLOOD_CONTROL_ID, viewId);
-    const matcherControl = await readVariantMeasurement(asset, cache, 'run-map', viewId);
-    if (!floodControl || !matcherControl) return null;
+    if (!floodControl) return null;
+    const matcherControl = measureMatchers
+      ? await readVariantMeasurement(asset, cache, 'run-map', viewId)
+      : null;
+    if (measureMatchers && !matcherControl) return null;
     floodControlMs += floodControl.durationMs;
-    matcherControlMs += matcherControl.durationMs;
+    if (matcherControl) matcherControlMs += matcherControl.durationMs;
     const floodControlId = detectorTimingId(viewId, FLOOD_CONTROL_ID, 'flood');
-    const matcherControlId = detectorTimingId(viewId, 'run-map', 'matcher');
     floodUnits.push(
       detectorUnit(floodControlId, FLOOD_CONTROL_ID, 'flood', floodControl, true, true),
     );
-    matcherUnits.push(
-      detectorUnit(matcherControlId, 'run-map', 'matcher', matcherControl, true, true),
-    );
+    if (matcherControl) {
+      const matcherControlId = detectorTimingId(viewId, 'run-map', 'matcher');
+      matcherUnits.push(
+        detectorUnit(matcherControlId, 'run-map', 'matcher', matcherControl, true, true),
+      );
+      logStudyTiming(
+        log,
+        matcherControlId,
+        matcherControl.durationMs,
+        'detector',
+        matcherControl.outputCount,
+        true,
+      );
+    }
     logStudyTiming(
       log,
       floodControlId,
       floodControl.durationMs,
       'detector',
       floodControl.outputCount,
-      true,
-    );
-    logStudyTiming(
-      log,
-      matcherControlId,
-      matcherControl.durationMs,
-      'detector',
-      matcherControl.outputCount,
       true,
     );
 
@@ -908,7 +920,7 @@ const readCachedDetectorAssetResult = async (
       const compared = compareVariant(
         candidate.id,
         area,
-        matcherControl.signature,
+        matcherControl?.signature ?? [],
         measured,
         candidate.note,
       );
@@ -944,12 +956,9 @@ const readCachedDetectorAssetResult = async (
     scalarStats: [],
     scalarFusion: emptyScalarFusionMeasurement(),
     sharedArtifacts: emptySharedArtifactMeasurement(),
-    matcherCandidates: cachedMatcherMeasurement(
-      matcherControlMs,
-      viewIds,
-      matcherVariants,
-      matcherUnits,
-    ),
+    matcherCandidates: measureMatchers
+      ? cachedMatcherMeasurement(matcherControlMs, viewIds, matcherVariants, matcherUnits)
+      : null,
     floodCandidates: {
       controlMs: round(floodControlMs),
       variants: [...floodVariants.values()],
@@ -1144,7 +1153,9 @@ const FLOOD_CANDIDATES = [
 ] as const;
 
 const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] =
-  FLOOD_CANDIDATES.filter((candidate) => candidate.id === 'scanline-squared');
+  FLOOD_CANDIDATES.filter(
+    (candidate) => candidate.id === 'scanline-stats' || candidate.id === 'scanline-squared',
+  );
 
 const MATCHER_CANDIDATES = [
   {
