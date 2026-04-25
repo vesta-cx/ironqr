@@ -71,7 +71,7 @@ tripleAssemblyMs improves materially
 
 ## Results
 
-Full exact-variant run generated `2026-04-25T22:06:15.380Z` from commit `c6a5f0d94a952d2e2c9ab73f00d6b04a6d27e9ac` with dirty working tree state. Reports:
+Confirmation run generated `2026-04-25T22:13:00.671Z` from commit `49d24a9c37d1d0e4389687733b8b9cbdcfd3b8f6` with dirty working tree state. Reports:
 
 ```text
 tools/bench/reports/full/study/study-proposal-generation-variants.json
@@ -83,34 +83,25 @@ Run shape:
 ```text
 assets=203 positives=60 negatives=143
 detectorPolicyId=no-flood maxViews=54 maxProposals=24
+variants=sort-all,no-allocation-score,distance-matrix-streaming,min-heap-topk
 cache hits=0 misses=406 writes=203
 ```
 
 | Variant | Proposal signatures mismatched assets | Proposals | Triple count | Triple assembly ms | Scan ms | Triple assembly delta vs `sort-all` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `sort-all` | 0 | 168,366 | 540,894 | 608.98 | 281,854.65 | — |
-| `streaming-topk` | 0 | 168,366 | 540,894 | 562.99 | 271,661.34 | -45.99ms / -7.55% |
-| `fixed-array-topk` | 0 | 168,366 | 540,894 | 504.46 | 269,784.84 | -104.52ms / -17.16% |
-| `min-heap-topk` | 7 | 168,366 | 540,894 | 518.42 | 271,681.39 | -90.56ms / -14.87% |
-| `distance-matrix-sort-all` | 0 | 168,366 | 540,894 | 401.40 | 269,818.50 | -207.58ms / -34.09% |
-| `distance-matrix-streaming` | 0 | 168,366 | 540,894 | 365.29 | 269,556.98 | -243.69ms / -40.02% |
-| `no-allocation-score` | 0 | 168,366 | 540,894 | 364.93 | 270,157.23 | -244.05ms / -40.08% |
+| `sort-all` | 0 | 168,366 | 540,894 | 650.92 | 289,895.35 | — |
+| `no-allocation-score` | 0 | 168,366 | 540,894 | 407.46 | 276,935.32 | -243.46ms / -37.40% |
+| `distance-matrix-streaming` | 0 | 168,366 | 540,894 | 452.49 | 276,516.52 | -198.43ms / -30.48% |
+| `min-heap-topk` | 0 | 168,366 | 540,894 | 578.57 | 275,587.77 | -72.35ms / -11.12% |
 
-All variants preserved positive proposal-asset coverage (`60/60`) and negative proposal-asset behavior (`143/143`). `min-heap-topk` preserved counts but had 7 proposal-signature mismatched assets in this run, so it is not exact as measured.
-
-After this run, the min-heap comparator was fixed locally because the heap root selected the best retained candidate instead of the worst retained candidate. A small smoke after the fix had zero mismatches, but the full report above remains the evidence for commit `c6a5f0d`.
+All confirmation variants preserved positive proposal-asset coverage (`60/60`), negative proposal-asset behavior (`143/143`), proposal counts, and proposal signatures. The post-fix `min-heap-topk` is now exact on the full corpus, but it is slower on the primary `tripleAssemblyMs` metric than the two leading candidates.
 
 ## Interpretation plan
 
 First compare each variant with `sort-all` for exact proposal signatures. If exact and faster, it is a safe implementation-level candidate. Do not include capped evidence, early-exit, or budget variants in this study; those belong in a separate policy/budget study after exact implementation work is exhausted.
 
-The best full-run exact candidates are `no-allocation-score` and `distance-matrix-streaming`, both reducing triple assembly by about `40%` while preserving proposal signatures. Because triple assembly is small relative to detector and view work, total scan improvement is about `4–5%`.
+The best full-run exact candidate is `no-allocation-score`, reducing triple assembly by `37.40%` while preserving proposal signatures. `distance-matrix-streaming` is second at `30.48%`. Because triple assembly is small relative to detector and view work, total scan improvement is about `4–5%`; scan-time ordering is noisy because each variant reruns detector/view work, so `tripleAssemblyMs` is the primary decision metric.
 
 ## Conclusion / evidence-backed decision
 
-Promote neither from this report alone until the post-fix code is rerun. If the rerun confirms exact signatures, the leading candidates are:
-
-1. `no-allocation-score` — fastest triple assembly in this run and simplest runtime shape.
-2. `distance-matrix-streaming` — nearly tied, combines pair-distance reuse with top-K retention.
-
-Bin `min-heap-topk` unless the post-fix full run shows zero proposal-signature mismatches.
+Promote `no-allocation-score` as the proposal assembly implementation candidate: it is exact on proposal signatures and is fastest on the primary isolated assembly metric. Keep `distance-matrix-streaming` as the backup candidate. Bin `min-heap-topk` for now: it is exact after the fix but does not win the primary metric.
