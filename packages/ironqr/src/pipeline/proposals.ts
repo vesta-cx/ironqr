@@ -12,8 +12,6 @@ import { type BinaryView, type BinaryViewId, readBinaryPixel, type ViewBank } fr
 const MAX_FINDER_EVIDENCE_TOTAL = 12;
 const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
 const MAX_TRIPLE_COMBINATIONS = 120;
-const TOP_EVIDENCE_32 = 32;
-const TOP_EVIDENCE_48 = 48;
 const FINDER_RATIO_TOLERANCE = 0.9;
 const QUIET_ZONE_DISTANCE_MODULES = 5.25;
 
@@ -227,11 +225,7 @@ export interface FinderEvidenceDetectionPolicy {
   readonly suppressMatcherOverlappingRowScan?: boolean;
 }
 
-export type ProposalAssemblyVariant =
-  | 'sort-all'
-  | 'streaming-topk'
-  | 'top48-streaming'
-  | 'top32-streaming';
+export type ProposalAssemblyVariant = 'sort-all' | 'streaming-topk';
 
 /**
  * Per-view proposal-generation options.
@@ -558,12 +552,8 @@ const assembleFinderTriples = (
 
 const evidenceForAssemblyVariant = (
   evidence: readonly FinderEvidence[],
-  variant: ProposalAssemblyVariant,
-): readonly FinderEvidence[] => {
-  if (variant === 'top48-streaming') return evidence.slice(0, TOP_EVIDENCE_48);
-  if (variant === 'top32-streaming') return evidence.slice(0, TOP_EVIDENCE_32);
-  return evidence;
-};
+  _variant: ProposalAssemblyVariant,
+): readonly FinderEvidence[] => evidence;
 
 const proposalsFromFinderTriples = (
   binaryView: BinaryView,

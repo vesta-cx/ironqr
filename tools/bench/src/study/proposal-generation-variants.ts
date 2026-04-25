@@ -17,8 +17,6 @@ const TIMING_ROWS_PER_VARIANT = 6;
 const VARIANTS = [
   'sort-all',
   'streaming-topk',
-  'top48-streaming',
-  'top32-streaming',
 ] as const satisfies readonly ProposalAssemblyVariant[];
 
 type DetectorPolicyId = 'full-current' | 'no-flood' | 'row-only' | 'matcher-only';
@@ -270,7 +268,7 @@ const summarize = ({
       .filter((variant) => variant.variantId !== 'sort-all')
       .map((variant) => compareVariant(variant, control)),
     recommendation: [
-      'Promote only exact-output variants, or lossy variants with zero positive proposal-asset loss and an intentional proposal frontier reduction.',
+      'Promote only exact-output variants. This study intentionally excludes early exits, evidence caps, and proposal-budget changes.',
       'Use tripleAssemblyMs for the isolated assembly optimization; scanDurationMs includes detector and view materialization costs.',
     ],
   };

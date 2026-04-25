@@ -8,17 +8,15 @@ The production change under study is the implementation of finder-triple assembl
 
 ## Hypothesis / thesis
 
-The current control scores every finder triple, materializes all scored candidates, sorts them, and slices the top set. For views with many finder evidences, sorting and retaining every candidate may waste work when only the top `MAX_TRIPLE_COMBINATIONS` are used.
+The current control scores every finder triple, materializes all scored candidates, sorts them, and slices the existing top set. For views with many finder evidences, sorting and retaining every candidate may waste work even when every candidate is still scored.
 
 Expected result:
 
 ```text
-streaming top-k preserves exact output and reduces triple-assembly time
+streaming top-k scores the same triples, preserves exact output, and reduces triple-assembly time
 ```
 
-Lossy evidence caps (`top48-streaming`, `top32-streaming`) may reduce work further, but must not be promoted unless positive proposal coverage remains intact and proposal frontier reduction is intentional.
-
-Null hypothesis: exhaustive `sort-all` remains necessary because streaming/capped variants either do not improve time or lose required proposals.
+Null hypothesis: exhaustive `sort-all` remains necessary because streaming does not improve time or cannot preserve exact proposal output.
 
 ## Designed experiment / study
 
@@ -36,8 +34,6 @@ Variants:
 | --- | --- | --- |
 | `sort-all` | Current control: materialize every valid triple, sort all, slice top combinations. | Baseline output and cost. |
 | `streaming-topk` | Score every valid triple but maintain only the top-K triples incrementally. | Can we preserve exact output while avoiding full materialization/sort? |
-| `top48-streaming` | Keep top 48 detector evidences before streaming top-K assembly. | Does capping evidence reduce cost without losing positive proposal coverage? |
-| `top32-streaming` | Keep top 32 detector evidences before streaming top-K assembly. | More aggressive evidence cap / frontier reduction bound. |
 
 Default corpus: all approved assets, all default binary views. Cache is study-level per asset/config; use `--refresh-cache` when changing variant implementation.
 
@@ -45,7 +41,7 @@ Default corpus: all approved assets, all default binary views. Cache is study-le
 
 | Metric | Unit | Decision use |
 | --- | --- | --- |
-| Proposal asset coverage | assets | Must match control for exact-output or safe lossy variants. |
+| Proposal asset coverage | assets | Must match control. |
 | Positive proposal asset coverage | assets | Mandatory recall guard. |
 | Negative proposal asset coverage | assets | Safety/frontier-shape guard. |
 | Proposal count | proposals | Detects frontier changes. |
@@ -59,8 +55,6 @@ Default corpus: all approved assets, all default binary views. Cache is study-le
 
 ## Decision rule
 
-### Exact implementation replacement
-
 Promote `streaming-topk` only if:
 
 ```text
@@ -70,26 +64,13 @@ positive proposal asset delta = 0
 tripleAssemblyMs improves materially
 ```
 
-### Lossy evidence caps
-
-Promote `top48-streaming` or `top32-streaming` only if:
-
-```text
-positive proposal asset delta = 0
-negative proposal behavior is acceptable
-proposal frontier reduction is intentional
-follow-up decode confirmation accepts the reduced frontier
-```
-
-Lossy variants are candidates for policy studies, not immediate production replacements.
-
 ## Results
 
 Pending. Run the study before changing production proposal assembly.
 
 ## Interpretation plan
 
-First compare `streaming-topk` with `sort-all` for exact proposal signatures. If exact and faster, it is the safest implementation-level win. Then inspect capped variants for positive proposal coverage and proposal-count reduction; if they retain positives, use them to design a decode-level frontier-reduction study.
+First compare `streaming-topk` with `sort-all` for exact proposal signatures. If exact and faster, it is the safest implementation-level win. Do not include capped evidence, early-exit, or budget variants in this study; those belong in a separate policy/budget study after exact implementation work is exhausted.
 
 ## Conclusion / evidence-backed decision
 
