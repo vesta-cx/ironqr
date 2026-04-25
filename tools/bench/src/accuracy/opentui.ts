@@ -44,7 +44,7 @@ const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
 const RECENT_LAYOUT_RESERVED_ROWS = 24;
 const PROGRESS_BAR_WIDTH = 56;
-const DASHBOARD_REFRESH_INTERVAL_MS = 250;
+const DASHBOARD_REFRESH_INTERVAL_MS = 50;
 const TABLE_ROW_FILL_SLACK = 6;
 const FILTER_MODAL_MIN_ROWS = 22;
 const FILTER_MODAL_MAX_ROWS = 30;
@@ -157,7 +157,7 @@ export class BenchOpenTuiDashboard {
       const { BoxRenderable, TextRenderable, createCliRenderer } = await import('@opentui/core');
       const renderer = await createCliRenderer({
         exitOnCtrlC: false,
-        targetFps: 12,
+        targetFps: 20,
         screenMode: 'alternate-screen',
         clearOnShutdown: true,
         useMouse: false,
