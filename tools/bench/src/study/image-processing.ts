@@ -393,7 +393,13 @@ function makeImageProcessingStudyPlugin(input: {
           maxProposalsPerView: EXHAUSTIVE_SCAN_CEILING,
         }).summary;
         proposalSummaries.push(summary);
-        logStudyTiming(log, studyTimingId(viewId, 'c'), summary.detectorDurationMs);
+        logStudyTiming(
+          log,
+          studyTimingId(viewId, 'c'),
+          summary.detectorDurationMs,
+          'view',
+          summary.proposalCount,
+        );
         logFinderDetectorTimings(log, viewId, 'c', summary);
         log(`${asset.id}: proposal path ${proposalViewIndex}/${viewIds.length} ${viewId}`);
         await yieldToDashboard();
@@ -528,8 +534,9 @@ const logStudyTiming = (
   id: string,
   durationMs: number,
   group: 'view' | 'detector' = 'view',
+  outputCount = 0,
 ): void => {
-  log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs, group })}`);
+  log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs, group, outputCount })}`);
 };
 
 const logFinderDetectorTimings = (
@@ -543,24 +550,28 @@ const logFinderDetectorTimings = (
     detectorTimingId(viewId, variant, 'row'),
     summary.finderEvidence.rowScanDurationMs,
     'detector',
+    summary.finderEvidence.rowScanCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(viewId, variant, 'flood'),
     summary.finderEvidence.floodDurationMs,
     'detector',
+    summary.finderEvidence.floodCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(viewId, variant, 'matcher'),
     summary.finderEvidence.matcherDurationMs,
     'detector',
+    summary.finderEvidence.matcherCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(viewId, variant, 'dedupe'),
     summary.finderEvidence.dedupeDurationMs,
     'detector',
+    summary.finderEvidence.dedupedCount,
   );
 };
 
@@ -630,7 +641,13 @@ const measureMatcherCandidateVariants = async (
     const seededEqual = finderOutputsEqual(controlOutput, seededOutput);
     seededMatcherOutputsEqual &&= seededEqual;
     if (!seededEqual) seededMatcherMismatchCount += 1;
-    logStudyTiming(log, detectorTimingId(viewId, 'e', 'seeded-matcher'), seededElapsed, 'detector');
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'e', 'seeded-matcher'),
+      seededElapsed,
+      'detector',
+      seededOutput.length,
+    );
 
     const prunedStartedAt = performance.now();
     const prunedOutput = detectMatcherFindersWithCenterSignal(view, view.width, view.height);
@@ -642,7 +659,13 @@ const measureMatcherCandidateVariants = async (
     const prunedEqual = finderOutputsEqual(controlOutput, prunedOutput);
     prunedCenterOutputsEqual &&= prunedEqual;
     if (!prunedEqual) prunedCenterMismatchCount += 1;
-    logStudyTiming(log, detectorTimingId(viewId, 'b', 'pruned-matcher'), prunedElapsed, 'detector');
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'b', 'pruned-matcher'),
+      prunedElapsed,
+      'detector',
+      prunedOutput.length,
+    );
     log(
       `${assetId}: matcher output candidates ${viewId} seededEqual=${seededEqual} prunedEqual=${prunedEqual}`,
     );
@@ -675,7 +698,13 @@ const measureMatcherCandidateVariants = async (
     fusedPolarityOutputsEqual &&= normalEqual && invertedEqual;
     if (!normalEqual) fusedPolarityMismatchCount += 1;
     if (!invertedEqual) fusedPolarityMismatchCount += 1;
-    logStudyTiming(log, detectorTimingId(viewId, 'd', 'fused-polarity'), fusedElapsed, 'detector');
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'd', 'fused-polarity'),
+      fusedElapsed,
+      'detector',
+      fusedOutput.normal.length + fusedOutput.inverted.length,
+    );
     log(
       `${assetId}: matcher fused-polarity candidate ${viewId} normalEqual=${normalEqual} invertedEqual=${invertedEqual}`,
     );

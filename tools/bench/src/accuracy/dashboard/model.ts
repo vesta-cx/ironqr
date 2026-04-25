@@ -69,6 +69,7 @@ export interface StudyTimingStats {
   count: number;
   maxMs: number;
   lastMs: number;
+  outputCount: number;
 }
 
 export interface BenchDashboardModel {
@@ -328,9 +329,18 @@ export const onDashboardScanFinished = (
 
 export const onDashboardStudyTiming = (
   model: BenchDashboardModel,
-  event: { readonly id: string; readonly durationMs: number; readonly group?: 'view' | 'detector' },
+  event: {
+    readonly id: string;
+    readonly durationMs: number;
+    readonly group?: 'view' | 'detector';
+    readonly outputCount?: number;
+  },
 ): void => {
   if (!event.id.trim() || !Number.isFinite(event.durationMs) || event.durationMs < 0) return;
+  const outputCount =
+    event.outputCount === undefined || !Number.isFinite(event.outputCount) || event.outputCount < 0
+      ? 0
+      : event.outputCount;
   const timings = event.group === 'detector' ? model.studyDetectorTimings : model.studyTimings;
   const existing = timings.get(event.id);
   if (existing) {
@@ -338,6 +348,7 @@ export const onDashboardStudyTiming = (
     existing.count += 1;
     existing.maxMs = Math.max(existing.maxMs, event.durationMs);
     existing.lastMs = event.durationMs;
+    existing.outputCount += outputCount;
     return;
   }
   timings.set(event.id, {
@@ -346,6 +357,7 @@ export const onDashboardStudyTiming = (
     count: 1,
     maxMs: event.durationMs,
     lastMs: event.durationMs,
+    outputCount,
   });
 };
 

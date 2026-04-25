@@ -179,6 +179,7 @@ const parseStudyTimingMessage = (
   readonly id: string;
   readonly durationMs: number;
   readonly group?: 'view' | 'detector';
+  readonly outputCount?: number;
 } | null => {
   if (!message.startsWith(STUDY_TIMING_PREFIX)) return null;
   try {
@@ -189,10 +190,12 @@ const parseStudyTimingMessage = (
     if (typeof payload.id !== 'string' || typeof payload.durationMs !== 'number') return null;
     const group =
       payload.group === 'detector' || payload.group === 'view' ? payload.group : undefined;
+    const outputCount = typeof payload.outputCount === 'number' ? payload.outputCount : undefined;
     return {
       id: payload.id,
       durationMs: payload.durationMs,
       ...(group === undefined ? {} : { group }),
+      ...(outputCount === undefined ? {} : { outputCount }),
     };
   } catch {
     return null;

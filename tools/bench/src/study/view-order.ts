@@ -244,7 +244,13 @@ export const viewProposalsStudyPlugin: StudyPlugin<
         if (event.type !== 'proposal-view-generated') return;
         generatedViewCount += 1;
         generatedProposalCount += event.proposalCount;
-        logStudyTiming(log, studyTimingId(event.binaryViewId, 'c'), event.detectorDurationMs);
+        logStudyTiming(
+          log,
+          studyTimingId(event.binaryViewId, 'c'),
+          event.detectorDurationMs,
+          'view',
+          event.proposalCount,
+        );
         logFinderDetectorTimings(log, event);
         log(
           `${asset.id}: view ${generatedViewCount} ${event.binaryViewId} proposals=${event.proposalCount} total=${generatedProposalCount}`,
@@ -323,8 +329,9 @@ const logStudyTiming = (
   id: string,
   durationMs: number,
   group: 'view' | 'detector' = 'view',
+  outputCount = 0,
 ): void => {
-  log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs, group })}`);
+  log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs, group, outputCount })}`);
 };
 
 const logFinderDetectorTimings = (
@@ -336,24 +343,28 @@ const logFinderDetectorTimings = (
     detectorTimingId(event.binaryViewId, 'c', 'row'),
     event.rowScanDurationMs,
     'detector',
+    event.rowScanFinderCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(event.binaryViewId, 'c', 'flood'),
     event.floodDurationMs,
     'detector',
+    event.floodFinderCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(event.binaryViewId, 'c', 'matcher'),
     event.matcherDurationMs,
     'detector',
+    event.matcherFinderCount,
   );
   logStudyTiming(
     log,
     detectorTimingId(event.binaryViewId, 'c', 'dedupe'),
     event.dedupeDurationMs,
     'detector',
+    event.dedupedFinderCount,
   );
 };
 

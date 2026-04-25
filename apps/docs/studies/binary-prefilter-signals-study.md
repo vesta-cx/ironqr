@@ -142,7 +142,7 @@ Active matcher-candidate study revision:
 The matcher-specific iteration added per-detector timing and then promoted one candidate to production:
 
 1. Per-view proposal summaries now split detector time into row-scan, flood, matcher, and dedupe buckets.
-2. `binary-prefilter-signals` emits those buckets to the study report and the live detector timing chart.
+2. `binary-prefilter-signals` emits those buckets to the study report and the live detector timing chart. Live timing bars include `p=<count>`: proposal count for view bars and finder-evidence count for detector/candidate bars.
 3. The first matcher candidate made row/column run maps and used them for matcher cross-checks instead of repeatedly walking pixels.
 4. The study compares candidate `FinderEvidence` signatures against the control matcher: source, center, module sizes, and score rounded to three decimals.
 5. After the 25-asset equality run, the run-map matcher became the production/default matcher control in `packages/ironqr/src/pipeline/proposals.ts`.

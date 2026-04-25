@@ -317,6 +317,7 @@ Current study OpenTUI behavior:
 - Plain `↑/↓` scrolls the focused widget by a page.
 - `option/alt + ↑/↓` and `j/k` scroll the focused widget by one row.
 - Study timing samples may carry a group field (`view` or `detector`) so charts do not share scroll state or row sets.
+- Study timing samples may also carry `outputCount`; timing bars render this as `p=<count>` so live runs show whether a fast variant is preserving proposal/finder evidence or simply producing less work.
 - The study footer is intentionally compact: current asset/work messages belong in the study panels, while the footer is reserved for global status and key hints.
 - The renderer refreshes continuously and requests immediate renders after key input, so active study runs should not look idle just because one CPU-bound asset is still inside scanner work.
 
