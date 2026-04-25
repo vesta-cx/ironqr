@@ -385,10 +385,12 @@ This was an incremental run, not a fresh timing confirmation. `run-map` and `sca
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
 | `run-map` | Matcher | — | Canonical matcher control, now backed by packed `u16` run maps plus scalar ratio scoring. Incremental bake-off evidence: `0` mismatches, candidate p98 `79.82 ms` vs cached old-control p98 `93.80 ms`, and `27.28%` faster overall. |
+| `row-scan` | Row | — | Active canonical row-scan timing family for the historical-control run; logged from proposal-generation finder evidence. |
+| `dedupe` | Dedupe | — | Active canonical cross-detector dedupe/capping timing family for the historical-control run; logged from proposal-generation finder evidence. |
 | `legacy-flood` | Flood | `scanline-squared` | Active historical control for quantifying end-to-end flood gains over the original two-pass connected-component/stat path. |
 | `legacy-matcher` | Matcher | `run-map` | Active historical control for quantifying matcher gains over the original pixel-walk cross-check path. |
 
-The default detector-study run now includes canonical controls plus historical controls: `scanline-squared`, `run-map`, `legacy-flood`, and `legacy-matcher`. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
+The default detector-study run now includes all four detector families plus historical controls: `row-scan`, `scanline-squared`, `run-map`, `dedupe`, `legacy-flood`, and `legacy-matcher`. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
 
 ## Inactive and binned variants
 
@@ -489,7 +491,7 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 ## Next work
 
 1. Promote `scanline-squared` behind the production flood control abstraction.
-2. Run the next fresh detector timing pass with `--refresh-cache` to repopulate stable `run-map` cache rows with the canonized packed/scalar implementation and measure `legacy-flood`/`legacy-matcher` historical controls.
-3. After the historical-control run, disable `legacy-flood` and `legacy-matcher` again so default studies only retain production candidates.
+2. Run the next fresh detector timing pass with `--refresh-cache` to repopulate stable `run-map` cache rows with the canonized packed/scalar implementation and measure all four detector families plus `legacy-flood`/`legacy-matcher` historical controls.
+3. After the historical-control run, disable `legacy-flood` and `legacy-matcher` again so default studies only retain production detector families.
 4. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
 4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.

@@ -134,9 +134,11 @@ interface DetectorLatencySummary {
   readonly maxMs: number;
 }
 
+type DetectorPatternArea = 'row' | 'flood' | 'matcher' | 'dedupe' | 'flood+matcher';
+
 interface DetectorVariantMeasurement {
   readonly id: string;
-  readonly area: 'flood' | 'matcher' | 'flood+matcher';
+  readonly area: DetectorPatternArea;
   readonly durationMs: number;
   readonly outputCount: number;
   readonly outputsEqual: boolean;
@@ -166,7 +168,7 @@ interface DetectorVariantSummary extends DetectorVariantMeasurement, DetectorLat
 interface DetectorUnitMeasurement {
   readonly id: string;
   readonly variantId: string;
-  readonly area: 'flood' | 'matcher' | 'flood+matcher';
+  readonly area: DetectorPatternArea;
   readonly durationMs: number;
   readonly outputCount: number;
   readonly outputsEqual: boolean;
@@ -178,7 +180,7 @@ interface DetectorUnitMeasurement {
 interface DetectorUnitSummary extends DetectorLatencySummary {
   readonly id: string;
   readonly variantId: string;
-  readonly area: 'flood' | 'matcher' | 'flood+matcher';
+  readonly area: DetectorPatternArea;
   readonly jobs: number;
   readonly cachedJobs: number;
   readonly outputCount: number;
@@ -1303,6 +1305,15 @@ const compareVariant = (
   };
 };
 
+const detectorTimingMeasurement = (
+  durationMs: number,
+  outputCount: number,
+): VariantCacheMeasurement => ({
+  durationMs: round(durationMs),
+  outputCount,
+  signature: [],
+});
+
 const detectorUnit = (
   id: string,
   variantId: string,
@@ -2388,6 +2399,8 @@ const shortBinaryViewId = (viewId: BinaryViewId): string => {
 const shortBinaryViewPart = (part: string): string => BINARY_VIEW_PART_ALIASES[part] ?? part;
 
 const VARIANT_ID_ALIASES: Record<string, string> = {
+  'row-scan': 'row-scan',
+  dedupe: 'dedupe',
   'legacy-flood': 'legacy-flood',
   'inline-flood': 'inline',
   'legacy-matcher': 'legacy-match',
@@ -2875,6 +2888,37 @@ const summarizeImageProcessingStudy = ({
       for (const variant of result.matcherCandidates.variants) {
         mergeDetectorVariant(detectorVariantRows, variant);
       }
+    }
+    for (const proposal of result.proposalSummaries) {
+      const rowScanMeasurement = detectorTimingMeasurement(
+        proposal.finderEvidence.rowScanDurationMs,
+        proposal.finderEvidence.rowScanCount,
+      );
+      detectorUnits.push(
+        detectorUnit(
+          detectorTimingId(proposal.binaryViewId, 'row-scan', 'row'),
+          'row-scan',
+          'row',
+          rowScanMeasurement,
+          result.cacheHit === true,
+          true,
+        ),
+      );
+      const dedupeMeasurement = detectorTimingMeasurement(
+        proposal.finderEvidence.dedupeDurationMs,
+        proposal.finderEvidence.dedupedCount,
+      );
+      detectorUnits.push(
+        detectorUnit(
+          detectorTimingId(proposal.binaryViewId, 'dedupe', 'dedupe'),
+          'dedupe',
+          'dedupe',
+          dedupeMeasurement,
+          result.cacheHit === true,
+          true,
+        ),
+      );
+      totals.detectorMs += rowScanMeasurement.durationMs + dedupeMeasurement.durationMs;
     }
     if (result.decode) {
       totals.scanDurationMs += result.decode.scanDurationMs;
