@@ -536,7 +536,7 @@ const renderStudyViewTimings = (
   const lines = [
     'study view timings',
     truncateLine(
-      `${focusBadge(options.focused)} phase=${dashboard.stage} workers=${dashboard.workerCount || '-'} ${dashboard.message}`,
+      `phase=${dashboard.stage} workers=${dashboard.workerCount || '-'} ${dashboard.message}`,
       options.width,
     ),
     truncateLine(
@@ -571,7 +571,7 @@ const renderStudyDetectorTimings = (
 ): readonly string[] => {
   const lines = [
     'study detector timings',
-    truncateLine(`${focusBadge(options.focused)} a/b/d=candidates c=control`, options.width),
+    truncateLine('a/b/d=candidates c=control', options.width),
   ];
   const chartRows = Math.max(4, options.maxRows - lines.length);
   lines.push(
@@ -584,8 +584,6 @@ const renderStudyDetectorTimings = (
   );
   return lines;
 };
-
-const focusBadge = (focused: boolean): string => (focused ? '[focus]' : '[tab]');
 
 const renderStudyTimingBars = (
   title: string,
