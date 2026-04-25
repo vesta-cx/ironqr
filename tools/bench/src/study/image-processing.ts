@@ -53,6 +53,7 @@ interface ImageProcessingAssetResult {
   readonly scalarStats: readonly ScalarStatsMeasurement[];
   readonly scalarFusion: ScalarFusionMeasurement;
   readonly sharedArtifacts: SharedArtifactMeasurement;
+  readonly sharedRunArtifact: SharedRunArtifactMeasurement | null;
   readonly binaryRead: BinaryReadMeasurement | null;
   readonly materializedInverted: MaterializedInvertedMeasurement | null;
   readonly decode: DecodeMeasurement | null;
@@ -112,6 +113,13 @@ interface BinaryReadMeasurement {
   readonly improvementPct: number;
   readonly pixelReads: number;
   readonly countsEqual: boolean;
+}
+
+interface SharedRunArtifactMeasurement {
+  readonly planeCount: number;
+  readonly durationMs: number;
+  readonly horizontalRunCount: number;
+  readonly verticalRunCount: number;
 }
 
 interface MaterializedInvertedMeasurement {
@@ -180,6 +188,8 @@ interface ImageProcessingTotals {
   readonly materializedInvertedDetectorMs: number;
   readonly materializedInvertedViews: number;
   readonly materializedInvertedAllCountsEqual: boolean;
+  readonly sharedRunArtifactMs: number;
+  readonly sharedRunArtifactPlanes: number;
 }
 
 interface ImageProcessingVariantSummary {
@@ -389,6 +399,10 @@ function makeImageProcessingStudyPlugin(input: {
       }
       const scalarFusion = measureScalarFusion(image);
       const sharedArtifacts = summarizeSharedArtifacts(binarySignals);
+      const sharedRunArtifact =
+        config.focus === 'binary-prefilter-signals'
+          ? await measureSharedRunArtifactVariant(viewBank, viewIds, asset.id, log)
+          : null;
       const binaryRead =
         config.focus === 'binary-bit-hot-path'
           ? await measureBinaryReadVariants(viewBank, viewIds, asset.id, log)
@@ -433,6 +447,7 @@ function makeImageProcessingStudyPlugin(input: {
         scalarStats,
         scalarFusion,
         sharedArtifacts,
+        sharedRunArtifact,
         binaryRead,
         materializedInverted,
         decode: decode === null ? null : stripDecodedTexts(decode),
@@ -460,6 +475,7 @@ function makeImageProcessingStudyPlugin(input: {
         timing: result.timing,
         scalarFusion: result.scalarFusion,
         sharedArtifacts: result.sharedArtifacts,
+        sharedRunArtifact: result.sharedRunArtifact,
         binaryRead: result.binaryRead,
         materializedInverted: result.materializedInverted,
         decode: result.decode,
@@ -491,13 +507,84 @@ const logStudyTiming = (log: (message: string) => void, id: string, durationMs: 
   log(`${STUDY_TIMING_PREFIX}${JSON.stringify({ id, durationMs })}`);
 };
 
-const studyTimingId = (viewId: BinaryViewId, variant: string): string => {
+const studyTimingId = (
+  viewId: BinaryViewId,
+  variant: string,
+  polarityOverride?: string,
+): string => {
   const [scalar = '', threshold = '', polarity = ''] = viewId.split(':');
-  return `${variant}:${scalar}:${threshold}:${polarity}`;
+  return `${variant}:${scalar}:${threshold}:${polarityOverride ?? polarity}`;
 };
 
 const sharedPlaneCount = (viewIds: readonly BinaryViewId[]): number =>
   new Set(viewIds.map((viewId) => viewId.split(':').slice(0, 2).join(':'))).size;
+
+const measureSharedRunArtifactVariant = async (
+  viewBank: ViewBank,
+  viewIds: readonly BinaryViewId[],
+  assetId: string,
+  log: (message: string) => void,
+): Promise<SharedRunArtifactMeasurement> => {
+  const planeViewIds = uniquePlaneRepresentativeIds(viewIds);
+  let durationMs = 0;
+  let horizontalRunCount = 0;
+  let verticalRunCount = 0;
+
+  for (const viewId of planeViewIds) {
+    const view = viewBank.getBinaryView(viewId);
+    const startedAt = performance.now();
+    const counts = measurePolarityNeutralRuns(view);
+    const elapsed = performance.now() - startedAt;
+    durationMs += elapsed;
+    horizontalRunCount += counts.horizontalRunCount;
+    verticalRunCount += counts.verticalRunCount;
+    logStudyTiming(log, studyTimingId(viewId, 'b', 'shared'), elapsed);
+    log(`${assetId}: shared run artifact candidate ${viewId}`);
+    await yieldToDashboard();
+  }
+
+  return {
+    planeCount: planeViewIds.length,
+    durationMs: round(durationMs),
+    horizontalRunCount,
+    verticalRunCount,
+  };
+};
+
+const uniquePlaneRepresentativeIds = (
+  viewIds: readonly BinaryViewId[],
+): readonly BinaryViewId[] => {
+  const seen = new Set<string>();
+  const representatives: BinaryViewId[] = [];
+  for (const viewId of viewIds) {
+    const key = viewId.split(':').slice(0, 2).join(':');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    representatives.push(viewId);
+  }
+  return representatives;
+};
+
+const measurePolarityNeutralRuns = (
+  view: BinaryView,
+): { readonly horizontalRunCount: number; readonly verticalRunCount: number } => {
+  const { width, height } = view;
+  const data = view.plane.data;
+  let horizontalRunCount = 0;
+  let verticalRunCount = 0;
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      const index = row + x;
+      const bit = data[index] ?? 0;
+      if (x === 0) horizontalRunCount += 1;
+      else if ((data[index - 1] ?? 0) !== bit) horizontalRunCount += 1;
+      if (y === 0) verticalRunCount += 1;
+      else if ((data[index - width] ?? 0) !== bit) verticalRunCount += 1;
+    }
+  }
+  return { horizontalRunCount, verticalRunCount };
+};
 
 const measureMaterializedInvertedVariant = async (
   viewBank: ViewBank,
@@ -875,6 +962,10 @@ const summarizeImageProcessingStudy = ({
       totals.binaryReadDirectMs += result.binaryRead.directBitReaderMs;
       totals.binaryReadPixels += result.binaryRead.pixelReads;
     }
+    if (result.sharedRunArtifact) {
+      totals.sharedRunArtifactMs += result.sharedRunArtifact.durationMs;
+      totals.sharedRunArtifactPlanes += result.sharedRunArtifact.planeCount;
+    }
     if (result.materializedInverted) {
       totals.materializedInvertedControlMs += result.materializedInverted.controlDetectorMs;
       totals.materializedInvertedMaterializationMs +=
@@ -995,6 +1086,8 @@ const emptyTotals = (): MutableTotals => ({
   materializedInvertedDetectorMs: 0,
   materializedInvertedViews: 0,
   materializedInvertedAllCountsEqual: true,
+  sharedRunArtifactMs: 0,
+  sharedRunArtifactPlanes: 0,
 });
 
 const ensureViewRow = (
@@ -1068,6 +1161,8 @@ const finalizeTotals = (totals: MutableTotals): ImageProcessingTotals => ({
   materializedInvertedDetectorMs: round(totals.materializedInvertedDetectorMs),
   materializedInvertedViews: totals.materializedInvertedViews,
   materializedInvertedAllCountsEqual: totals.materializedInvertedAllCountsEqual,
+  sharedRunArtifactMs: round(totals.sharedRunArtifactMs),
+  sharedRunArtifactPlanes: totals.sharedRunArtifactPlanes,
 });
 
 const finalizeViewRow = (row: MutableViewSummary): ImageProcessingViewSummary => ({
@@ -1100,6 +1195,19 @@ const buildVariantSummaries = (
   totals: ImageProcessingTotals,
 ): readonly ImageProcessingVariantSummary[] => {
   const variants: ImageProcessingVariantSummary[] = [];
+  if (config.focus === 'binary-prefilter-signals' && totals.sharedRunArtifactPlanes > 0) {
+    variants.push({
+      id: 'shared-run-artifact-prototype',
+      title: 'Shared threshold-plane run artifact prototype',
+      controlMetric: 'current normal+inverted detector pass over polarity views',
+      candidateMetric: 'one polarity-neutral row/column run artifact per scalar/threshold plane',
+      controlMs: totals.detectorMs,
+      candidateMs: totals.sharedRunArtifactMs,
+      deltaMs: round(totals.detectorMs - totals.sharedRunArtifactMs),
+      improvementPct: percent(totals.detectorMs - totals.sharedRunArtifactMs, totals.detectorMs),
+      evidence: `${totals.sharedRunArtifactPlanes} shared plane artifacts. Prototype measures shared run construction only; not a behavior-equivalent detector yet.`,
+    });
+  }
   if (config.focus === 'binary-prefilter-signals' && totals.materializedInvertedViews > 0) {
     const candidateMs = round(
       totals.materializedInvertedMaterializationMs + totals.materializedInvertedDetectorMs,
