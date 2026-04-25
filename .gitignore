@@ -29,3 +29,5 @@ tools/bench/tests/.tmp/
 
 .DS_Store
 RANKED_PROPOSAL_PIPELINE_IMPLEMENTATION_CONTRACT.md
+# Generated study summaries are analysis artifacts.
+tools/bench/reports/study/*.summary.json
