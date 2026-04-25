@@ -271,6 +271,8 @@ const buildProcessedStudyReport = (report: StudyReport): Record<string, unknown>
     detectorBreakdown,
     matcherMatrix,
     floodMatrix,
+    exploredAvenues: buildExploredAvenues(report.details.plugin.id, summary),
+    conclusions: buildStudyConclusions(report.details.plugin.id, summary),
     questionCoverage: buildQuestionCoverage(report.details.plugin.id, summary),
   };
 };
@@ -287,11 +289,11 @@ const buildStudyHeadline = (
   const floodMs = detectorBreakdown.floodMs ?? 0;
   const floodControlMs = numberField(totals, 'floodControlMs');
   if (floodControlMs > 0) {
-    const inlineEqual = Boolean(totals.floodInlineStatsOutputsEqual);
-    const inlineMismatches = numberField(totals, 'floodInlineStatsMismatchCount');
+    const legacyEqual = Boolean(totals.floodLegacyOutputsEqual);
+    const legacyMismatches = numberField(totals, 'floodLegacyMismatchCount');
     const filteredEqual = Boolean(totals.floodFilteredComponentsOutputsEqual);
     const filteredMismatches = numberField(totals, 'floodFilteredComponentsMismatchCount');
-    return `Detector=${formatMs(detectorMs)}; flood control=${formatMs(floodControlMs)}; inlineStatsEqual=${inlineEqual} mismatches=${inlineMismatches}; filteredEqual=${filteredEqual} mismatches=${filteredMismatches}.`;
+    return `Detector=${formatMs(detectorMs)}; inline flood control=${formatMs(floodControlMs)}; legacyEqual=${legacyEqual} mismatches=${legacyMismatches}; filteredEqual=${filteredEqual} mismatches=${filteredMismatches}.`;
   }
   const matcherMs = numberField(totals, 'matcherControlMs');
   const legacyMs = numberField(totals, 'matcherLegacyControlMs');
@@ -348,19 +350,29 @@ const buildFloodVariantMatrix = (
   const controlMs = numberField(totals, 'floodControlMs');
   if (controlMs === 0) return null;
   return {
-    control: { legacyFloodMs: controlMs },
+    control: {
+      inlineFloodMs: controlMs,
+      runMapMatcherMs: numberField(totals, 'floodMatcherControlMs'),
+    },
     variants: {
-      inlineStats: floodVariantFields(
+      legacyTwoPass: floodVariantFields(
         totals,
-        'floodInlineStatsMs',
-        'floodInlineStatsOutputsEqual',
-        'floodInlineStatsMismatchCount',
+        'floodLegacyMs',
+        'floodLegacyOutputsEqual',
+        'floodLegacyMismatchCount',
       ),
       filteredComponents: floodVariantFields(
         totals,
         'floodFilteredComponentsMs',
         'floodFilteredComponentsOutputsEqual',
         'floodFilteredComponentsMismatchCount',
+      ),
+      centerSignalMatcher: floodVariantFields(
+        totals,
+        'floodMatcherCenterSignalMs',
+        'floodMatcherCenterSignalOutputsEqual',
+        'floodMatcherCenterSignalMismatchCount',
+        'floodMatcherControlMs',
       ),
     },
   };
@@ -371,8 +383,9 @@ const floodVariantFields = (
   candidateMsKey: string,
   outputsEqualKey: string,
   mismatchCountKey: string,
+  controlMsKey = 'floodControlMs',
 ): Record<string, unknown> => {
-  const controlMs = numberField(totals, 'floodControlMs');
+  const controlMs = numberField(totals, controlMsKey);
   const candidateMs = numberField(totals, candidateMsKey);
   const savedMs = roundReportNumber(controlMs - candidateMs);
   return {
@@ -385,6 +398,122 @@ const floodVariantFields = (
   };
 };
 
+const buildExploredAvenues = (
+  studyId: string,
+  summary: Record<string, unknown>,
+): readonly Record<string, unknown>[] => {
+  if (studyId !== 'binary-prefilter-signals') return [];
+  const totals = (summary.totals ?? {}) as Record<string, unknown>;
+  const avenues: Record<string, unknown>[] = [];
+  const floodControlMs = numberField(totals, 'floodControlMs');
+  const legacyFloodMs = numberField(totals, 'floodLegacyMs') || floodControlMs;
+  const inlineFloodMs = numberField(totals, 'floodInlineStatsMs') || floodControlMs;
+  const filteredFloodMs = numberField(totals, 'floodFilteredComponentsMs');
+  const matcherControlMs = numberField(totals, 'floodMatcherControlMs');
+  const centerSignalMatcherMs = numberField(totals, 'floodMatcherCenterSignalMs');
+
+  if (inlineFloodMs > 0 && legacyFloodMs > 0) {
+    avenues.push({
+      id: 'inline-component-stats-flood',
+      area: 'flood',
+      status: outputEquivalent(totals, 'floodInlineStatsOutputsEqual', 'floodLegacyOutputsEqual')
+        ? 'canonized-control'
+        : 'candidate',
+      finding:
+        'Combines connected-component labeling and stats collection into one pass, eliminating the old second full-image stats traversal.',
+      controlMs: legacyFloodMs,
+      candidateMs: inlineFloodMs,
+      improvementPct: percentReportNumber(legacyFloodMs - inlineFloodMs, legacyFloodMs),
+      outputsEqual: outputEquivalent(
+        totals,
+        'floodInlineStatsOutputsEqual',
+        'floodLegacyOutputsEqual',
+      ),
+      mismatchCount:
+        numberField(totals, 'floodInlineStatsMismatchCount') ||
+        numberField(totals, 'floodLegacyMismatchCount'),
+    });
+  }
+  if (filteredFloodMs > 0) {
+    avenues.push({
+      id: 'filtered-components-flood',
+      area: 'flood',
+      status:
+        numberField(totals, 'floodFilteredComponentsMismatchCount') === 0
+          ? 'safe-small-win'
+          : 'unsafe',
+      finding:
+        'Prefilters component candidates before ring/gap/stone matching; useful only if it composes with inline stats.',
+      controlMs: floodControlMs,
+      candidateMs: filteredFloodMs,
+      improvementPct: percentReportNumber(floodControlMs - filteredFloodMs, floodControlMs),
+      outputsEqual: Boolean(totals.floodFilteredComponentsOutputsEqual),
+      mismatchCount: numberField(totals, 'floodFilteredComponentsMismatchCount'),
+    });
+  }
+  if (matcherControlMs > 0 && centerSignalMatcherMs > 0) {
+    avenues.push({
+      id: 'center-signal-matcher',
+      area: 'matcher',
+      status:
+        numberField(totals, 'floodMatcherCenterSignalMismatchCount') === 0 ? 'candidate' : 'unsafe',
+      finding:
+        'Filters sampled matcher centers before run-map cross-checks; speedups are invalid unless output-equivalent.',
+      controlMs: matcherControlMs,
+      candidateMs: centerSignalMatcherMs,
+      improvementPct: percentReportNumber(
+        matcherControlMs - centerSignalMatcherMs,
+        matcherControlMs,
+      ),
+      outputsEqual: Boolean(totals.floodMatcherCenterSignalOutputsEqual),
+      mismatchCount: numberField(totals, 'floodMatcherCenterSignalMismatchCount'),
+    });
+  }
+  return avenues;
+};
+
+const outputEquivalent = (
+  totals: Record<string, unknown>,
+  primaryKey: string,
+  fallbackKey: string,
+): boolean => {
+  if (typeof totals[primaryKey] === 'boolean') return Boolean(totals[primaryKey]);
+  return Boolean(totals[fallbackKey]);
+};
+
+const buildStudyConclusions = (
+  studyId: string,
+  summary: Record<string, unknown>,
+): readonly string[] => {
+  if (studyId !== 'binary-prefilter-signals') return [];
+  const totals = (summary.totals ?? {}) as Record<string, unknown>;
+  const conclusions: string[] = [];
+  const legacyFloodMs =
+    numberField(totals, 'floodLegacyMs') || numberField(totals, 'floodControlMs');
+  const inlineFloodMs =
+    numberField(totals, 'floodInlineStatsMs') || numberField(totals, 'floodControlMs');
+  if (legacyFloodMs > 0 && inlineFloodMs > 0) {
+    conclusions.push(
+      `Inline component-stats flood is the canonical flood control after preserving output and improving flood time by ${percentReportNumber(legacyFloodMs - inlineFloodMs, legacyFloodMs)}%.`,
+    );
+  }
+  const filteredFloodMs = numberField(totals, 'floodFilteredComponentsMs');
+  if (filteredFloodMs > 0) {
+    conclusions.push(
+      `Filtered component matching is ${percentReportNumber(numberField(totals, 'floodControlMs') - filteredFloodMs, numberField(totals, 'floodControlMs'))}% faster than the current flood control; treat as a composability follow-up, not a headline optimization.`,
+    );
+  }
+  if (numberField(totals, 'floodMatcherCenterSignalMs') > 0) {
+    conclusions.push(
+      'Matcher center-signal filtering is exploratory; do not promote unless it is output-equivalent across the full corpus.',
+    );
+  }
+  conclusions.push(
+    'Decode success and false-positive impact remain out of scope for this detector-evidence study.',
+  );
+  return conclusions;
+};
+
 const buildQuestionCoverage = (
   studyId: string,
   summary: Record<string, unknown>,
@@ -395,14 +524,14 @@ const buildQuestionCoverage = (
   if (floodControlMs > 0) {
     return [
       {
-        question: 'Which flood-fill implementation preserves legacy flood finder evidence?',
+        question: 'Which flood-fill variants preserve inline flood finder evidence?',
         status: 'answered-for-candidates',
-        evidence: `inlineEqual=${String(totals.floodInlineStatsOutputsEqual)} inlineMismatchViews=${String(totals.floodInlineStatsMismatchCount)} filteredEqual=${String(totals.floodFilteredComponentsOutputsEqual)} filteredMismatchViews=${String(totals.floodFilteredComponentsMismatchCount)}`,
+        evidence: `legacyEqual=${String(totals.floodLegacyOutputsEqual)} legacyMismatchViews=${String(totals.floodLegacyMismatchCount)} filteredEqual=${String(totals.floodFilteredComponentsOutputsEqual)} filteredMismatchViews=${String(totals.floodFilteredComponentsMismatchCount)}`,
       },
       {
-        question: 'Which flood-fill implementation is faster than legacy flood?',
+        question: 'Which flood/matcher variants are faster than current controls?',
         status: 'answered-for-candidates',
-        evidence: `legacyFlood=${formatMs(floodControlMs)} inlineStats=${formatMs(numberField(totals, 'floodInlineStatsMs'))} filteredComponents=${formatMs(numberField(totals, 'floodFilteredComponentsMs'))}`,
+        evidence: `inlineFlood=${formatMs(floodControlMs)} legacyFlood=${formatMs(numberField(totals, 'floodLegacyMs'))} filteredComponents=${formatMs(numberField(totals, 'floodFilteredComponentsMs'))} runMapMatcher=${formatMs(numberField(totals, 'floodMatcherControlMs'))} centerSignalMatcher=${formatMs(numberField(totals, 'floodMatcherCenterSignalMs'))}`,
       },
       {
         question: 'Do flood variants prove decode success or false positives?',

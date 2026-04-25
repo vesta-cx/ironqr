@@ -10,8 +10,10 @@ import {
 } from '../../../../packages/ironqr/src/pipeline/frame.js';
 import {
   detectFloodFinders,
+  detectFloodFindersLegacy,
   detectFloodFindersWithFilteredComponents,
-  detectFloodFindersWithInlineStats,
+  detectMatcherFinders,
+  detectMatcherFindersWithCenterSignal,
   type FinderEvidence,
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import {
@@ -123,12 +125,16 @@ interface BinaryReadMeasurement {
 
 interface FloodCandidateMeasurement {
   readonly controlMs: number;
-  readonly inlineStatsMs: number;
+  readonly legacyMs: number;
   readonly filteredComponentsMs: number;
-  readonly inlineStatsOutputsEqual: boolean;
+  readonly matcherControlMs: number;
+  readonly matcherCenterSignalMs: number;
+  readonly legacyOutputsEqual: boolean;
   readonly filteredComponentsOutputsEqual: boolean;
-  readonly inlineStatsMismatchCount: number;
+  readonly matcherCenterSignalOutputsEqual: boolean;
+  readonly legacyMismatchCount: number;
   readonly filteredComponentsMismatchCount: number;
+  readonly matcherCenterSignalMismatchCount: number;
 }
 
 interface MatcherCandidateMeasurement {
@@ -244,12 +250,16 @@ interface ImageProcessingTotals {
   readonly matcherFusedLightCenterCount: number;
   readonly matcherSharedPlaneCount: number;
   readonly floodControlMs: number;
-  readonly floodInlineStatsMs: number;
+  readonly floodLegacyMs: number;
   readonly floodFilteredComponentsMs: number;
-  readonly floodInlineStatsOutputsEqual: boolean;
+  readonly floodMatcherControlMs: number;
+  readonly floodMatcherCenterSignalMs: number;
+  readonly floodLegacyOutputsEqual: boolean;
   readonly floodFilteredComponentsOutputsEqual: boolean;
-  readonly floodInlineStatsMismatchCount: number;
+  readonly floodMatcherCenterSignalOutputsEqual: boolean;
+  readonly floodLegacyMismatchCount: number;
   readonly floodFilteredComponentsMismatchCount: number;
+  readonly floodMatcherCenterSignalMismatchCount: number;
 }
 
 interface ImageProcessingVariantSummary {
@@ -641,12 +651,16 @@ const measureFloodCandidateVariants = async (
   log: (message: string) => void,
 ): Promise<FloodCandidateMeasurement> => {
   let controlMs = 0;
-  let inlineStatsMs = 0;
+  let legacyMs = 0;
   let filteredComponentsMs = 0;
-  let inlineStatsOutputsEqual = true;
+  let matcherControlMs = 0;
+  let matcherCenterSignalMs = 0;
+  let legacyOutputsEqual = true;
   let filteredComponentsOutputsEqual = true;
-  let inlineStatsMismatchCount = 0;
+  let matcherCenterSignalOutputsEqual = true;
+  let legacyMismatchCount = 0;
   let filteredComponentsMismatchCount = 0;
+  let matcherCenterSignalMismatchCount = 0;
 
   for (const viewId of viewIds) {
     const view = viewBank.getBinaryView(viewId);
@@ -656,25 +670,25 @@ const measureFloodCandidateVariants = async (
     controlMs += controlElapsed;
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'legacy', 'flood'),
+      detectorTimingId(viewId, 'inline', 'flood'),
       controlElapsed,
       'detector',
       controlOutput.length,
     );
 
-    const inlineStartedAt = performance.now();
-    const inlineOutput = detectFloodFindersWithInlineStats(view, view.width, view.height);
-    const inlineElapsed = performance.now() - inlineStartedAt;
-    inlineStatsMs += inlineElapsed;
-    const inlineEqual = finderOutputsEqual(controlOutput, inlineOutput);
-    inlineStatsOutputsEqual &&= inlineEqual;
-    if (!inlineEqual) inlineStatsMismatchCount += 1;
+    const legacyStartedAt = performance.now();
+    const legacyOutput = detectFloodFindersLegacy(view, view.width, view.height);
+    const legacyElapsed = performance.now() - legacyStartedAt;
+    legacyMs += legacyElapsed;
+    const legacyEqual = finderOutputsEqual(controlOutput, legacyOutput);
+    legacyOutputsEqual &&= legacyEqual;
+    if (!legacyEqual) legacyMismatchCount += 1;
     logStudyTiming(
       log,
-      detectorTimingId(viewId, 'inline-stats', 'flood'),
-      inlineElapsed,
+      detectorTimingId(viewId, 'legacy', 'flood'),
+      legacyElapsed,
       'detector',
-      inlineOutput.length,
+      legacyOutput.length,
     );
 
     const filteredStartedAt = performance.now();
@@ -692,20 +706,51 @@ const measureFloodCandidateVariants = async (
       filteredOutput.length,
     );
 
+    const matcherStartedAt = performance.now();
+    const matcherOutput = detectMatcherFinders(view, view.width, view.height);
+    const matcherElapsed = performance.now() - matcherStartedAt;
+    matcherControlMs += matcherElapsed;
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'run-map', 'matcher'),
+      matcherElapsed,
+      'detector',
+      matcherOutput.length,
+    );
+
+    const centerSignalStartedAt = performance.now();
+    const centerSignalOutput = detectMatcherFindersWithCenterSignal(view, view.width, view.height);
+    const centerSignalElapsed = performance.now() - centerSignalStartedAt;
+    matcherCenterSignalMs += centerSignalElapsed;
+    const centerSignalEqual = finderOutputsEqual(matcherOutput, centerSignalOutput);
+    matcherCenterSignalOutputsEqual &&= centerSignalEqual;
+    if (!centerSignalEqual) matcherCenterSignalMismatchCount += 1;
+    logStudyTiming(
+      log,
+      detectorTimingId(viewId, 'center-signal', 'matcher'),
+      centerSignalElapsed,
+      'detector',
+      centerSignalOutput.length,
+    );
+
     log(
-      `${assetId}: flood variants ${viewId} inlineEqual=${inlineEqual} filteredEqual=${filteredEqual} legacy=${controlOutput.length} inline=${inlineOutput.length} filtered=${filteredOutput.length}`,
+      `${assetId}: flood/matcher variants ${viewId} legacyFloodEqual=${legacyEqual} filteredFloodEqual=${filteredEqual} centerMatcherEqual=${centerSignalEqual}`,
     );
     await yieldToDashboard();
   }
 
   return {
     controlMs: round(controlMs),
-    inlineStatsMs: round(inlineStatsMs),
+    legacyMs: round(legacyMs),
     filteredComponentsMs: round(filteredComponentsMs),
-    inlineStatsOutputsEqual,
+    matcherControlMs: round(matcherControlMs),
+    matcherCenterSignalMs: round(matcherCenterSignalMs),
+    legacyOutputsEqual,
     filteredComponentsOutputsEqual,
-    inlineStatsMismatchCount,
+    matcherCenterSignalOutputsEqual,
+    legacyMismatchCount,
     filteredComponentsMismatchCount,
+    matcherCenterSignalMismatchCount,
   };
 };
 
@@ -1046,14 +1091,20 @@ const summarizeImageProcessingStudy = ({
     if (result.floodCandidates) {
       totals.floodControlMs += result.floodCandidates.controlMs;
       totals.detectorMs += result.floodCandidates.controlMs;
-      totals.floodInlineStatsMs += result.floodCandidates.inlineStatsMs;
+      totals.floodLegacyMs += result.floodCandidates.legacyMs;
       totals.floodFilteredComponentsMs += result.floodCandidates.filteredComponentsMs;
-      totals.floodInlineStatsOutputsEqual &&= result.floodCandidates.inlineStatsOutputsEqual;
+      totals.floodMatcherControlMs += result.floodCandidates.matcherControlMs;
+      totals.floodMatcherCenterSignalMs += result.floodCandidates.matcherCenterSignalMs;
+      totals.floodLegacyOutputsEqual &&= result.floodCandidates.legacyOutputsEqual;
       totals.floodFilteredComponentsOutputsEqual &&=
         result.floodCandidates.filteredComponentsOutputsEqual;
-      totals.floodInlineStatsMismatchCount += result.floodCandidates.inlineStatsMismatchCount;
+      totals.floodMatcherCenterSignalOutputsEqual &&=
+        result.floodCandidates.matcherCenterSignalOutputsEqual;
+      totals.floodLegacyMismatchCount += result.floodCandidates.legacyMismatchCount;
       totals.floodFilteredComponentsMismatchCount +=
         result.floodCandidates.filteredComponentsMismatchCount;
+      totals.floodMatcherCenterSignalMismatchCount +=
+        result.floodCandidates.matcherCenterSignalMismatchCount;
     }
     if (result.matcherCandidates) {
       totals.matcherControlMs += result.matcherCandidates.controlMatcherMs;
@@ -1239,12 +1290,16 @@ const emptyTotals = (): MutableTotals => ({
   matcherFusedLightCenterCount: 0,
   matcherSharedPlaneCount: 0,
   floodControlMs: 0,
-  floodInlineStatsMs: 0,
+  floodLegacyMs: 0,
   floodFilteredComponentsMs: 0,
-  floodInlineStatsOutputsEqual: true,
+  floodMatcherControlMs: 0,
+  floodMatcherCenterSignalMs: 0,
+  floodLegacyOutputsEqual: true,
   floodFilteredComponentsOutputsEqual: true,
-  floodInlineStatsMismatchCount: 0,
+  floodMatcherCenterSignalOutputsEqual: true,
+  floodLegacyMismatchCount: 0,
   floodFilteredComponentsMismatchCount: 0,
+  floodMatcherCenterSignalMismatchCount: 0,
 });
 
 const ensureViewRow = (
@@ -1349,12 +1404,16 @@ const finalizeTotals = (totals: MutableTotals): ImageProcessingTotals => ({
   matcherFusedLightCenterCount: totals.matcherFusedLightCenterCount,
   matcherSharedPlaneCount: totals.matcherSharedPlaneCount,
   floodControlMs: round(totals.floodControlMs),
-  floodInlineStatsMs: round(totals.floodInlineStatsMs),
+  floodLegacyMs: round(totals.floodLegacyMs),
   floodFilteredComponentsMs: round(totals.floodFilteredComponentsMs),
-  floodInlineStatsOutputsEqual: totals.floodInlineStatsOutputsEqual,
+  floodMatcherControlMs: round(totals.floodMatcherControlMs),
+  floodMatcherCenterSignalMs: round(totals.floodMatcherCenterSignalMs),
+  floodLegacyOutputsEqual: totals.floodLegacyOutputsEqual,
   floodFilteredComponentsOutputsEqual: totals.floodFilteredComponentsOutputsEqual,
-  floodInlineStatsMismatchCount: totals.floodInlineStatsMismatchCount,
+  floodMatcherCenterSignalOutputsEqual: totals.floodMatcherCenterSignalOutputsEqual,
+  floodLegacyMismatchCount: totals.floodLegacyMismatchCount,
   floodFilteredComponentsMismatchCount: totals.floodFilteredComponentsMismatchCount,
+  floodMatcherCenterSignalMismatchCount: totals.floodMatcherCenterSignalMismatchCount,
 });
 
 const finalizeViewRow = (row: MutableViewSummary): ImageProcessingViewSummary => ({
@@ -1393,10 +1452,10 @@ const buildVariantSummaries = (
   const variants: ImageProcessingVariantSummary[] = [];
   if (config.focus === 'binary-prefilter-signals' && totals.floodControlMs > 0) {
     variants.push({
-      id: 'legacy-flood-control',
-      title: 'Legacy flood-fill finder detector control',
-      controlMetric: 'legacy flood-fill detector duration',
-      candidateMetric: 'legacy flood-fill detector duration',
+      id: 'inline-flood-control',
+      title: 'Inline component-stats flood detector control',
+      controlMetric: 'inline component-stats flood duration',
+      candidateMetric: 'inline component-stats flood duration',
       controlMs: totals.floodControlMs,
       candidateMs: totals.floodControlMs,
       deltaMs: 0,
@@ -1404,18 +1463,15 @@ const buildVariantSummaries = (
       evidence: 'production flood-fill control; finder outputs equal=true; mismatched views=0.',
     });
     variants.push({
-      id: 'inline-component-stats-flood-prototype',
-      title: 'Inline connected-component stats flood prototype',
-      controlMetric: 'legacy flood-fill detector duration',
-      candidateMetric: 'single-pass component labeling plus stats duration',
+      id: 'legacy-two-pass-flood-reference',
+      title: 'Legacy two-pass flood detector reference',
+      controlMetric: 'inline component-stats flood duration',
+      candidateMetric: 'legacy label-then-stats flood duration',
       controlMs: totals.floodControlMs,
-      candidateMs: totals.floodInlineStatsMs,
-      deltaMs: round(totals.floodControlMs - totals.floodInlineStatsMs),
-      improvementPct: percent(
-        totals.floodControlMs - totals.floodInlineStatsMs,
-        totals.floodControlMs,
-      ),
-      evidence: `finder outputs equal=${totals.floodInlineStatsOutputsEqual}; mismatched views=${totals.floodInlineStatsMismatchCount}.`,
+      candidateMs: totals.floodLegacyMs,
+      deltaMs: round(totals.floodControlMs - totals.floodLegacyMs),
+      improvementPct: percent(totals.floodControlMs - totals.floodLegacyMs, totals.floodControlMs),
+      evidence: `finder outputs equal=${totals.floodLegacyOutputsEqual}; mismatched views=${totals.floodLegacyMismatchCount}.`,
     });
     variants.push({
       id: 'filtered-components-flood-prototype',
@@ -1430,6 +1486,31 @@ const buildVariantSummaries = (
         totals.floodControlMs,
       ),
       evidence: `finder outputs equal=${totals.floodFilteredComponentsOutputsEqual}; mismatched views=${totals.floodFilteredComponentsMismatchCount}.`,
+    });
+    variants.push({
+      id: 'run-map-matcher-control',
+      title: 'Run-map matcher detector control',
+      controlMetric: 'run-map matcher duration',
+      candidateMetric: 'run-map matcher duration',
+      controlMs: totals.floodMatcherControlMs,
+      candidateMs: totals.floodMatcherControlMs,
+      deltaMs: 0,
+      improvementPct: 0,
+      evidence: 'canonical matcher control; finder outputs equal=true; mismatched views=0.',
+    });
+    variants.push({
+      id: 'center-signal-matcher-prototype',
+      title: 'Center-signal filtered run-map matcher prototype',
+      controlMetric: 'run-map matcher duration',
+      candidateMetric: 'center-signal filtered run-map matcher duration',
+      controlMs: totals.floodMatcherControlMs,
+      candidateMs: totals.floodMatcherCenterSignalMs,
+      deltaMs: round(totals.floodMatcherControlMs - totals.floodMatcherCenterSignalMs),
+      improvementPct: percent(
+        totals.floodMatcherControlMs - totals.floodMatcherCenterSignalMs,
+        totals.floodMatcherControlMs,
+      ),
+      evidence: `finder outputs equal=${totals.floodMatcherCenterSignalOutputsEqual}; mismatched views=${totals.floodMatcherCenterSignalMismatchCount}.`,
     });
   }
   if (config.focus === 'binary-bit-hot-path' && totals.binaryReadPixels > 0) {
