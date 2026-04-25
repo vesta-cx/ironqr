@@ -143,6 +143,7 @@ Each Worker/main-thread isolate reuses scratch typed arrays for dense and scanli
 | 4. Dense flood candidate phase | Inline flood and run-map leads plus dense/spatial/run-length flood candidates. | Test new flood implementations against warmed inline control. | Dense-stats was fastest; all candidates differed on one `gray:h:i` row. Targeted legacy check showed dense/spatial/run-length matched legacy while inline was the odd one out. | Dense-stats canonized as the next flood control. |
 | 5. Hybrid flood phase | Dense-stats and run-map leads plus scanline labeling, indexed containment lookup, and squared-distance geometry permutations. | Combine best ideas from prior variants while avoiding fallback/rescue paths. | Repeated full fresh runs found scanline-stats and scanline-squared equivalent; indexed variants mismatched. | `scanline-squared` confirmed as the flood replacement. |
 | 6. Throughput instrumentation phase | Real Workers, half-CPU default workers, Worker warmup, sync hot paths, flood memory-lane scheduler, and scheduler-wait reporting. | Multi-worker runs initially measured memory-bandwidth stampede rather than detector cost. | Full `12`-Worker runs with flood limit `6` restored flood avg to `~5–7 ms` and reported wait separately. | Keep scheduler-wait telemetry; tune lane limit separately from algorithm ranking. |
+| 7. Matcher reopen phase | Fixed flood at `scanline-squared`; compared `run-pattern`, `axis-intersect`, and `shared-runs` against `run-map`. | Matcher became the dominant detector cost after flood canonization. | All candidates were faster but changed matcher signatures on `8,712–8,760` views. | Keep `run-map`; bin these candidates as replacements. |
 
 ## Evidence ledger
 
@@ -292,19 +293,45 @@ scanline-squared wait avg / p98: 1.53 / 6.29 ms
 
 **Conclusion.** `scanline-squared` is confirmed as the flood replacement. It preserved output over all `10,962` comparisons, beat `scanline-stats` on every reported detector timing percentile, improved over `dense-stats` by `14,309.98 ms` (`18.80%`), lowered detector p98 from `20.93 ms` to `17.88 ms`, and lowered queued p98 from `22.37 ms` to `20.07 ms`.
 
+### Experiment G — reopened matcher candidates
+
+**Question.** After canonizing `scanline-squared`, can run-pattern-based matcher candidates reduce the now-dominant `run-map` matcher cost while preserving matcher finder signatures?
+
+**Report.** `tools/bench/reports/study/study-binary-prefilter-signals.summary.json`, generated `2026-04-25T12:56:46.811Z` from full report `tools/bench/reports/full/study/study-binary-prefilter-signals.json` at `9eda17274982691ed6dc4aaed2deb154fb42f61b`, dirty=`true`.
+
+**Corpus and command.** `203` assets (`60` positive, `143` negative), all `54` binary view identities, `10,962` asset/view comparisons per active detector pattern.
+
+```bash
+bun run --cwd tools/bench bench study binary-prefilter-signals \
+  --view-set all \
+  --refresh-cache
+```
+
+The run measured `scanline-squared` as the fixed flood control, `run-map` as the matcher control, and matcher candidates `run-pattern`, `axis-intersect`, and `shared-runs`. Cache was refreshed: `0` hits, `54,810` writes, and `76,734` old rows purged. The run used `12` study workers with flood scheduler limit `6`.
+
+| Variant | Avg | p95 | p98 | p99 | Max | Saved vs `run-map` | Improvement | Output equal | Mismatched views | Output count | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| `run-map` | 22.62 ms | 55.20 ms | 87.11 ms | 120.12 ms | 467.49 ms | — | — | control | 0 | 97,093 | Canonical matcher. |
+| `run-pattern` | 10.16 ms | 36.22 ms | 66.75 ms | 96.89 ms | 412.37 ms | 136,595.52 ms | 55.09% | `false` | 8,760 | 95,317 | Faster but not equivalent; bin as replacement. |
+| `axis-intersect` | 9.21 ms | 25.32 ms | 32.89 ms | 44.94 ms | 146.63 ms | 147,043.04 ms | 59.30% | `false` | 8,712 | 37,011 | Faster but not equivalent; bin as replacement. |
+| `shared-runs` | 9.99 ms | 36.14 ms | 66.89 ms | 94.21 ms | 380.69 ms | 138,462.63 ms | 55.84% | `false` | 8,760 | 95,317 | Faster but not equivalent; bin this form. |
+
+**Latency context.** `run-map` is the dominant detector cost in this configuration: total matcher control time was `247,957.96 ms` versus fixed flood control time `74,712.27 ms`. The fixed flood control averaged `6.82 ms` with p98 `21.91 ms`; flood scheduler wait was negligible in this matcher-focused run (`83.71 ms` total wait, p98 wait `0.01 ms`).
+
+**Conclusion.** None of the reopened matcher candidates can replace `run-map`. They all improved raw matcher time, but each changed output on most views (`8,712–8,760` mismatches out of `10,962`). `axis-intersect` is the fastest failed candidate, reducing p98 from `87.11 ms` to `32.89 ms`, but its output count collapsed from `97,093` to `37,011`, so the speedup is mostly lost evidence rather than equivalent work. Keep `run-map` as canonical and disable these candidates from the default study. Future matcher work should preserve `run-map` signatures via internal hot-path optimization or explicit prioritization/fallback accounting, not wholesale replacement of center enumeration.
+
 ## Current variant status
 
 | Variant id | Area | Compared to | Status |
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
-| `run-map` | Matcher | — | Canonical matcher lead; active control for the reopened matcher phase. |
-| `run-pattern` | Matcher | `run-map` | Active matcher candidate: center enumeration from horizontal `1:1:3:1:1` run patterns. |
-| `axis-intersect` | Matcher | `run-map` | Active matcher candidate: intersected horizontal/vertical run-pattern centers. |
-| `shared-runs` | Flood+Matcher | `scanline-squared` + `run-map` | Active combined-artifact candidate: tests whether shared run-pattern artifacts can recover matcher performance. |
+| `run-map` | Matcher | — | Canonical matcher lead; remains active after reopened matcher candidates failed equivalence. |
+
+No matcher candidates are currently active. The default detector-study run keeps only the canonical flood and matcher controls until a new matcher hypothesis is introduced.
 
 ## Inactive and binned variants
 
-Active variants are listed above and are included in the default detector-study run and summary matrices. Disabled means implemented/cache-retained but not currently queued. Binned means empirically exhausted and should not be re-added without a new hypothesis.
+Disabled means implemented/cache-retained but not currently queued. Binned means empirically exhausted and should not be re-added without a new hypothesis.
 
 | Variant | Area | Evidence | Decision |
 | --- | --- | --- | --- |
@@ -325,6 +352,9 @@ Active variants are listed above and are included in the default detector-study 
 | `inline-flood` | Flood | Superseded by `dense-stats`; targeted `gray:h:i` check showed inline emitted fewer finders than legacy/dense. | Binned; not retained in active detector-pattern cache. |
 | `spatial-bin` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
 | `run-length-ccl` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
+| `run-pattern` | Matcher | Reopened after flood canonization; `55.09%` faster than `run-map` but changed signatures on `8,760` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
+| `axis-intersect` | Matcher | Reopened after flood canonization; `59.30%` faster than `run-map` but changed signatures on `8,712` views. | Binned as a replacement; may return only as prioritization/fallback work with explicit recall accounting. |
+| `shared-runs` | Flood+Matcher | Reopened after flood canonization; `55.84%` faster than `run-map` but changed signatures on `8,760` views. | Binned in this form; future shared artifacts need a new equivalence hypothesis, not this replacement matcher. |
 
 ## Candidate rationale
 
@@ -334,9 +364,9 @@ Active variants are listed above and are included in the default detector-study 
 | Dense squared-distance geometry tests | Flood | Removes `Math.hypot` from ring/gap/stone center checks while preserving thresholds. | Binned after losing to `scanline-squared`. |
 | Scanline component labeling | Flood | Processes horizontal spans in bulk while keeping dense-compatible component stats and finder semantics. | Binned after losing to `scanline-squared`. |
 | Scanline + indexed/squared hybrids | Flood | Tests span labeling with containment and geometry optimizations. | `scanline-squared` is canonical; indexed variants are binned until mismatches are fixed. |
-| Run-pattern center matcher | Matcher | Enumerates centers from horizontal `1:1:3:1:1` run patterns instead of arbitrary grid probes. | Must beat `run-map` and preserve signatures. Active for reopened matcher phase. |
-| Axis-run intersection matcher | Matcher | Intersects plausible horizontal and vertical run-pattern centers without a hard center-signal gate. | Must beat `run-map` and preserve signatures. Active for reopened matcher phase. |
-| Shared run-length detector artifacts | Flood+Matcher | One run-length threshold-plane pass could feed both flood CCL and matcher center enumeration. | Must show combined detector savings, not just local wins. Active for reopened matcher phase. |
+| Run-pattern center matcher | Matcher | Enumerates centers from horizontal `1:1:3:1:1` run patterns instead of arbitrary grid probes. | Binned as a replacement after `8,760` mismatches; may return only with fallback/recall accounting. |
+| Axis-run intersection matcher | Matcher | Intersects plausible horizontal and vertical run-pattern centers without a hard center-signal gate. | Binned as a replacement after `8,712` mismatches; may return only with fallback/recall accounting. |
+| Shared run-length detector artifacts | Flood+Matcher | One run-length threshold-plane pass could feed both flood CCL and matcher center enumeration. | Current replacement form is binned; a future shared-artifact design needs a new equivalence hypothesis. |
 
 ## Report contract
 
@@ -385,6 +415,6 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 ## Next work
 
 1. Promote `scanline-squared` behind the production flood control abstraction.
-2. Run a fresh matcher-phase study with `run-map` control and active candidates `run-pattern`, `axis-intersect`, and `shared-runs`; matcher work is now the dominant detector cost after flood canonization.
-3. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after the matcher phase, because flood algorithm ranking is settled.
-4. Decide whether `shared-runs` belongs in this matcher phase or should split into a dedicated combined flood+matcher artifact study based on the next report.
+2. Design the next matcher optimization around preserving `run-map` signatures, not replacing center enumeration wholesale; the reopened run-pattern candidates were faster but not equivalent.
+3. Profile `run-map` internally under `--workers 0`, `--workers 1`, and the half-CPU default to separate algorithm cost from loaded Worker contention.
+4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.

@@ -804,11 +804,7 @@ const activeMatcherPatternIds = (): readonly string[] =>
     ? []
     : ['run-map', ...ACTIVE_MATCHER_CANDIDATES.map((candidate) => candidate.id)];
 
-const retainedDetectorPatternIds = (): readonly string[] => [
-  FLOOD_CONTROL_ID,
-  'run-map',
-  ...MATCHER_CANDIDATES.map((candidate) => candidate.id),
-];
+const retainedDetectorPatternIds = (): readonly string[] => [FLOOD_CONTROL_ID, 'run-map'];
 
 const readCachedDetectorAssetResult = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
@@ -1167,8 +1163,7 @@ const MATCHER_CANDIDATES = [
   },
 ] as const;
 
-const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] =
-  MATCHER_CANDIDATES;
+const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] = [];
 
 const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');
