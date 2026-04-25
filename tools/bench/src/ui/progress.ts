@@ -18,6 +18,16 @@ import {
 } from './model.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
+const DASHBOARD_EVENT_BATCH_BUDGET_MS = 8;
+const DASHBOARD_EVENT_BATCH_MAX_ITEMS = 500;
+
+type StudyTimingEvent = {
+  readonly id: string;
+  readonly durationMs: number;
+  readonly group?: 'view' | 'detector';
+  readonly outputCount?: number;
+  readonly cached?: boolean;
+};
 
 export interface BenchProgressReporter {
   onManifestStarted: () => void;
@@ -91,6 +101,43 @@ export const createBenchProgressReporter = (options: {
     openTui?.update();
   };
 
+  const pendingStudyTimings: StudyTimingEvent[] = [];
+  const pendingMessages: string[] = [];
+  let dashboardFlushTimer: NodeJS.Timeout | null = null;
+
+  const scheduleDashboardFlush = (): void => {
+    if (dashboardFlushTimer !== null) return;
+    dashboardFlushTimer = setTimeout(() => flushDashboardEvents(false), 0);
+  };
+
+  const flushDashboardEvents = (drain: boolean): void => {
+    dashboardFlushTimer = null;
+    const startedAt = performance.now();
+    let processed = 0;
+    while (pendingMessages.length > 0) {
+      const message = pendingMessages.shift();
+      if (message === undefined) break;
+      dashboard.message = `${options.commandName}: ${message}`;
+      pushStudyEvent(dashboard, message);
+      processed += 1;
+      if (!drain && shouldPauseDashboardFlush(startedAt, processed)) break;
+    }
+    while (pendingMessages.length === 0 && pendingStudyTimings.length > 0) {
+      const studyTiming = pendingStudyTimings.shift();
+      if (studyTiming === undefined) break;
+      onBenchRunStudyTiming(dashboard, studyTiming);
+      if (!studyTiming.cached) {
+        pushStudyEvent(dashboard, formatStudyTimingEvent(studyTiming));
+      }
+      processed += 1;
+      if (!drain && shouldPauseDashboardFlush(startedAt, processed)) break;
+    }
+    if (processed > 0) queueRender();
+    if (!drain && (pendingMessages.length > 0 || pendingStudyTimings.length > 0)) {
+      scheduleDashboardFlush();
+    }
+  };
+
   openTui?.start();
 
   return {
@@ -156,16 +203,11 @@ export const createBenchProgressReporter = (options: {
     onMessage: (message) => {
       const studyTiming = parseStudyTimingMessage(message);
       if (studyTiming) {
-        onBenchRunStudyTiming(dashboard, studyTiming);
-        if (!studyTiming.cached) {
-          pushStudyEvent(dashboard, formatStudyTimingEvent(studyTiming));
-        }
-        queueRender();
-        return;
+        pendingStudyTimings.push(studyTiming);
+      } else {
+        pendingMessages.push(message);
       }
-      dashboard.message = `${options.commandName}: ${message}`;
-      pushStudyEvent(dashboard, message);
-      queueRender();
+      scheduleDashboardFlush();
     },
     requestStop: () => {
       dashboard.message = `${options.commandName} stopping after requested interrupt`;
@@ -174,12 +216,21 @@ export const createBenchProgressReporter = (options: {
     },
     stop: () => {
       if (stopped) return;
+      if (dashboardFlushTimer !== null) {
+        clearTimeout(dashboardFlushTimer);
+        dashboardFlushTimer = null;
+      }
+      flushDashboardEvents(true);
       onBenchRunDone(dashboard);
       openTui?.stop();
       stopped = true;
     },
   };
 };
+
+const shouldPauseDashboardFlush = (startedAt: number, processed: number): boolean =>
+  processed >= DASHBOARD_EVENT_BATCH_MAX_ITEMS ||
+  performance.now() - startedAt >= DASHBOARD_EVENT_BATCH_BUDGET_MS;
 
 const pushStudyEvent = (dashboard: { readonly studyEvents: string[] }, message: string): void => {
   dashboard.studyEvents.push(message);
@@ -188,12 +239,7 @@ const pushStudyEvent = (dashboard: { readonly studyEvents: string[] }, message: 
   }
 };
 
-const formatStudyTimingEvent = (event: {
-  readonly id: string;
-  readonly durationMs: number;
-  readonly group?: 'view' | 'detector';
-  readonly outputCount?: number;
-}): string => {
+const formatStudyTimingEvent = (event: StudyTimingEvent): string => {
   const group = event.group ?? 'study';
   const output = event.outputCount === undefined ? '' : ` outputs=${event.outputCount}`;
   return `${group} ${event.id} ${formatStudyTimingDuration(event.durationMs)}${output}`;
@@ -208,15 +254,7 @@ const formatStudyTimingDuration = (durationMs: number): string => {
   return `${minutes}m${String(seconds).padStart(2, '0')}s`;
 };
 
-const parseStudyTimingMessage = (
-  message: string,
-): {
-  readonly id: string;
-  readonly durationMs: number;
-  readonly group?: 'view' | 'detector';
-  readonly outputCount?: number;
-  readonly cached?: boolean;
-} | null => {
+const parseStudyTimingMessage = (message: string): StudyTimingEvent | null => {
   if (!message.startsWith(STUDY_TIMING_PREFIX)) return null;
   try {
     const payload = JSON.parse(message.slice(STUDY_TIMING_PREFIX.length)) as Record<
