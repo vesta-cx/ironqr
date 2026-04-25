@@ -80,6 +80,10 @@ export interface ProposalViewGeneratedEvent {
   readonly matcherFinderCount: number;
   readonly dedupedFinderCount: number;
   readonly expensiveDetectorsRan: boolean;
+  readonly rowScanDurationMs: number;
+  readonly floodDurationMs: number;
+  readonly matcherDurationMs: number;
+  readonly dedupeDurationMs: number;
   readonly tripleCount: number;
   readonly proposalCount: number;
   readonly durationMs: number;

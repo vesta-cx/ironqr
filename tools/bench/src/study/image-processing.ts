@@ -208,6 +208,10 @@ interface ImageProcessingViewSummary {
   readonly binaryViewId: string;
   readonly assetCount: number;
   readonly detectorMs: number;
+  readonly rowScanMs: number;
+  readonly floodMs: number;
+  readonly matcherMs: number;
+  readonly dedupeMs: number;
   readonly proposalCount: number;
   readonly rowScanFinderCount: number;
   readonly floodFinderCount: number;
@@ -1009,6 +1013,10 @@ const summarizeImageProcessingStudy = ({
       totals.detectorMs += proposal.detectorDurationMs;
       const row = ensureViewRow(viewRows, proposal.binaryViewId);
       row.detectorMs += proposal.detectorDurationMs;
+      row.rowScanMs += proposal.finderEvidence.rowScanDurationMs;
+      row.floodMs += proposal.finderEvidence.floodDurationMs;
+      row.matcherMs += proposal.finderEvidence.matcherDurationMs;
+      row.dedupeMs += proposal.finderEvidence.dedupeDurationMs;
       row.proposalCount += proposal.proposalCount;
       row.rowScanFinderCount += proposal.finderEvidence.rowScanCount;
       row.floodFinderCount += proposal.finderEvidence.floodCount;
@@ -1100,6 +1108,10 @@ const ensureViewRow = (
     binaryViewId,
     assetCount: 0,
     detectorMs: 0,
+    rowScanMs: 0,
+    floodMs: 0,
+    matcherMs: 0,
+    dedupeMs: 0,
     proposalCount: 0,
     rowScanFinderCount: 0,
     floodFinderCount: 0,
@@ -1169,6 +1181,10 @@ const finalizeViewRow = (row: MutableViewSummary): ImageProcessingViewSummary =>
   binaryViewId: row.binaryViewId,
   assetCount: row.assetCount,
   detectorMs: round(row.detectorMs),
+  rowScanMs: round(row.rowScanMs),
+  floodMs: round(row.floodMs),
+  matcherMs: round(row.matcherMs),
+  dedupeMs: round(row.dedupeMs),
   proposalCount: row.proposalCount,
   rowScanFinderCount: row.rowScanFinderCount,
   floodFinderCount: row.floodFinderCount,
@@ -1343,6 +1359,10 @@ const flattenProposalSummary = (summary: ProposalViewGenerationSummary) => ({
   matcherFinderCount: summary.finderEvidence.matcherCount,
   dedupedFinderCount: summary.finderEvidence.dedupedCount,
   expensiveDetectorsRan: summary.finderEvidence.expensiveDetectorsRan,
+  rowScanDurationMs: round(summary.finderEvidence.rowScanDurationMs),
+  floodDurationMs: round(summary.finderEvidence.floodDurationMs),
+  matcherDurationMs: round(summary.finderEvidence.matcherDurationMs),
+  dedupeDurationMs: round(summary.finderEvidence.dedupeDurationMs),
   tripleCount: summary.tripleCount,
   proposalCount: summary.proposalCount,
   durationMs: round(summary.durationMs),

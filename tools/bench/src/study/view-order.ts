@@ -70,6 +70,10 @@ interface ViewProposalAssetRow {
   readonly matcherFinderCount: number;
   readonly dedupedFinderCount: number;
   readonly expensiveDetectorsRan: boolean;
+  readonly rowScanDurationMs: number;
+  readonly floodDurationMs: number;
+  readonly matcherDurationMs: number;
+  readonly dedupeDurationMs: number;
   readonly tripleCount: number;
   readonly proposalCount: number;
   readonly durationMs: number;
@@ -402,6 +406,10 @@ interface MutableViewProposalAssetRow {
   matcherFinderCount: number;
   dedupedFinderCount: number;
   expensiveDetectorsRan: boolean;
+  rowScanDurationMs: number;
+  floodDurationMs: number;
+  matcherDurationMs: number;
+  dedupeDurationMs: number;
   tripleCount: number;
   proposalCount: number;
   durationMs: number;
@@ -450,6 +458,10 @@ const finalizeAssetRow = (
   matcherFinderCount: row.matcherFinderCount,
   dedupedFinderCount: row.dedupedFinderCount,
   expensiveDetectorsRan: row.expensiveDetectorsRan,
+  rowScanDurationMs: row.rowScanDurationMs,
+  floodDurationMs: row.floodDurationMs,
+  matcherDurationMs: row.matcherDurationMs,
+  dedupeDurationMs: row.dedupeDurationMs,
   tripleCount: row.tripleCount,
   proposalCount: row.proposalCount,
   durationMs: row.durationMs,
@@ -496,6 +508,10 @@ const rowFromEvent = (event: ProposalViewGeneratedEvent): MutableViewProposalAss
   matcherFinderCount: event.matcherFinderCount,
   dedupedFinderCount: event.dedupedFinderCount,
   expensiveDetectorsRan: event.expensiveDetectorsRan,
+  rowScanDurationMs: round(event.rowScanDurationMs),
+  floodDurationMs: round(event.floodDurationMs),
+  matcherDurationMs: round(event.matcherDurationMs),
+  dedupeDurationMs: round(event.dedupeDurationMs),
   tripleCount: event.tripleCount,
   proposalCount: event.proposalCount,
   durationMs: round(event.durationMs),
@@ -528,6 +544,10 @@ const emptyRow = (binaryViewId: string): MutableViewProposalAssetRow => ({
   matcherFinderCount: 0,
   dedupedFinderCount: 0,
   expensiveDetectorsRan: false,
+  rowScanDurationMs: 0,
+  floodDurationMs: 0,
+  matcherDurationMs: 0,
+  dedupeDurationMs: 0,
   tripleCount: 0,
   proposalCount: 0,
   durationMs: 0,

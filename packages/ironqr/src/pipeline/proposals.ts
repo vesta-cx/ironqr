@@ -154,6 +154,14 @@ export interface FinderEvidenceSummary {
   readonly dedupedCount: number;
   /** Whether flood/matcher detectors were used for this view. */
   readonly expensiveDetectorsRan: boolean;
+  /** Row-scan detector duration for this view. */
+  readonly rowScanDurationMs: number;
+  /** Flood-fill detector duration for this view. */
+  readonly floodDurationMs: number;
+  /** Template matcher detector duration for this view. */
+  readonly matcherDurationMs: number;
+  /** Cross-detector evidence dedupe/capping duration for this view. */
+  readonly dedupeDurationMs: number;
 }
 
 /**
@@ -445,6 +453,10 @@ const emitProposalViewGenerated = (
     matcherFinderCount: summary.finderEvidence.matcherCount,
     dedupedFinderCount: summary.finderEvidence.dedupedCount,
     expensiveDetectorsRan: summary.finderEvidence.expensiveDetectorsRan,
+    rowScanDurationMs: summary.finderEvidence.rowScanDurationMs,
+    floodDurationMs: summary.finderEvidence.floodDurationMs,
+    matcherDurationMs: summary.finderEvidence.matcherDurationMs,
+    dedupeDurationMs: summary.finderEvidence.dedupeDurationMs,
     tripleCount: summary.tripleCount,
     proposalCount: summary.proposalCount,
     durationMs: summary.durationMs,
@@ -455,18 +467,26 @@ const emitProposalViewGenerated = (
 };
 
 const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidenceDetection => {
+  const rowScanStartedAt = nowMs();
   const rowScan = detectRowScanFinders(binaryView, binaryView.width, binaryView.height);
+  const rowScanDurationMs = nowMs() - rowScanStartedAt;
   const expensiveDetectorsRan = shouldRunExpensiveDetectors(binaryView, rowScan);
+  const floodStartedAt = nowMs();
   const flood = expensiveDetectorsRan
     ? detectFloodFinders(binaryView, binaryView.width, binaryView.height)
     : [];
+  const floodDurationMs = nowMs() - floodStartedAt;
+  const matcherStartedAt = nowMs();
   const matcher = expensiveDetectorsRan
     ? detectMatcherFinders(binaryView, binaryView.width, binaryView.height)
     : [];
+  const matcherDurationMs = nowMs() - matcherStartedAt;
+  const dedupeStartedAt = nowMs();
   const evidence = dedupeFinderEvidence([...rowScan, ...flood, ...matcher]).slice(
     0,
     MAX_FINDER_EVIDENCE_TOTAL,
   );
+  const dedupeDurationMs = nowMs() - dedupeStartedAt;
   return {
     evidence,
     summary: {
@@ -475,6 +495,10 @@ const detectFinderEvidenceWithSummary = (binaryView: BinaryView): FinderEvidence
       matcherCount: matcher.length,
       dedupedCount: evidence.length,
       expensiveDetectorsRan,
+      rowScanDurationMs,
+      floodDurationMs,
+      matcherDurationMs,
+      dedupeDurationMs,
     },
   } satisfies FinderEvidenceDetection;
 };
