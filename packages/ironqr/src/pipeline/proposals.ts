@@ -14,6 +14,7 @@ const DEFAULT_MAX_PROPOSALS_PER_VIEW = 12;
 const MAX_TRIPLE_COMBINATIONS = 120;
 const DEFAULT_PROPOSAL_ASSEMBLY_VARIANT: ProposalAssemblyVariant = 'no-allocation-score';
 const DEFAULT_PROPOSAL_RANKING_VARIANT: ProposalRankingVariant = 'timing-heavy';
+const DEFAULT_FINDER_DETECTOR_FAMILIES: readonly FinderDetectorFamily[] = ['row-scan', 'matcher'];
 const FINDER_RATIO_TOLERANCE = 0.9;
 const QUIET_ZONE_DISTANCE_MODULES = 5.25;
 
@@ -537,7 +538,7 @@ export const detectFinderEvidenceWithSummary = (
   binaryView: BinaryView,
   policy: FinderEvidenceDetectionPolicy = {},
 ): FinderEvidenceDetection => {
-  const enabledFamilies = new Set(policy.enabledFamilies ?? ['row-scan', 'flood', 'matcher']);
+  const enabledFamilies = new Set(policy.enabledFamilies ?? DEFAULT_FINDER_DETECTOR_FAMILIES);
   const rowScanStartedAt = nowMs();
   const rowScan = enabledFamilies.has('row-scan')
     ? detectRowScanFinders(binaryView, binaryView.width, binaryView.height)
