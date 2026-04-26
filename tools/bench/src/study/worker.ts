@@ -11,6 +11,7 @@ import {
   warmImageProcessingStudyWorker,
 } from './image-processing.js';
 import { proposalDetectorPolicyStudyPlugin } from './proposal-detector-policy.js';
+import { proposalDetectorPolicyDecodeConfirmationStudyPlugin } from './proposal-detector-policy-decode-confirmation.js';
 import { proposalGenerationVariantsStudyPlugin } from './proposal-generation-variants.js';
 import { proposalGeometryDecodeConfirmationStudyPlugin } from './proposal-geometry-decode-confirmation.js';
 import { proposalGeometryViabilityStudyPlugin } from './proposal-geometry-viability.js';
@@ -28,6 +29,7 @@ const plugins = new Map(
     sharedBinaryDetectorArtifactsStudyPlugin,
     thresholdStatsCacheStudyPlugin,
     proposalDetectorPolicyStudyPlugin,
+    proposalDetectorPolicyDecodeConfirmationStudyPlugin,
     proposalGenerationVariantsStudyPlugin,
     proposalGeometryViabilityStudyPlugin,
     proposalGeometryDecodeConfirmationStudyPlugin,
