@@ -6,6 +6,7 @@ import {
   createViewBank,
   readBinaryPixel,
 } from '../../../../packages/ironqr/src/pipeline/views.js';
+import { fractionalBar } from '../accuracy/dashboard/components.js';
 import {
   type DecodeOutcomeArtifacts,
   getOrComputeClusterFrontierArtifacts,
@@ -659,11 +660,8 @@ const barRow = (label: string, value: number, max: number): StudyBarChartRow => 
   bar: bar(value, max),
 });
 
-const bar = (value: number, max: number): string => {
-  const width = 24;
-  const filled = Math.min(width, Math.round((Math.max(0, value) / Math.max(1, max)) * width));
-  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
-};
+const bar = (value: number, max: number): string =>
+  fractionalBar(Math.max(0, value) / Math.max(1, max), 24, { minVisible: value > 0 });
 
 const decodeResult = (artifacts: DecodeOutcomeArtifacts): DecodeAssetResult => ({
   decodedTexts: artifacts.decodedTexts,
