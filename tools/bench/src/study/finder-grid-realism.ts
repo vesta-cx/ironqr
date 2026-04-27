@@ -28,7 +28,7 @@ const CORONATEST_ASSET_ID = 'asset-0944aec7c73146f9';
  * - `visualization`: chart rows, units, or rendered bar semantics.
  */
 const FINDER_GRID_REALISM_STAGE_VERSIONS = {
-  rankingPolicy: 2,
+  rankingPolicy: 3,
   decodeComparison: 2,
   visualization: 1,
 } as const;
@@ -36,16 +36,30 @@ const FINDER_GRID_REALISM_STAGE_VERSIONS = {
 type GridRealismVariant =
   | 'baseline'
   | 'grid-realism-ranking'
+  | 'realism-module-heavy'
+  | 'realism-timing-heavy'
+  | 'realism-decode-likelihood'
+  | 'realism-low-risk'
+  | 'realism-geomean'
+  | 'realism-lexicographic'
+  | 'realism-penalty-only'
   | 'grid-realism-ranking-no-timing'
   | 'grid-realism-ranking-no-module';
 
 const DEFAULT_VARIANTS = [
   'baseline',
   'grid-realism-ranking',
+  'realism-module-heavy',
+  'realism-decode-likelihood',
+  'realism-low-risk',
+  'realism-geomean',
+  'realism-lexicographic',
 ] as const satisfies readonly GridRealismVariant[];
 
 const ALL_VARIANTS = [
   ...DEFAULT_VARIANTS,
+  'realism-timing-heavy',
+  'realism-penalty-only',
   'grid-realism-ranking-no-timing',
   'grid-realism-ranking-no-module',
 ] as const satisfies readonly GridRealismVariant[];
@@ -560,20 +574,59 @@ const orderRepresentatives = (
 };
 
 const policyScore = (row: ScoredRepresentative, variant: GridRealismVariant): number => {
+  const score = row.gridRealism;
   if (variant === 'baseline') return row.proposal.proposalScore;
+  if (variant === 'grid-realism-ranking') return score.combined;
+  if (variant === 'realism-module-heavy')
+    return round(
+      score.module * 0.55 + score.timing * 0.25 + score.projective * 0.1 + score.bounds * 0.1,
+    );
+  if (variant === 'realism-timing-heavy')
+    return round(
+      score.timing * 0.5 + score.module * 0.3 + score.projective * 0.1 + score.bounds * 0.1,
+    );
+  if (variant === 'realism-decode-likelihood')
+    return round(
+      score.module * 0.45 + score.timing * 0.35 + Math.min(score.projective, score.bounds) * 0.2,
+    );
+  if (variant === 'realism-low-risk') return lowRiskScore(score);
+  if (variant === 'realism-geomean') return geomeanScore(score);
+  if (variant === 'realism-lexicographic') return lexicographicScore(score);
+  if (variant === 'realism-penalty-only') return penaltyOnlyScore(score);
   if (variant === 'grid-realism-ranking-no-timing')
-    return round(
-      row.gridRealism.projective * 0.35 +
-        row.gridRealism.module * 0.4 +
-        row.gridRealism.bounds * 0.25,
-    );
+    return round(score.projective * 0.35 + score.module * 0.4 + score.bounds * 0.25);
   if (variant === 'grid-realism-ranking-no-module')
-    return round(
-      row.gridRealism.projective * 0.35 +
-        row.gridRealism.bounds * 0.25 +
-        row.gridRealism.timing * 0.4,
-    );
-  return row.gridRealism.combined;
+    return round(score.projective * 0.35 + score.bounds * 0.25 + score.timing * 0.4);
+  return score.combined;
+};
+
+const lowRiskScore = (score: ReturnType<typeof scoreProposalGridRealism>): number => {
+  const severePenalty = (score.projective < 0.55 ? 0.25 : 0) + (score.bounds < 0.55 ? 0.25 : 0);
+  return round(score.module * 0.6 + score.timing * 0.4 - severePenalty);
+};
+
+const geomeanScore = (score: ReturnType<typeof scoreProposalGridRealism>): number =>
+  round(
+    score.module ** 0.45 *
+      Math.max(0.01, score.timing) ** 0.35 *
+      Math.max(0.01, score.projective) ** 0.1 *
+      Math.max(0.01, score.bounds) ** 0.1,
+  );
+
+const lexicographicScore = (score: ReturnType<typeof scoreProposalGridRealism>): number => {
+  const sanityBucket = score.projective < 0.55 || score.bounds < 0.55 ? 0 : 1;
+  return round(
+    sanityBucket * 0.5 + score.module * 0.3 + score.timing * 0.15 + score.combined * 0.05,
+  );
+};
+
+const penaltyOnlyScore = (score: ReturnType<typeof scoreProposalGridRealism>): number => {
+  const badness =
+    Math.max(0, 0.65 - score.module) * 0.45 +
+    Math.max(0, 0.6 - score.timing) * 0.35 +
+    Math.max(0, 0.55 - score.projective) * 0.1 +
+    Math.max(0, 0.55 - score.bounds) * 0.1;
+  return round(1 - badness);
 };
 
 const byDescending = (left: number, right: number): number => right - left;

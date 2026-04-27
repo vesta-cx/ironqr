@@ -52,14 +52,21 @@ geometry hypothesis
 → combined realism score / ranking policy
 ```
 
-The study compares policy behavior with and without that coherent realism pipeline. Component scores are diagnostics nested under each policy row, not default variants.
+The study compares full replacement ranking objectives with and without that coherent realism pipeline. Component scores are diagnostics nested under each policy row; objective variants are different ways to combine the same dependent signal graph.
 
 | Variant | Purpose |
 | --- | --- |
 | `baseline` | Existing proposal/ranking/cluster representative order with no added grid-realism ordering. |
-| `grid-realism-ranking` | Reorder representatives by the full dependent grid-realism score, with proposal score as a tie-breaker. |
-| `grid-realism-ranking-no-timing` | Optional ablation to quantify timing's contribution to the full ranking policy. Not enabled by default. |
-| `grid-realism-ranking-no-module` | Optional ablation to quantify module-consistency's contribution to the full ranking policy. Not enabled by default. |
+| `grid-realism-ranking` | Original composite objective: projective/module/bounds/timing weighted together, with proposal score only as tie-breaker. |
+| `realism-module-heavy` | Full replacement objective that emphasizes module/local-scale consistency, the strongest component in earlier diagnostics. |
+| `realism-timing-heavy` | Optional full replacement objective that emphasizes grid-relative timing. Not enabled by default. |
+| `realism-decode-likelihood` | Full replacement objective that rewards module/timing while using projective/bounds as shared plausibility support. |
+| `realism-low-risk` | Full replacement objective that uses projective/bounds mostly as severe-penalty gates, then ranks by module/timing. |
+| `realism-geomean` | Full replacement multiplicative objective requiring multiple components to be decent. |
+| `realism-lexicographic` | Full replacement objective that prioritizes severe sanity pass, then module, timing, and combined score. |
+| `realism-penalty-only` | Optional full replacement badness objective. Not enabled by default. |
+| `grid-realism-ranking-no-timing` | Optional ablation to quantify timing's contribution to the original composite. Not enabled by default. |
+| `grid-realism-ranking-no-module` | Optional ablation to quantify module-consistency's contribution to the original composite. Not enabled by default. |
 
 ## Fast `--no-decode` report metrics
 
