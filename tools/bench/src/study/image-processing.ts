@@ -27,11 +27,12 @@ import {
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
 import { normalizeDecodedText } from '../shared/text.js';
 import {
-  detectorAreaId,
   detectorVariantCacheKey,
   detectorVariantCacheKeys,
+  isPreloadedDetectorRow,
   purgeRedundantDetectorCacheRows,
   readDetectorVariantMeasurement,
+  replayCachedDetectorRows,
   shortBinaryViewPart,
   shortDetectorFamily,
   shortVariantId,
@@ -523,8 +524,8 @@ const readCachedDetectorAssetResult = async (
         cache,
         viewIds,
         requiredIds,
-        log,
         options.preloadedRows,
+        { log, logTiming: logStudyTiming.bind(null, log), yieldToDashboard },
       );
       log(
         `${asset.id}: detector cache missing ${missing.length}/${requiredIds.length * viewIds.length} variant-view rows; preloaded ${replayed} cached rows`,
@@ -769,36 +770,6 @@ const countSignatureSource = (
   source: FinderEvidence['source'],
 ): number => signature.filter((entry) => entry.startsWith(`${source}:`)).length;
 
-const replayCachedDetectorRows = async (
-  asset: Parameters<StudyCacheHandle['read']>[0],
-  cache: Pick<StudyCacheHandle, 'has' | 'read'>,
-  viewIds: readonly BinaryViewId[],
-  variantIds: readonly string[],
-  log: (message: string) => void,
-  preloadedRows: Set<string>,
-): Promise<number> => {
-  let replayed = 0;
-  for (const viewId of viewIds) {
-    await yieldToDashboard();
-    for (const variantId of variantIds) {
-      const measurement = await readVariantMeasurement(asset, cache, variantId, viewId);
-      if (!measurement) continue;
-      replayed += 1;
-      preloadedRows.add(detectorRowKey(asset.id, variantId, viewId));
-      const detector = detectorAreaId(variantId) === 'f' ? 'flood' : 'matcher';
-      logStudyTiming(
-        log,
-        detectorTimingId(viewId, variantId, detector),
-        measurement.durationMs,
-        'detector',
-        measurement.outputCount,
-        true,
-      );
-    }
-  }
-  return replayed;
-};
-
 const readVariantMeasurement = readDetectorVariantMeasurement;
 
 const cachedMatcherMeasurement = (
@@ -993,18 +964,6 @@ const measureVariant = async (
     scheduler?.release();
   }
 };
-
-const detectorRowKey = (assetId: string, variantId: string, viewId: BinaryViewId): string =>
-  `${assetId}\u0000${variantId}\u0000${viewId}`;
-
-const isPreloadedDetectorRow = (
-  assetId: string,
-  variantId: string,
-  viewId: BinaryViewId,
-  preloadedRows: ReadonlySet<string>,
-): boolean =>
-  preloadedRows.has(detectorRowKey(assetId, variantId, viewId)) ||
-  Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true;
 
 const compareVariant = (
   id: string,

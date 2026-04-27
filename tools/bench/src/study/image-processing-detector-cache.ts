@@ -6,6 +6,18 @@ interface DetectorCachePurger {
   readonly purge: (predicate: (cacheKey: string) => boolean) => Promise<number>;
 }
 
+interface DetectorTimingLogger {
+  readonly log: (message: string) => void;
+  readonly logTiming: (
+    id: string,
+    durationMs: number,
+    group: 'view' | 'detector',
+    outputCount: number,
+    cached?: boolean,
+  ) => void;
+  readonly yieldToDashboard: () => Promise<void>;
+}
+
 export const detectorVariantCacheKey = (variantId: string, viewId: BinaryViewId): string =>
   JSON.stringify({
     kind: 'detector-pattern',
@@ -69,6 +81,47 @@ export const detectorTimingId = (
   const [scalar = '', threshold = '', polarity = ''] = viewId.split(':');
   return `${shortVariantId(variant)}:${shortDetectorFamily(detector)}:${shortBinaryViewPart(scalar)}:${shortBinaryViewPart(threshold)}:${shortBinaryViewPart(polarity)}`;
 };
+
+export const replayCachedDetectorRows = async (
+  asset: Parameters<StudyCacheHandle['read']>[0],
+  cache: Pick<StudyCacheHandle, 'has' | 'read'>,
+  viewIds: readonly BinaryViewId[],
+  variantIds: readonly string[],
+  preloadedRows: Set<string>,
+  logger: DetectorTimingLogger,
+): Promise<number> => {
+  let replayed = 0;
+  for (const viewId of viewIds) {
+    await logger.yieldToDashboard();
+    for (const variantId of variantIds) {
+      const measurement = await readDetectorVariantMeasurement(asset, cache, variantId, viewId);
+      if (!measurement) continue;
+      replayed += 1;
+      preloadedRows.add(detectorRowKey(asset.id, variantId, viewId));
+      const detector = detectorAreaId(variantId) === 'f' ? 'flood' : 'matcher';
+      logger.logTiming(
+        detectorTimingId(viewId, variantId, detector),
+        measurement.durationMs,
+        'detector',
+        measurement.outputCount,
+        true,
+      );
+    }
+  }
+  return replayed;
+};
+
+export const detectorRowKey = (assetId: string, variantId: string, viewId: BinaryViewId): string =>
+  `${assetId}\u0000${variantId}\u0000${viewId}`;
+
+export const isPreloadedDetectorRow = (
+  assetId: string,
+  variantId: string,
+  viewId: BinaryViewId,
+  preloadedRows: ReadonlySet<string>,
+): boolean =>
+  preloadedRows.has(detectorRowKey(assetId, variantId, viewId)) ||
+  Reflect.get(globalThis, '__BENCH_STUDY_WORKER__') === true;
 
 export const readDetectorVariantMeasurement = async (
   asset: Parameters<StudyCacheHandle['read']>[0],
