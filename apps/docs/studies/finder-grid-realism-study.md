@@ -394,8 +394,10 @@ Decode outcome by scan-level concrete-attempt budget:
 | 25 | `grid-realism-ranking` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
 | 50 | `baseline` | 29 / 60 | 0 | 8,798 | none | none |
 | 50 | `grid-realism-ranking` | 30 / 60 | 0 | 8,761 | none | `asset-532613e8ac453b24` |
+| 200 | `baseline` | 32 / 60 | 0 | 34,721 | none | none |
+| 200 | `grid-realism-ranking` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
 
-At both budgets, all successful decodes were at representative rank 1 for both variants. `asset-0944aec7c73146f9` / `coronatest` decoded in both variants with one attempt.
+At all budgets, successful decodes were at representative rank 1 for both variants. `asset-0944aec7c73146f9` / `coronatest` decoded in both variants with one attempt.
 
 Stable gained asset:
 
@@ -416,9 +418,9 @@ artifact cache: L1/L2/L3/L5/L6/L7 hits; no recomputation of scanner frontier lay
 
 Updated evidence-backed decisions:
 
-- Advance `grid-realism-ranking` as a promising decode-order candidate under capped scan-level budgets. It gained one decoded positive at both 25 and 50 attempts, lost none, introduced no false positives, and used slightly fewer concrete decode attempts (`-12` at 25, `-37` at 50).
-- Do not canonize yet from two budgets. Confirm at additional budgets such as 10 and 100 attempts, and then decide whether the improvement is stable enough to promote.
-- Keep hard rejection binned. The evidence supports ordering, not filtering.
+- Do not canonize `grid-realism-ranking` as a replacement ordering yet. It improves early budgets (25 and 50 attempts) but at 200 attempts it swaps one gain for one loss: it still gains `asset-532613e8ac453b24`, but loses `asset-1b26a1d1cbb61d25`, which baseline decodes in 181 attempts.
+- Treat the current full-replacement ordering as evidence that grid realism has useful signal but can overtake a valid high-cost baseline top representative. The next candidate should blend rather than replace: use grid realism as a bounded boost or tie-breaker on top of proposal score, or apply it within clusters after preserving strong baseline candidates.
+- Keep hard rejection binned. The evidence supports prioritization only.
 - For multi-QR policy, add/compare cluster-local representative budgets separately from this scan-level capped decode test.
 
 Answered:
@@ -427,9 +429,10 @@ Answered:
 - The coherent grid-realism policy preserves proposal coverage in `--no-decode` mode.
 - The coherent policy materially changes representative ordering.
 - Under 25- and 50-attempt scan-level budgets, grid-realism ranking improves decoded positives by one with no observed downside.
+- Under a 200-attempt budget, the current full-replacement ordering is not recall-safe: total positives tie, but one baseline-only positive is lost and one grid-realism-only positive is gained.
 
 Partially answered:
 
-- Whether the ranking improves real decode work across budgets: partially; positive at 25 and 50 attempts, still needs lower/higher budget checks.
+- Whether the ranking improves real decode work across budgets: partially; positive at early budgets, not recall-safe as a full replacement at 200 attempts.
 - Whether timing-grid evidence is useful: weak in the current sampler and needs improvement.
 - Whether cache layer summaries are reliable under worker full runs: improved after worker summary aggregation; these runs showed artifact-cache hits for upstream layers.
