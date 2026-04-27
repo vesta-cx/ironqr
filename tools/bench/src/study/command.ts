@@ -630,6 +630,7 @@ const runPlugin = async (input: {
                   refreshCache: input.refreshCache,
                 });
                 await applyStudyCacheWrites(input.cache, assetsById, execution.cacheWrites);
+                input.artifactCache.mergeSummary(execution.artifactCache);
                 return execution.result;
               })()
             : await runAsset({

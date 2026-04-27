@@ -1,4 +1,5 @@
 import type { BenchCorpusAsset } from '../core/corpus.js';
+import type { ScannerArtifactCacheSummary } from './scanner-artifact-cache.js';
 import type { StudyCacheHandle, StudyPlugin } from './types.js';
 import type { StudyCacheWrite, StudyWorkerRequest, StudyWorkerResponse } from './worker-types.js';
 
@@ -16,6 +17,7 @@ interface StudyWorkerJob {
 interface StudyWorkerExecution {
   readonly result: unknown;
   readonly cacheWrites: readonly StudyCacheWrite[];
+  readonly artifactCache: ScannerArtifactCacheSummary;
 }
 
 interface QueuedJob {
@@ -109,7 +111,11 @@ export const createStudyWorkerPool = (
           new Error(message.stack ? `${message.message}\n${message.stack}` : message.message),
         );
       } else {
-        current.resolve({ result: message.result, cacheWrites: message.cacheWrites });
+        current.resolve({
+          result: message.result,
+          cacheWrites: message.cacheWrites,
+          artifactCache: message.artifactCache,
+        });
       }
       dispatch();
     };

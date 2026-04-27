@@ -1,4 +1,5 @@
 import type { BenchCorpusAsset } from '../core/corpus.js';
+import type { ScannerArtifactCacheSummary } from './scanner-artifact-cache.js';
 
 export interface StudyWorkerAsset
   extends Pick<
@@ -41,6 +42,7 @@ export type StudyWorkerResponse =
       readonly jobId: string;
       readonly result: unknown;
       readonly cacheWrites: readonly StudyCacheWrite[];
+      readonly artifactCache: ScannerArtifactCacheSummary;
     }
   | {
       readonly type: 'error';

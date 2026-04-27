@@ -71,7 +71,13 @@ const run = async (request: StudyWorkerRequest): Promise<void> => {
         artifactCache,
         log: (message) => post({ type: 'log', jobId: request.jobId, message }),
       });
-      post({ type: 'result', jobId: request.jobId, result, cacheWrites });
+      post({
+        type: 'result',
+        jobId: request.jobId,
+        result,
+        cacheWrites,
+        artifactCache: artifactCache.summary(),
+      });
     } finally {
       restoreGlobal('__BENCH_STUDY_WORKER__', previousWorkerFlag);
       restoreGlobal('__BENCH_STUDY_FLOOD_SEMAPHORE__', previousSemaphore);

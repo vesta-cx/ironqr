@@ -123,6 +123,7 @@ export interface ScannerArtifactCacheHandle {
     input: ScannerArtifactKeyInput,
     bytes: Uint8Array,
   ) => Promise<string | null>;
+  readonly mergeSummary: (summary: ScannerArtifactCacheSummary) => void;
   readonly summary: () => ScannerArtifactCacheSummary;
 }
 
@@ -215,6 +216,14 @@ export const openScannerArtifactCache = (
     writeJson,
     readBinary,
     writeBinary,
+    mergeSummary(summary) {
+      for (const layer of Object.keys(mutableStats) as ScannerArtifactLayer[]) {
+        const next = summary.layers[layer];
+        mutableStats[layer].hits += next.hits;
+        mutableStats[layer].misses += next.misses;
+        mutableStats[layer].writes += next.writes;
+      }
+    },
     summary() {
       return {
         enabled: options.enabled,

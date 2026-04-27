@@ -235,7 +235,7 @@ export const finderGridRealismStudyPlugin: StudyPlugin<Summary, Config, AssetRes
   title: 'IronQR finder grid realism study',
   description: 'Scores finder triples for QR-grid realism before decode.',
   version: STUDY_VERSION,
-  usesInternalCache: true,
+  cacheKey: (config) => JSON.stringify(config),
   flags: [
     { name: 'max-assets', type: 'number', description: 'Limit approved corpus assets.' },
     {
