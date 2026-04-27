@@ -65,7 +65,7 @@ If a run is bounded by `--max-decode-attempts`, treat gains/losses as production
 
 ## Results
 
-Full unbounded decode run generated `2026-04-26T12:12:26.936Z` from commit `07d6a72e3403794c161fe4e7875a1270d0f6f28a` with dirty working tree state. Reports:
+Post-canonization confirmation run generated `2026-04-27T10:32:36.270Z` from commit `faa6840b0a501319432dbfb00d1a50f67954bedc` with dirty working tree state. Reports:
 
 ```text
 tools/bench/reports/full/study/study-proposal-detector-policy-decode-confirmation.json
@@ -83,8 +83,8 @@ cache hits=0 misses=406 writes=203
 
 | Policy | Positive decoded assets | False-positive assets | Proposals | Clusters | Processed reps | Decode attempts | Proposal ms | Scan ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `full-current` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 | 439,531.23 | 6,758,762.28 |
-| `no-flood` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 | 243,738.46 | 6,420,923.35 |
+| `full-current` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 | 252,140.89 | 6,687,007.81 |
+| `no-flood` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 | 245,970.30 | 6,530,269.03 |
 
 Compared with `full-current`, `no-flood`:
 
@@ -95,12 +95,12 @@ proposal delta = 0
 cluster delta = 0
 processed representative delta = 0
 decode attempt delta = 0
-scan delta = -337,838.93ms
-proposal-view delta = -195,792.77ms
+scan delta = -156,738.78ms
+proposal-view delta = -6,170.59ms
 lost/gained positives = 0/0
 ```
 
-This confirms the proposal-only result at decode level: flood contributes no retained proposals, clusters, decode attempts, decoded positives, or false-positive suppression on this corpus under the current `timing-heavy` ranking policy.
+This confirms the proposal-only result at decode level after canonization: flood contributes no retained proposals, clusters, decode attempts, decoded positives, or false-positive suppression on this corpus under the current `timing-heavy` ranking policy.
 
 ## Conclusion / evidence-backed decision
 
