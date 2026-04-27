@@ -442,8 +442,15 @@ Decode outcome by scan-level concrete-attempt budget:
 | 200 | `realism-low-risk` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
 | 200 | `realism-geomean` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
 | 200 | `realism-lexicographic` | 33 / 60 | 0 | 34,534 | none | `asset-532613e8ac453b24` |
+| unbounded | `baseline` | 37 / 60 | 5 | 1,766,125 | none | none |
+| unbounded | `grid-realism-ranking` | 37 / 60 | 8 | 2,034,320 | none | none |
+| unbounded | `realism-module-heavy` | 37 / 60 | 8 | 2,002,155 | none | none |
+| unbounded | `realism-decode-likelihood` | 37 / 60 | 7 | 2,015,662 | none | none |
+| unbounded | `realism-low-risk` | 37 / 60 | 9 | 1,992,344 | none | none |
+| unbounded | `realism-geomean` | 37 / 60 | 7 | 2,016,539 | none | none |
+| unbounded | `realism-lexicographic` | 37 / 60 | 9 | 1,978,102 | none | none |
 
-At all budgets, successful decodes were at representative rank 1 for both variants. `asset-0944aec7c73146f9` / `coronatest` decoded in both variants with one attempt.
+At capped budgets, successful decodes were at representative rank 1 for all variants. `asset-0944aec7c73146f9` / `coronatest` decoded in all variants.
 
 Stable gained asset:
 
@@ -467,6 +474,8 @@ Updated evidence-backed decisions:
 - Do not canonize `grid-realism-ranking` as a replacement ordering. It improves early budgets (25 and 50 attempts) but at 200 attempts it swaps one gain for one loss: it still gains `asset-532613e8ac453b24`, but loses `asset-1b26a1d1cbb61d25`, which baseline decodes in 181 attempts.
 - At the 25-attempt objective-search run, all tested realism objectives tie: each gains `asset-532613e8ac453b24`, loses no positives, has zero false positives, and uses 4,424 attempts. Early-budget decode does not distinguish the objective formulas.
 - At the 200-attempt objective-search run, `realism-module-heavy` and `realism-lexicographic` are the best full-replacement objectives: both decode 33 positives, gain `asset-532613e8ac453b24`, lose no baseline positives, introduce no false positives, and use 34,534 attempts (`-187` vs baseline). They preserve `asset-1b26a1d1cbb61d25` because the baseline-winning representative remains first under those objectives, while the original composite/decode-likelihood/low-risk/geomean move it behind failing representatives.
+- The unbounded run reverses the production decision: all objectives tie baseline at 37 positives, but every realism objective increases false positives and total attempts. Do not canonize any unbounded full-replacement realism ordering from the current objective set.
+- Treat the capped-budget wins as evidence for early-budget prioritization only. Any production change needs either a false-positive guard, a bounded decode policy, or a multi-QR cluster-local budget that prevents unbounded traversal from surfacing extra negative decodes.
 - Keep hard rejection binned. The evidence supports prioritization only.
 - For multi-QR policy, add/compare cluster-local representative budgets separately from this scan-level capped decode test.
 
@@ -477,6 +486,7 @@ Answered:
 - The coherent policy materially changes representative ordering.
 - Under 25- and 50-attempt scan-level budgets, grid-realism ranking improves decoded positives by one with no observed downside.
 - Under a 200-attempt budget, the original full-replacement ordering is not recall-safe, but the module-heavy and lexicographic objectives are recall-safe and improve positives by one.
+- Under unbounded decode, no realism objective improves positives and all increase false positives, so the current objective set is not safe as an unbounded production replacement.
 
 Partially answered:
 
