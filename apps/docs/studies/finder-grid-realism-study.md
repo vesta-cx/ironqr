@@ -39,17 +39,27 @@ maxViews=54
 noDecode=true when --no-decode is passed
 ```
 
-## Signal variants
+## Policy variants
+
+Grid-realism checks are a dependency graph, not independent scanner policies:
+
+```text
+geometry hypothesis
+→ projective plausibility
+→ module/local-scale consistency
+→ projected bounds sanity
+→ grid-relative timing evidence
+→ combined realism score / ranking policy
+```
+
+The study compares policy behavior with and without that coherent realism pipeline. Component scores are diagnostics nested under each policy row, not default variants.
 
 | Variant | Purpose |
 | --- | --- |
-| `baseline` | Existing proposal/ranking behavior with no added grid-realism signal. |
-| `projective-realism-score` | Score whether the three finders support a plausible projective QR grid. |
-| `module-consistency-score` | Score observed finder module sizes/aspects against local scale predicted by the inferred grid. |
-| `grid-bounds-score` | Score convexity, image bounds, area, version, and sane module pitch. |
-| `grid-timing-score` | Sample timing row y=6 and timing col x=6 through inferred grid coordinates. |
-| `combined-grid-realism-score` | Composite score used for ranking/representative ordering only. |
-| `combined-grid-realism-reject-very-conservative` | Optional later candidate; hard rejects only when multiple independent realism checks fail. Not enabled by default. |
+| `baseline` | Existing proposal/ranking/cluster representative order with no added grid-realism ordering. |
+| `grid-realism-ranking` | Reorder representatives by the full dependent grid-realism score, with proposal score as a tie-breaker. |
+| `grid-realism-ranking-no-timing` | Optional ablation to quantify timing's contribution to the full ranking policy. Not enabled by default. |
+| `grid-realism-ranking-no-module` | Optional ablation to quantify module-consistency's contribution to the full ranking policy. Not enabled by default. |
 
 ## Fast `--no-decode` report metrics
 
@@ -62,11 +72,12 @@ noDecode=true when --no-decode is passed
 | Representative count | representatives | Decode-frontier proxy. |
 | Lost positive proposal assets | asset ids | Hard safety guard for proposal-only mode. |
 | Gained/lost proposal signatures | count / asset ids | Exact effect of ranking/filtering. |
-| Projective realism score distribution | score | Whether signal separates plausible triples. |
-| Module consistency score distribution | score | Perspective/local-scale coherence. |
-| Grid timing score distribution | score | Semantic timing evidence without decode. |
-| Combined score distribution by label | score | Positive/negative separation. |
-| Per-signal runtime | ms | Whether signal is cheap enough before decode. |
+| First changed representative rank | rank | Whether realism actually changes decode-frontier order. |
+| Projective realism diagnostic distribution | score | Whether the shared geometry hypothesis is plausible. |
+| Module consistency diagnostic distribution | score | Perspective/local-scale coherence inside the full policy. |
+| Grid timing diagnostic distribution | score | Semantic timing evidence inside the full policy. |
+| Combined ranking score distribution by label | score | Positive/negative separation of the full policy. |
+| Per-policy runtime | ms | Whether the full policy is cheap enough before decode. |
 
 ## Optional decode-confirmation metrics
 
@@ -232,7 +243,7 @@ Do cache keys need a new geometry-hypothesis version?
 
 ## Results
 
-Full `--no-decode` run generated on 2026-04-27 from commit `6a62de6184cea80f1457d1dde0336d51a4351574`:
+Exploratory component-diagnostic `--no-decode` run generated on 2026-04-27 from commit `6a62de6184cea80f1457d1dde0336d51a4351574`. This run used the earlier component-as-variant implementation; those rows are retained as diagnostic evidence, but the study implementation has since been corrected to compare `baseline` against the coherent `grid-realism-ranking` policy.
 
 ```text
 tools/bench/reports/full/study/study-finder-grid-realism.json
@@ -244,6 +255,7 @@ Run configuration:
 ```text
 assets: 203 total, 60 positive, 143 negative
 variants: baseline, projective-realism-score, module-consistency-score, grid-bounds-score, grid-timing-score, combined-grid-realism-score
+implementation status: superseded by baseline vs grid-realism-ranking policy variants
 noDecode: true
 maxViews: 54
 maxProposals: 24

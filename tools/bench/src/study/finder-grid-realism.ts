@@ -20,25 +20,19 @@ const CORONATEST_ASSET_ID = 'asset-0944aec7c73146f9';
 
 type GridRealismVariant =
   | 'baseline'
-  | 'projective-realism-score'
-  | 'module-consistency-score'
-  | 'grid-bounds-score'
-  | 'grid-timing-score'
-  | 'combined-grid-realism-score'
-  | 'combined-grid-realism-reject-very-conservative';
+  | 'grid-realism-ranking'
+  | 'grid-realism-ranking-no-timing'
+  | 'grid-realism-ranking-no-module';
 
 const DEFAULT_VARIANTS = [
   'baseline',
-  'projective-realism-score',
-  'module-consistency-score',
-  'grid-bounds-score',
-  'grid-timing-score',
-  'combined-grid-realism-score',
+  'grid-realism-ranking',
 ] as const satisfies readonly GridRealismVariant[];
 
 const ALL_VARIANTS = [
   ...DEFAULT_VARIANTS,
-  'combined-grid-realism-reject-very-conservative',
+  'grid-realism-ranking-no-timing',
+  'grid-realism-ranking-no-module',
 ] as const satisfies readonly GridRealismVariant[];
 
 interface Config extends Record<string, unknown> {
@@ -65,10 +59,31 @@ interface VariantAssetResult {
   readonly clusterCount: number;
   readonly representativeCount: number;
   readonly covered: boolean;
+  /** Representative signatures in the order this variant would process them. */
   readonly proposalSignatures: readonly string[];
+  /** Variant policy scores in processing order: baseline uses proposal score; realism variants use policy score. */
   readonly scores: readonly number[];
   readonly score: ScoreDistribution;
+  readonly componentScores: ComponentScores;
+  readonly components: ComponentDistributions;
+  readonly firstChangedRank: number | null;
   readonly signalMs: number;
+}
+
+interface ComponentScores {
+  readonly projective: readonly number[];
+  readonly module: readonly number[];
+  readonly bounds: readonly number[];
+  readonly timing: readonly number[];
+  readonly combined: readonly number[];
+}
+
+interface ComponentDistributions {
+  readonly projective: ScoreDistribution;
+  readonly module: ScoreDistribution;
+  readonly bounds: ScoreDistribution;
+  readonly timing: ScoreDistribution;
+  readonly combined: ScoreDistribution;
 }
 
 interface DecodeAssetResult {
@@ -111,8 +126,11 @@ interface VariantSummary extends ScoreDistribution {
   readonly signalMs: number;
   readonly lostPositiveAssetIds: readonly string[];
   readonly gainedPositiveAssetIds: readonly string[];
+  readonly changedAssetCount: number;
+  readonly firstChangedRank: ScoreDistribution;
   readonly positiveScores: ScoreDistribution;
   readonly negativeScores: ScoreDistribution;
+  readonly components: ComponentDistributions;
 }
 
 const parseConfig = ({
@@ -223,37 +241,36 @@ export const finderGridRealismStudyPlugin: StudyPlugin<Summary, Config, AssetRes
       ]),
     );
     const baseRepresentatives = artifacts.clusters.flatMap((cluster) => cluster.representatives);
+    const scoredRepresentatives = baseRepresentatives.map((proposal, index) => ({
+      proposal,
+      baselineRank: index,
+      gridRealism: scoreProposalGridRealism(
+        proposal,
+        geometryByProposalId.get(proposal.id) ?? [],
+        viewBank.getBinaryView(proposal.binaryViewId),
+      ),
+    }));
+    const baselineSignatures = baseRepresentatives.map(proposalSignature);
     const variants = config.variants.map((variantId) => {
       const startedAt = performance.now();
-      const scored = baseRepresentatives.map((proposal) =>
-        scoreProposalGridRealism(
-          proposal,
-          geometryByProposalId.get(proposal.id) ?? [],
-          viewBank.getBinaryView(proposal.binaryViewId),
-        ),
-      );
-      const retainedIndexes =
-        variantId === 'combined-grid-realism-reject-very-conservative'
-          ? baseRepresentatives.flatMap((_, index) =>
-              shouldRejectVeryConservative(scored[index]) ? [] : [index],
-            )
-          : baseRepresentatives.map((_, index) => index);
-      const retained = retainedIndexes.map((index) => baseRepresentatives[index]).filter(isDefined);
-      const scores = retainedIndexes
-        .map((index) => scored[index])
-        .filter(isDefined)
-        .map((score) => scoreForVariant(score, variantId));
+      const ordered = orderRepresentatives(scoredRepresentatives, variantId);
+      const scores = ordered.map((row) => policyScore(row, variantId));
+      const componentScores = componentScoreRows(ordered.map((row) => row.gridRealism));
+      const signatures = ordered.map((row) => proposalSignature(row.proposal));
       const signalMs = round(performance.now() - startedAt);
-      logStudyTiming(log, `${variantId}:grid-realism`, signalMs, retained.length);
+      logStudyTiming(log, `${variantId}:grid-realism`, signalMs, ordered.length);
       return {
         variantId,
         proposalCount: artifacts.batches.reduce((sum, batch) => sum + batch.proposals.length, 0),
         clusterCount: artifacts.clusters.length,
-        representativeCount: retained.length,
-        covered: retained.length > 0,
-        proposalSignatures: retained.map(proposalSignature).sort(),
+        representativeCount: ordered.length,
+        covered: ordered.length > 0,
+        proposalSignatures: signatures,
         scores,
         score: distribution(scores),
+        componentScores,
+        components: componentDistributions(componentScores),
+        firstChangedRank: firstChangedRank(baselineSignatures, signatures),
         signalMs,
       } satisfies VariantAssetResult;
     });
@@ -382,32 +399,72 @@ const sampleTiming = (
   return dark === expectedDark ? 1 : 0;
 };
 
-const shouldRejectVeryConservative = (
-  score:
-    | { projective: number; module: number; bounds: number; timing: number; combined: number }
-    | undefined,
-): boolean =>
-  score !== undefined &&
-  score.combined < 0.12 &&
-  score.projective < 0.2 &&
-  score.bounds < 0.2 &&
-  score.timing < 0.2;
+interface ScoredRepresentative {
+  readonly proposal: ScanProposal;
+  readonly baselineRank: number;
+  readonly gridRealism: ReturnType<typeof scoreProposalGridRealism>;
+}
 
-const scoreForVariant = (
-  score: ReturnType<typeof scoreProposalGridRealism>,
+const orderRepresentatives = (
+  rows: readonly ScoredRepresentative[],
   variant: GridRealismVariant,
-): number => {
-  if (variant === 'projective-realism-score') return score.projective;
-  if (variant === 'module-consistency-score') return score.module;
-  if (variant === 'grid-bounds-score') return score.bounds;
-  if (variant === 'grid-timing-score') return score.timing;
-  if (
-    variant === 'combined-grid-realism-score' ||
-    variant === 'combined-grid-realism-reject-very-conservative'
-  )
-    return score.combined;
-  return 0;
+): readonly ScoredRepresentative[] => {
+  if (variant === 'baseline') return rows;
+  return [...rows].sort(
+    (left, right) =>
+      byDescending(policyScore(left, variant), policyScore(right, variant)) ||
+      byDescending(left.proposal.proposalScore, right.proposal.proposalScore) ||
+      left.baselineRank - right.baselineRank,
+  );
 };
+
+const policyScore = (row: ScoredRepresentative, variant: GridRealismVariant): number => {
+  if (variant === 'baseline') return row.proposal.proposalScore;
+  if (variant === 'grid-realism-ranking-no-timing')
+    return round(
+      row.gridRealism.projective * 0.35 +
+        row.gridRealism.module * 0.4 +
+        row.gridRealism.bounds * 0.25,
+    );
+  if (variant === 'grid-realism-ranking-no-module')
+    return round(
+      row.gridRealism.projective * 0.35 +
+        row.gridRealism.bounds * 0.25 +
+        row.gridRealism.timing * 0.4,
+    );
+  return row.gridRealism.combined;
+};
+
+const byDescending = (left: number, right: number): number => right - left;
+
+const firstChangedRank = (
+  baseline: readonly string[],
+  candidate: readonly string[],
+): number | null => {
+  const length = Math.max(baseline.length, candidate.length);
+  for (let index = 0; index < length; index += 1) {
+    if (baseline[index] !== candidate[index]) return index + 1;
+  }
+  return null;
+};
+
+const componentScoreRows = (
+  scores: readonly ReturnType<typeof scoreProposalGridRealism>[],
+): ComponentScores => ({
+  projective: scores.map((score) => score.projective),
+  module: scores.map((score) => score.module),
+  bounds: scores.map((score) => score.bounds),
+  timing: scores.map((score) => score.timing),
+  combined: scores.map((score) => score.combined),
+});
+
+const componentDistributions = (scores: ComponentScores): ComponentDistributions => ({
+  projective: distribution(scores.projective),
+  module: distribution(scores.module),
+  bounds: distribution(scores.bounds),
+  timing: distribution(scores.timing),
+  combined: distribution(scores.combined),
+});
 
 const summarize = ({
   config,
@@ -453,9 +510,10 @@ const summarize = ({
           }),
     },
     recommendation: [
-      'Advance only signals with zero lost positive proposal assets relative to baseline.',
-      'Treat score distributions as ranking/prioritization evidence; do not canonize hard rejection from this no-decode study alone.',
-      'Coronatest must remain covered before any hard-rejection candidate advances.',
+      'Treat grid-realism as one dependent hypothesis pipeline, not independent component policies.',
+      'Use baseline vs grid-realism-ranking to evaluate frontier order changes before decode confirmation.',
+      'Inspect component distributions as diagnostics only; do not canonize projective/module/bounds/timing in isolation.',
+      'Coronatest must remain covered before any realism ranking or hard-rejection candidate advances.',
     ],
   };
 };
@@ -484,6 +542,10 @@ const summarizeVariant = (
     .filter((assetId) => !baselineCovered.has(assetId))
     .sort();
   const score = distribution(rows.flatMap((row) => row.scores));
+  const changedAssetCount = rows.filter((row) => row.firstChangedRank !== null).length;
+  const changedRanks = rows.flatMap((row) =>
+    row.firstChangedRank === null ? [] : [row.firstChangedRank],
+  );
   const positiveScores = distribution(
     results
       .filter((result) => result.label === 'qr-pos')
@@ -514,11 +576,23 @@ const summarizeVariant = (
     signalMs: round(sumBy(rows, (row) => row.signalMs)),
     lostPositiveAssetIds,
     gainedPositiveAssetIds,
+    changedAssetCount,
+    firstChangedRank: distribution(changedRanks),
     positiveScores,
     negativeScores,
+    components: summarizeComponents(rows),
     ...score,
   };
 };
+
+const summarizeComponents = (rows: readonly VariantAssetResult[]): ComponentDistributions =>
+  componentDistributions({
+    projective: rows.flatMap((row) => row.componentScores.projective),
+    module: rows.flatMap((row) => row.componentScores.module),
+    bounds: rows.flatMap((row) => row.componentScores.bounds),
+    timing: rows.flatMap((row) => row.componentScores.timing),
+    combined: rows.flatMap((row) => row.componentScores.combined),
+  });
 
 const decodeResult = (artifacts: DecodeOutcomeArtifacts): DecodeAssetResult => ({
   decodedTexts: artifacts.decodedTexts,
