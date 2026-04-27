@@ -159,6 +159,10 @@ export const runStudyBenchmark = async (
     refresh: options.refreshCache ?? false,
     directory: path.join(repoRoot, SCANNER_ARTIFACT_CACHE_DIRECTORY),
   });
+  progress.onManifestLoaded(assets.length, [studyId], cache.summary().enabled, {
+    positiveCount: assets.filter((asset) => asset.label === 'qr-pos').length,
+    negativeCount: assets.filter((asset) => asset.label === 'qr-neg').length,
+  });
 
   try {
     const { result, config, engines, observability, interrupted } = await runPlugin({
