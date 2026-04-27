@@ -359,9 +359,38 @@ Grid-realism component diagnostics over all representatives:
 
 Artifact-cache layer accounting still reported all zero hits/misses/writes in the corrected worker-backed full run. The cache accounting gap remains open.
 
+Objective-search `--no-decode` run generated on 2026-04-27 from commit `fcf717b1be079778b762746fdffc5367f837339c`:
+
+```text
+tools/bench/reports/full/study/study-finder-grid-realism-objectives-nodecode.json
+tools/bench/reports/study/study-finder-grid-realism-objectives-nodecode.summary.json
+```
+
+Run configuration:
+
+```text
+assets: 203 total, 60 positive, 143 negative
+variants: baseline, grid-realism-ranking, realism-module-heavy, realism-decode-likelihood, realism-low-risk, realism-geomean, realism-lexicographic
+noDecode: true
+stageVersions: rankingPolicy=3, decodeComparison=2, visualization=1
+```
+
+Objective score separation and frontier-order effect:
+
+| Variant | Assets changed | Positive avg | Negative avg | Delta | AUC |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `grid-realism-ranking` | 202 / 203 | 0.74 | 0.72 | +0.02 | 0.606 |
+| `realism-module-heavy` | 201 / 203 | 0.70 | 0.66 | +0.04 | 0.632 |
+| `realism-decode-likelihood` | 202 / 203 | 0.68 | 0.64 | +0.04 | 0.620 |
+| `realism-low-risk` | 202 / 203 | 0.65 | 0.60 | +0.05 | 0.630 |
+| `realism-geomean` | 202 / 203 | 0.68 | 0.64 | +0.04 | 0.626 |
+| `realism-lexicographic` | 201 / 203 | 0.83 | 0.80 | +0.03 | 0.631 |
+
+The no-decode objective search suggests the original composite is not the best realism objective. `realism-module-heavy`, `realism-low-risk`, and `realism-lexicographic` have better positive/negative separation than `grid-realism-ranking`, while still materially replacing the representative order.
+
 ## Conclusion / evidence-backed decision
 
-The corrected policy run answers the no-decode frontier-order question: `grid-realism-ranking` is coverage-safe in proposal-only mode and materially changes representative order for nearly every asset. It still does **not** justify hard rejection or production canonization because the score separation is weak and no decode-confirmation effects have been measured.
+The corrected policy run answers the no-decode frontier-order question: grid-realism objectives are coverage-safe in proposal-only mode and materially change representative order for nearly every asset. They still do **not** justify hard rejection or production canonization by no-decode evidence alone; decode confirmation must decide between objectives.
 
 Evidence-backed decisions:
 
