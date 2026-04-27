@@ -1356,8 +1356,7 @@ const FLOOD_CANDIDATES = [
   { id: 'run-length-ccl', note: 'Historical run-length connected components prototype.' },
 ] as const;
 
-const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] =
-  FLOOD_CANDIDATES.filter((candidate) => candidate.id === 'legacy-flood');
+const ACTIVE_FLOOD_CANDIDATES: readonly (typeof FLOOD_CANDIDATES)[number][] = [];
 
 const MATCHER_CANDIDATES = [
   {
@@ -1394,8 +1393,7 @@ const MATCHER_CANDIDATES = [
   },
 ] as const satisfies readonly { id: MatcherRunMapVariant; note: string }[];
 
-const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] =
-  MATCHER_CANDIDATES.filter((candidate) => candidate.id === 'legacy-matcher');
+const ACTIVE_MATCHER_CANDIDATES: readonly (typeof MATCHER_CANDIDATES)[number][] = [];
 
 const throwIfStudyAborted = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted) throw signal.reason ?? new Error('Study interrupted.');

@@ -290,7 +290,7 @@ const buildStudyHeadline = (
   const floodMs = detectorBreakdown.floodMs ?? 0;
   const floodControlMs = numberField(totals, 'floodControlMs');
   if (floodControlMs > 0) {
-    return `Detector=${formatMs(detectorMs)}; dense-stats lead=${formatMs(floodControlMs)}; activeFloodCandidates=dense-index,dense-squared,dense-index-squared,scanline-stats,scanline-index,scanline-squared,scanline-index-squared.`;
+    return `Detector=${formatMs(detectorMs)}; scanline-squared flood=${formatMs(floodControlMs)}; active candidates disabled by default.`;
   }
   const matcherMs = numberField(totals, 'matcherControlMs');
   const legacyMs = numberField(totals, 'matcherLegacyControlMs');
@@ -391,26 +391,12 @@ const buildExploredAvenues = (
         'Combined connected-component labeling and stats collection into one pass, but a targeted gray:h:i legacy check showed dense-stats preserved the extra legacy finders that inline omitted.',
     },
     {
-      id: 'dense-stats',
+      id: 'scanline-squared',
       area: 'flood',
       status: 'canonized-control',
       finding:
-        'Use dense typed arrays for component stats; fastest flood candidate from the prior batch and canonical control for hybrid variants.',
+        'Scanline component labeling with squared-distance geometry replaced dense-stats and is the only default flood timing row.',
       candidateMs: denseStatsMs,
-    },
-    {
-      id: 'dense-index-family',
-      area: 'flood',
-      status: 'active-candidate-family',
-      finding:
-        'Measure dense-stats permutations with min-x indexed containment lookup and squared-distance geometry tests.',
-    },
-    {
-      id: 'scanline-family',
-      area: 'flood',
-      status: 'active-candidate-family',
-      finding:
-        'Measure scanline component-labeling permutations with linear/indexed containment lookup and hypot/squared-distance geometry tests.',
     },
     {
       id: 'spatial-bin',
@@ -469,14 +455,14 @@ const buildStudyConclusions = (
   const conclusions: string[] = [];
   if (denseStatsMs > 0) {
     conclusions.push(
-      `Dense-stats flood is the current canonical flood control at ${formatMs(denseStatsMs)} in this run.`,
+      `Scanline-squared flood is the current canonical flood control at ${formatMs(denseStatsMs)} in this run.`,
     );
   }
   conclusions.push(
-    'No exhausted legacy flood, filtered flood, or center-signal matcher variants are active in this study phase.',
+    'No exhausted legacy flood, legacy matcher, filtered flood, or center-signal matcher variants are active in the default study phase.',
   );
   conclusions.push(
-    'Current run phase measures hybrid flood variants against the dense-stats control; matcher candidates are retained in the ledger and cache but disabled by default.',
+    'Current run phase measures canonical production detector families only; retired candidates remain in the evidence ledger, not in the default queue.',
   );
   conclusions.push(
     'Decode success and false-positive impact remain out of scope for this detector-evidence report.',
@@ -495,8 +481,8 @@ const buildQuestionCoverage = (
     return [
       {
         question: 'What is the current detector control baseline?',
-        status: 'answered-for-control-with-active-candidates',
-        evidence: `denseStats=${formatMs(floodControlMs)} activeFloodCandidates=dense-index,dense-squared,dense-index-squared,scanline-stats,scanline-index,scanline-squared,scanline-index-squared`,
+        status: 'answered-for-current-control',
+        evidence: `scanlineSquared=${formatMs(floodControlMs)} activeCandidates=none`,
       },
       {
         question: 'Do flood variants prove decode success or false positives?',

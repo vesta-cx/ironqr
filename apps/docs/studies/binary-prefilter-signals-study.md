@@ -385,12 +385,10 @@ This was an incremental run, not a fresh timing confirmation. `run-map` and `sca
 | --- | --- | --- | --- |
 | `scanline-squared` | Flood | — | Canonical flood lead: `0` mismatches, `18.80%` faster than `dense-stats`, lower detector p98 and queued p98, and faster than `scanline-stats`. |
 | `run-map` | Matcher | — | Canonical matcher control, now backed by packed `u16` run maps plus scalar ratio scoring. Incremental bake-off evidence: `0` mismatches, candidate p98 `79.82 ms` vs cached old-control p98 `93.80 ms`, and `27.28%` faster overall. |
-| `row-scan` | Row | — | Active canonical row-scan timing family for the historical-control run; logged from proposal-generation finder evidence. |
-| `dedupe` | Dedupe | — | Active canonical cross-detector dedupe/capping timing family for the historical-control run; logged from proposal-generation finder evidence. |
-| `legacy-flood` | Flood | `scanline-squared` | Active historical control for quantifying end-to-end flood gains over the original two-pass connected-component/stat path. |
-| `legacy-matcher` | Matcher | `run-map` | Active historical control for quantifying matcher gains over the original pixel-walk cross-check path. |
+| `row-scan` | Row | — | Active canonical row-scan timing family; logged from proposal-generation finder evidence. |
+| `dedupe` | Dedupe | — | Active canonical cross-detector dedupe/capping timing family; logged from proposal-generation finder evidence. |
 
-The default detector-study run now includes all four detector families plus historical controls: `row-scan`, `scanline-squared`, `run-map`, `dedupe`, `legacy-flood`, and `legacy-matcher`. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
+The default detector-study run now includes only production detector timing families: `row-scan`, `scanline-squared`, `run-map`, and `dedupe`. Historical controls (`legacy-flood`, `legacy-matcher`) and binned candidate rows are disabled by default; re-add them only for a focused historical-control question. The stable `run-map` id now refers to the packed/scalar implementation; use `--refresh-cache` for any timing run that needs fresh canonical matcher numbers. Horizontal-failure gating/staging variants remain deferred to a later early-abandon study.
 
 ## Inactive and binned variants
 
@@ -405,12 +403,12 @@ Disabled means implemented/cache-retained but not currently queued. Binned means
 | `scanline-stats` | Flood | Safe but slower than `scanline-squared` in the corrected confirmation. | Binned. |
 | `scanline-index` | Flood | Faster than old dense control but `17` mismatched views. | Binned. |
 | `scanline-index-squared` | Flood | Fastest old candidate but `17` mismatched views. | Binned. |
-| Legacy matcher pixel-walk cross-checks | Matcher | Run-map preserved output over `10,962` comparisons and was `88.93%` faster. | Temporarily active as `legacy-matcher` historical control; not a candidate for promotion. |
+| Legacy matcher pixel-walk cross-checks | Matcher | Run-map preserved output over `10,962` comparisons and was `88.93%` faster. | Binned as default work; may only return as an explicit historical-control row. |
 | Center-signal / center-pruned matcher hard gate | Matcher | 25-asset post-run-map run had `1,097` mismatched views. | Binned; do not re-add as hard filtering. |
 | Row/flood seeded matcher replacement | Matcher | Latest run had `1,104` mismatched views. | Binned as replacement; may only return as prioritization with fallback accounting. |
 | Fused normal+inverted matcher traversal | Matcher | Output-equivalent in one run but not fast enough to keep active. | Binned until shared artifacts change the economics. |
 | Coarse-grid fallback matcher | Matcher | Several views averaged above `400 ms` even with cache replay. | Binned; fallback cost dominates. |
-| Legacy two-pass flood | Flood | Inline stats preserved output and was `64.72%` faster. | Temporarily active as `legacy-flood` historical control; not a candidate for promotion. |
+| Legacy two-pass flood | Flood | Inline stats preserved output and was `64.72%` faster. | Binned as default work; may only return as an explicit historical-control row. |
 | Filtered-components flood over old path | Flood | Output-equivalent but only `1.66%` faster over old control. | Binned; not enough gain. |
 | `inline-flood` | Flood | Superseded by `dense-stats`; targeted `gray:h:i` check showed inline emitted fewer finders than legacy/dense. | Binned; not retained in active detector-pattern cache. |
 | `spatial-bin` | Flood | Matched legacy on the targeted divergence but not active after dense/scanline phase. | Binned; not retained in active detector-pattern cache. |
@@ -491,9 +489,7 @@ Use `--refresh-cache` only when intentionally invalidating all detector-pattern 
 
 ## Next work
 
-1. Promote `scanline-squared` behind the production flood control abstraction.
-2. Run the next fresh detector timing pass with `--refresh-cache` to repopulate stable `run-map` cache rows with the canonized packed/scalar implementation and measure all four detector families plus `legacy-flood`/`legacy-matcher` historical controls.
-3. After the historical-control run, disable `legacy-flood` and `legacy-matcher` again so default studies only retain production detector families.
-4. Use `detectorOverlap` from the historical-control run to decide whether `row-scan` or any other detector family contributes retained evidence after dedupe before proposing disablement.
-5. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
+1. Keep default detector runs scoped to production timing families unless a focused historical-control question needs retired rows.
+2. Use `detectorOverlap` from production-family runs to decide whether `row-scan` or any other detector family contributes retained evidence after dedupe before proposing disablement.
+3. Keep horizontal-failure gating/staging out of this phase; design it separately if early-abandon behavior becomes the next matcher question.
 4. Sweep flood scheduler limits (`4`, `6`, `8`, `10`, `12`) only after matcher profiling, because flood algorithm ranking is settled.
