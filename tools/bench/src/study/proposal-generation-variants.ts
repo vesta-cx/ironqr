@@ -8,6 +8,7 @@ import {
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import { createViewBank } from '../../../../packages/ironqr/src/pipeline/views.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
+import { average, positiveIntegerFlag, round, round1, sumBy } from './summary-helpers.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
@@ -147,8 +148,18 @@ const parseConfig = ({
   return {
     variants,
     detectorPolicyId,
-    maxProposals: numericFlag(flags['max-proposals'], 24, 'max-proposals'),
-    maxViews: numericFlag(flags['max-views'], listDefaultBinaryViewIds().length, 'max-views'),
+    maxProposals: positiveIntegerFlag(
+      flags['max-proposals'],
+      24,
+      'max-proposals',
+      'proposal-generation-variants',
+    ),
+    maxViews: positiveIntegerFlag(
+      flags['max-views'],
+      listDefaultBinaryViewIds().length,
+      'max-views',
+      'proposal-generation-variants',
+    ),
   };
 };
 
@@ -242,11 +253,11 @@ const runVariant = (
     variantId: variant,
     proposalCount: proposals.length,
     proposalSignatures: proposals.map(proposalSignature).sort(),
-    rowScanFinderCount: sum(summaries, (summary) => summary.finderEvidence.rowScanCount),
-    floodFinderCount: sum(summaries, (summary) => summary.finderEvidence.floodCount),
-    matcherFinderCount: sum(summaries, (summary) => summary.finderEvidence.matcherCount),
-    dedupedFinderCount: sum(summaries, (summary) => summary.finderEvidence.dedupedCount),
-    tripleCount: sum(summaries, (summary) => summary.tripleCount),
+    rowScanFinderCount: sumBy(summaries, (summary) => summary.finderEvidence.rowScanCount),
+    floodFinderCount: sumBy(summaries, (summary) => summary.finderEvidence.floodCount),
+    matcherFinderCount: sumBy(summaries, (summary) => summary.finderEvidence.matcherCount),
+    dedupedFinderCount: sumBy(summaries, (summary) => summary.finderEvidence.dedupedCount),
+    tripleCount: sumBy(summaries, (summary) => summary.tripleCount),
     expensiveDetectorViewCount: summaries.filter(
       (summary) => summary.finderEvidence.expensiveDetectorsRan,
     ).length,
@@ -334,14 +345,14 @@ const summarizeVariant = (
     negativeProposalAssetCount: rows.filter(
       ({ asset, row }) => asset.label === 'qr-neg' && row.proposalCount > 0,
     ).length,
-    proposalCount: sum(rows, ({ row }) => row.proposalCount),
-    rowScanFinderCount: sum(rows, ({ row }) => row.rowScanFinderCount),
-    floodFinderCount: sum(rows, ({ row }) => row.floodFinderCount),
-    matcherFinderCount: sum(rows, ({ row }) => row.matcherFinderCount),
-    dedupedFinderCount: sum(rows, ({ row }) => row.dedupedFinderCount),
-    tripleCount: sum(rows, ({ row }) => row.tripleCount),
-    expensiveDetectorViewCount: sum(rows, ({ row }) => row.expensiveDetectorViewCount),
-    scanDurationMs: round(sum(rows, ({ row }) => row.scanDurationMs)),
+    proposalCount: sumBy(rows, ({ row }) => row.proposalCount),
+    rowScanFinderCount: sumBy(rows, ({ row }) => row.rowScanFinderCount),
+    floodFinderCount: sumBy(rows, ({ row }) => row.floodFinderCount),
+    matcherFinderCount: sumBy(rows, ({ row }) => row.matcherFinderCount),
+    dedupedFinderCount: sumBy(rows, ({ row }) => row.dedupedFinderCount),
+    tripleCount: sumBy(rows, ({ row }) => row.tripleCount),
+    expensiveDetectorViewCount: sumBy(rows, ({ row }) => row.expensiveDetectorViewCount),
+    scanDurationMs: round(sumBy(rows, ({ row }) => row.scanDurationMs)),
     avgScanDurationMs: average(rows.map(({ row }) => row.scanDurationMs)),
     mismatchAssetCount: mismatchAssets.length,
     proposalCountMismatchAssetCount: countMismatchAssets.length,
@@ -464,28 +475,5 @@ const emptyTimings = (): VariantTimingSummary => ({
   proposalConstructionMs: 0,
 });
 
-const numericFlag = (
-  value: string | number | boolean | undefined,
-  fallback: number,
-  name: string,
-): number => {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
-    throw new Error(`proposal-generation-variants --${name} must be a positive integer`);
-  }
-  return value;
-};
-
 const sameStrings = (left: readonly string[], right: readonly string[]): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
-
-const sum = <T>(items: readonly T[], value: (item: T) => number): number =>
-  items.reduce((total, item) => total + value(item), 0);
-
-const average = (values: readonly number[]): number =>
-  values.length === 0
-    ? 0
-    : round(values.reduce((total, value) => total + value, 0) / values.length);
-
-const round = (value: number): number => Math.round(value * 100) / 100;
-const round1 = (value: number): number => Math.round(value * 10) / 10;

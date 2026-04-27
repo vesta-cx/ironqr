@@ -8,6 +8,7 @@ import type { ScanRuntimeOptions } from '../../../../packages/ironqr/src/pipelin
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
 import { normalizeDecodedText } from '../shared/text.js';
+import { average, positiveIntegerFlag, round, sumBy, uniqueValues } from './summary-helpers.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
@@ -218,8 +219,8 @@ const parseProposalDecodeConfig = <Variant extends string>(
   if (!variants.includes(controlVariant)) throw new Error(`${studyId} requires ${controlVariant}`);
   return {
     variants,
-    maxProposals: numericFlag(flags['max-proposals'], 24, 'max-proposals', studyId),
-    maxClusterRepresentatives: numericFlag(
+    maxProposals: positiveIntegerFlag(flags['max-proposals'], 24, 'max-proposals', studyId),
+    maxClusterRepresentatives: positiveIntegerFlag(
       flags['max-cluster-representatives'],
       1,
       'max-cluster-representatives',
@@ -228,14 +229,14 @@ const parseProposalDecodeConfig = <Variant extends string>(
     ...(flags['max-decode-attempts'] === undefined
       ? {}
       : {
-          maxDecodeAttempts: numericFlag(
+          maxDecodeAttempts: positiveIntegerFlag(
             flags['max-decode-attempts'],
             1,
             'max-decode-attempts',
             studyId,
           ),
         }),
-    maxViews: numericFlag(
+    maxViews: positiveIntegerFlag(
       flags['max-views'],
       listDefaultBinaryViewIds().length,
       'max-views',
@@ -302,7 +303,7 @@ const summarizeTrace = (
   const scanFinished = [...events].reverse().find((event) => event.type === 'scan-finished');
   return {
     proposalCount:
-      scanFinished?.proposalCount ?? sum(proposalViews, (event) => event.proposalCount),
+      scanFinished?.proposalCount ?? sumBy(proposalViews, (event) => event.proposalCount),
     clusterCount: scanFinished?.clusterCount ?? 0,
     processedRepresentativeCount: scanFinished?.processedRepresentativeCount ?? 0,
     decodeAttemptCount: events.filter((event) => event.type === 'decode-attempt-started').length,
@@ -379,12 +380,12 @@ const summarizeVariant = <Variant extends string>(
     positiveDecodedAssetCount: successAssetIds.size,
     falsePositiveAssetCount: falsePositiveAssetIds.length,
     successAssetCount: rows.filter(({ row }) => row.success).length,
-    proposalCount: sum(rows, ({ row }) => row.proposalCount),
-    clusterCount: sum(rows, ({ row }) => row.clusterCount),
-    processedRepresentativeCount: sum(rows, ({ row }) => row.processedRepresentativeCount),
-    decodeAttemptCount: sum(rows, ({ row }) => row.decodeAttemptCount),
-    decodeSuccessCount: sum(rows, ({ row }) => row.decodeSuccessCount),
-    scanDurationMs: round(sum(rows, ({ row }) => row.scanDurationMs)),
+    proposalCount: sumBy(rows, ({ row }) => row.proposalCount),
+    clusterCount: sumBy(rows, ({ row }) => row.clusterCount),
+    processedRepresentativeCount: sumBy(rows, ({ row }) => row.processedRepresentativeCount),
+    decodeAttemptCount: sumBy(rows, ({ row }) => row.decodeAttemptCount),
+    decodeSuccessCount: sumBy(rows, ({ row }) => row.decodeSuccessCount),
+    scanDurationMs: round(sumBy(rows, ({ row }) => row.scanDurationMs)),
     avgScanDurationMs: average(rows.map(({ row }) => row.scanDurationMs)),
     lostPositiveAssetIds: [...controlSuccessAssetIds].filter(
       (assetId) => !successAssetIds.has(assetId),
@@ -512,30 +513,10 @@ const emptyTimings = (): ProposalDecodeTimingSummary => ({
 
 const spanSum = (spans: readonly ScanTimingSpan[], name: ScanTimingSpan['name']): number =>
   round(
-    sum(
+    sumBy(
       spans.filter((span) => span.name === name),
       (span) => span.durationMs,
     ),
   );
 
-const numericFlag = (
-  value: string | number | boolean | undefined,
-  fallback: number,
-  name: string,
-  studyId: string,
-): number => {
-  if (value === undefined) return fallback;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
-    throw new Error(`${studyId} --${name} must be a positive integer`);
-  }
-  return value;
-};
-
-const uniqueTexts = (texts: readonly string[]): readonly string[] => [...new Set(texts)];
-const sum = <T>(items: readonly T[], value: (item: T) => number): number =>
-  items.reduce((total, item) => total + value(item), 0);
-const average = (values: readonly number[]): number =>
-  values.length === 0
-    ? 0
-    : round(values.reduce((total, value) => total + value, 0) / values.length);
-const round = (value: number): number => Math.round(value * 100) / 100;
+const uniqueTexts = uniqueValues;
