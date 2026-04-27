@@ -113,7 +113,20 @@ interface Summary extends Record<string, unknown> {
     readonly coveredByVariant: Record<string, boolean>;
     readonly decoded?: boolean;
   };
-  readonly recommendation: readonly string[];
+  readonly visualizations: readonly StudyBarChart[];
+  readonly recommendations: readonly string[];
+}
+
+interface StudyBarChart {
+  readonly title: string;
+  readonly unit: string;
+  readonly rows: readonly StudyBarChartRow[];
+}
+
+interface StudyBarChartRow {
+  readonly label: string;
+  readonly value: number;
+  readonly bar: string;
 }
 
 interface VariantSummary extends ScoreDistribution {
@@ -509,7 +522,8 @@ const summarize = ({
                 ?.decodedTexts.length ?? 0) > 0,
           }),
     },
-    recommendation: [
+    visualizations: buildVisualizations(variants),
+    recommendations: [
       'Treat grid-realism as one dependent hypothesis pipeline, not independent component policies.',
       'Use baseline vs grid-realism-ranking to evaluate frontier order changes before decode confirmation.',
       'Inspect component distributions as diagnostics only; do not canonize projective/module/bounds/timing in isolation.',
@@ -593,6 +607,63 @@ const summarizeComponents = (rows: readonly VariantAssetResult[]): ComponentDist
     timing: rows.flatMap((row) => row.componentScores.timing),
     combined: rows.flatMap((row) => row.componentScores.combined),
   });
+
+const buildVisualizations = (variants: readonly VariantSummary[]): readonly StudyBarChart[] => {
+  const rankingVariants = variants.filter((variant) => variant.variantId !== 'baseline');
+  const scoreValues = rankingVariants.flatMap((variant) => [
+    variant.positiveScores.avg,
+    variant.negativeScores.avg,
+  ]);
+  const scoreMax = Math.max(1, ...scoreValues);
+  const changedMax = Math.max(1, ...variants.map((row) => row.changedAssetCount));
+  return [
+    {
+      title: 'Grid-realism ranking score average by label',
+      unit: 'score',
+      rows: rankingVariants.flatMap((variant) => [
+        barRow(`${variant.variantId} positive`, variant.positiveScores.avg, scoreMax),
+        barRow(`${variant.variantId} negative`, variant.negativeScores.avg, scoreMax),
+      ]),
+    },
+    {
+      title: 'Assets whose representative order changed',
+      unit: 'assets',
+      rows: variants.map((variant) =>
+        barRow(variant.variantId, variant.changedAssetCount, changedMax),
+      ),
+    },
+    {
+      title: 'Grid-realism component averages',
+      unit: 'score',
+      rows: componentBarRows(
+        variants.find((variant) => variant.variantId === 'grid-realism-ranking') ?? variants[0],
+      ),
+    },
+  ];
+};
+
+const componentBarRows = (variant: VariantSummary | undefined): readonly StudyBarChartRow[] => {
+  if (variant === undefined) return [];
+  return [
+    barRow('projective', variant.components.projective.avg, 1),
+    barRow('module', variant.components.module.avg, 1),
+    barRow('bounds', variant.components.bounds.avg, 1),
+    barRow('timing', variant.components.timing.avg, 1),
+    barRow('combined', variant.components.combined.avg, 1),
+  ];
+};
+
+const barRow = (label: string, value: number, max: number): StudyBarChartRow => ({
+  label,
+  value,
+  bar: bar(value, max),
+});
+
+const bar = (value: number, max: number): string => {
+  const width = 24;
+  const filled = Math.min(width, Math.round((Math.max(0, value) / Math.max(1, max)) * width));
+  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
+};
 
 const decodeResult = (artifacts: DecodeOutcomeArtifacts): DecodeAssetResult => ({
   decodedTexts: artifacts.decodedTexts,

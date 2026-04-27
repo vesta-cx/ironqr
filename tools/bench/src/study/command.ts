@@ -264,6 +264,7 @@ const buildProcessedStudyReport = (report: StudyReport): Record<string, unknown>
     headline: buildStudyHeadline(report.details.plugin.id, summary, detectorBreakdown),
     variants: summary.variants ?? [],
     recommendations: summary.recommendations ?? [],
+    visualizations: summary.visualizations ?? [],
     topViews: Array.isArray(summary.perView) ? summary.perView.slice(0, 20) : [],
     topScalars: Array.isArray(summary.perScalar) ? summary.perScalar.slice(0, 20) : [],
     totals: summary.totals ?? null,
