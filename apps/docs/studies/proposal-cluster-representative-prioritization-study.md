@@ -64,7 +64,7 @@ Advance a representative ordering variant only if, relative to `proposal-score`:
 lost positive asset ids = []
 false-positive asset delta <= 0
 positive decoded asset delta >= 0
-decode attempts and/or scan time improve materially
+processed representatives and/or decode attempts improve materially
 ```
 
 If using `maxClusterRepresentatives=1`, this tests which single cluster representative should be tried. If using a higher representative budget, also inspect whether `view-diverse-score` reduces attempts by avoiding near-duplicate representatives.
@@ -73,8 +73,97 @@ Before canonizing representative ordering, inspect per-view decode contribution 
 
 ## Results
 
-Pending.
+Full unbounded run generated `2026-04-27T12:14:49.154Z` from commit `7d583f0936f64a4cff6abc5cc78bf5458d25cc12` with dirty working tree state. Reports:
+
+```text
+tools/bench/reports/full/study/study-proposal-cluster-representative-prioritization.json
+tools/bench/reports/study/study-proposal-cluster-representative-prioritization.summary.json
+```
+
+Run shape:
+
+```text
+variants=proposal-score,timing-score,quiet-timing-score,decode-signal-score,view-diverse-score
+assets=203 positives=60 negatives=143
+maxProposals=24 maxClusterRepresentatives=1 maxDecodeAttempts=unbounded maxViews=54
+cache hits=0 misses=406 writes=203
+```
+
+Decode was used as an accuracy guard and work proxy, not as the thing under test. Do not choose a representative variant from full end-to-end decode timing alone; compare representative-order effects: lost positives, false positives, processed representatives, and decode-attempt deltas.
+
+| Variant | Positive decoded assets | False-positive assets | Proposals | Clusters | Processed reps | Decode attempts |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `proposal-score` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 |
+| `timing-score` | 36 | 0 | 64,690 | 4,471 | 4,285 | 1,854,777 |
+| `quiet-timing-score` | 36 | 0 | 64,324 | 4,471 | 4,296 | 1,863,814 |
+| `decode-signal-score` | 36 | 0 | 64,324 | 4,471 | 4,266 | 1,850,060 |
+| `view-diverse-score` | 36 | 0 | 64,690 | 4,471 | 4,288 | 1,859,568 |
+
+Compared with `proposal-score`:
+
+```text
+timing-score:
+  positive delta = 0
+  false-positive delta = 0
+  lost/gained positives = 0/0
+  processed representative delta = -3
+  decode attempt delta = -4,791
+  changed assets by attempts/reps/proposals = 101
+
+quiet-timing-score:
+  positive delta = 0
+  false-positive delta = 0
+  lost/gained positives = 0/0
+  processed representative delta = +8
+  decode attempt delta = +4,246
+  changed assets by attempts/reps/proposals = 83
+
+decode-signal-score:
+  positive delta = 0
+  false-positive delta = 0
+  lost/gained positives = 0/0
+  processed representative delta = -22
+  decode attempt delta = -9,508
+  changed assets by attempts/reps/proposals = 71
+
+view-diverse-score:
+  positive delta = 0
+  false-positive delta = 0
+  lost/gained positives = 0/0
+  processed representative delta = 0
+  decode attempt delta = 0
+  changed assets by attempts/reps/proposals = 0
+```
+
+`decode-signal-score` had the strongest representative-order work reduction, but its decode-attempt reduction came from negatives overall:
+
+```text
+decode-signal-score attempt delta by label:
+  positives = +1,388
+  negatives = -10,896
+  total = -9,508
+```
+
+`timing-score` was weaker overall but more balanced:
+
+```text
+timing-score attempt delta by label:
+  positives = -2,651
+  negatives = -2,140
+  total = -4,791
+```
+
+`view-diverse-score` is a no-op at `maxClusterRepresentatives=1`; its scan-time differences are measurement noise and should not be treated as a representative-priority win from this run.
+
+Regression fixture check: `asset-0944aec7c73146f9` (`coronatest`) stayed decoded in one attempt for every variant.
 
 ## Conclusion / evidence-backed decision
 
-Pending generated study evidence.
+Do not canonize from this run alone. All variants preserved decode accuracy, but the best representative-order candidate depends on the objective:
+
+- `decode-signal-score` is the lead if optimizing total representative/decode work, with `-22` processed representatives and `-9,508` decode attempts.
+- `timing-score` is the safer balanced candidate if positive-asset effort matters more, with `-2,651` positive decode attempts and `-4,791` total attempts.
+- `quiet-timing-score` should be binned for now because it increases representatives and attempts.
+- `view-diverse-score` should be retested only with `maxClusterRepresentatives > 1` or after adding `decode-view-priority`; it has no effect with one representative.
+
+Next step: run a narrow confirmation comparing `proposal-score`, `timing-score`, and `decode-signal-score`, or add per-view decode contribution before deciding whether decode-oriented view priority should be part of representative selection.
