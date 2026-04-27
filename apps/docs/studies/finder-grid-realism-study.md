@@ -437,6 +437,11 @@ Decode outcome by scan-level concrete-attempt budget:
 | 50 | `grid-realism-ranking` | 30 / 60 | 0 | 8,761 | none | `asset-532613e8ac453b24` |
 | 200 | `baseline` | 32 / 60 | 0 | 34,721 | none | none |
 | 200 | `grid-realism-ranking` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
+| 200 | `realism-module-heavy` | 33 / 60 | 0 | 34,534 | none | `asset-532613e8ac453b24` |
+| 200 | `realism-decode-likelihood` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
+| 200 | `realism-low-risk` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
+| 200 | `realism-geomean` | 32 / 60 | 0 | 34,553 | `asset-1b26a1d1cbb61d25` | `asset-532613e8ac453b24` |
+| 200 | `realism-lexicographic` | 33 / 60 | 0 | 34,534 | none | `asset-532613e8ac453b24` |
 
 At all budgets, successful decodes were at representative rank 1 for both variants. `asset-0944aec7c73146f9` / `coronatest` decoded in both variants with one attempt.
 
@@ -459,9 +464,9 @@ artifact cache: L1/L2/L3/L5/L6/L7 hits; no recomputation of scanner frontier lay
 
 Updated evidence-backed decisions:
 
-- Do not canonize `grid-realism-ranking` as a replacement ordering yet. It improves early budgets (25 and 50 attempts) but at 200 attempts it swaps one gain for one loss: it still gains `asset-532613e8ac453b24`, but loses `asset-1b26a1d1cbb61d25`, which baseline decodes in 181 attempts.
+- Do not canonize `grid-realism-ranking` as a replacement ordering. It improves early budgets (25 and 50 attempts) but at 200 attempts it swaps one gain for one loss: it still gains `asset-532613e8ac453b24`, but loses `asset-1b26a1d1cbb61d25`, which baseline decodes in 181 attempts.
 - At the 25-attempt objective-search run, all tested realism objectives tie: each gains `asset-532613e8ac453b24`, loses no positives, has zero false positives, and uses 4,424 attempts. Early-budget decode does not distinguish the objective formulas.
-- Treat the current full-replacement objectives as evidence that grid realism has useful signal but can overtake a valid high-cost baseline top representative at higher budgets. The next discriminating run should compare objective variants at 200 attempts or add diagnostics for the rank of known decodable representatives under each objective.
+- At the 200-attempt objective-search run, `realism-module-heavy` and `realism-lexicographic` are the best full-replacement objectives: both decode 33 positives, gain `asset-532613e8ac453b24`, lose no baseline positives, introduce no false positives, and use 34,534 attempts (`-187` vs baseline). They preserve `asset-1b26a1d1cbb61d25` because the baseline-winning representative remains first under those objectives, while the original composite/decode-likelihood/low-risk/geomean move it behind failing representatives.
 - Keep hard rejection binned. The evidence supports prioritization only.
 - For multi-QR policy, add/compare cluster-local representative budgets separately from this scan-level capped decode test.
 
@@ -471,7 +476,7 @@ Answered:
 - The coherent grid-realism policy preserves proposal coverage in `--no-decode` mode.
 - The coherent policy materially changes representative ordering.
 - Under 25- and 50-attempt scan-level budgets, grid-realism ranking improves decoded positives by one with no observed downside.
-- Under a 200-attempt budget, the current full-replacement ordering is not recall-safe: total positives tie, but one baseline-only positive is lost and one grid-realism-only positive is gained.
+- Under a 200-attempt budget, the original full-replacement ordering is not recall-safe, but the module-heavy and lexicographic objectives are recall-safe and improve positives by one.
 
 Partially answered:
 
