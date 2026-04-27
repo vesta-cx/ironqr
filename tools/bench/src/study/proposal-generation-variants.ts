@@ -8,7 +8,15 @@ import {
 } from '../../../../packages/ironqr/src/pipeline/proposals.js';
 import { createViewBank } from '../../../../packages/ironqr/src/pipeline/views.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
-import { average, positiveIntegerFlag, round, round1, sumBy } from './summary-helpers.js';
+import {
+  average,
+  parseStringChoice,
+  parseVariantList,
+  positiveIntegerFlag,
+  round,
+  round1,
+  sumBy,
+} from './summary-helpers.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
@@ -125,25 +133,20 @@ const parseConfig = ({
 }: {
   readonly flags: Readonly<Record<string, string | number | boolean>>;
 }): ProposalGenerationVariantConfig => {
-  const variantFlag = typeof flags.variants === 'string' ? flags.variants.trim() : '';
-  const variants =
-    variantFlag.length === 0
-      ? DEFAULT_VARIANTS
-      : variantFlag.split(',').map((id) => id.trim() as ProposalAssemblyVariant);
-  const knownVariants = new Set<ProposalAssemblyVariant>(VARIANTS);
-  for (const variant of variants)
-    if (!knownVariants.has(variant)) throw new Error(`unknown proposal variant: ${variant}`);
-  if (!variants.includes('sort-all')) {
-    throw new Error('proposal-generation-variants requires sort-all as the control variant');
-  }
-
-  const detectorPolicyId =
-    typeof flags['detector-policy'] === 'string'
-      ? (flags['detector-policy'].trim() as DetectorPolicyId)
-      : 'no-flood';
-  if (!['full-current', 'no-flood', 'row-only', 'matcher-only'].includes(detectorPolicyId)) {
-    throw new Error(`unknown detector policy: ${detectorPolicyId}`);
-  }
+  const variants = parseVariantList({
+    value: flags.variants,
+    defaultValues: DEFAULT_VARIANTS,
+    controlValue: 'sort-all',
+    unknownLabel: 'proposal variant',
+    controlLabel: 'sort-all as the control variant',
+    studyId: 'proposal-generation-variants',
+  });
+  const detectorPolicyId = parseStringChoice({
+    value: flags['detector-policy'],
+    defaultValue: 'no-flood',
+    choices: ['full-current', 'no-flood', 'row-only', 'matcher-only'],
+    label: 'detector policy',
+  });
 
   return {
     variants,

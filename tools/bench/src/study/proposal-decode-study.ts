@@ -8,7 +8,14 @@ import type { ScanRuntimeOptions } from '../../../../packages/ironqr/src/pipelin
 import type { IronqrTraceEvent } from '../../../../packages/ironqr/src/pipeline/trace.js';
 import { describeAccuracyEngine, getAccuracyEngineById } from '../core/engines.js';
 import { normalizeDecodedText } from '../shared/text.js';
-import { average, positiveIntegerFlag, round, sumBy, uniqueValues } from './summary-helpers.js';
+import {
+  average,
+  parseVariantList,
+  positiveIntegerFlag,
+  round,
+  sumBy,
+  uniqueValues,
+} from './summary-helpers.js';
 import type { StudyPlugin, StudySummaryInput } from './types.js';
 
 const STUDY_TIMING_PREFIX = '__bench_study_timing__';
@@ -206,17 +213,13 @@ const parseProposalDecodeConfig = <Variant extends string>(
   unknownVariantLabel: string,
   studyId: string,
 ): ProposalDecodeConfig<Variant> => {
-  const configuredVariants = flags[variantFlagName];
-  const variantFlag = typeof configuredVariants === 'string' ? configuredVariants.trim() : '';
-  const variants =
-    variantFlag.length === 0
-      ? defaultVariants
-      : variantFlag.split(',').map((variant) => variant.trim() as Variant);
-  const known = new Set<Variant>(defaultVariants);
-  for (const variant of variants) {
-    if (!known.has(variant)) throw new Error(`unknown ${unknownVariantLabel} variant: ${variant}`);
-  }
-  if (!variants.includes(controlVariant)) throw new Error(`${studyId} requires ${controlVariant}`);
+  const variants = parseVariantList({
+    value: flags[variantFlagName],
+    defaultValues: defaultVariants,
+    controlValue: controlVariant,
+    unknownLabel: `${unknownVariantLabel} variant`,
+    studyId,
+  });
   return {
     variants,
     maxProposals: positiveIntegerFlag(flags['max-proposals'], 24, 'max-proposals', studyId),
