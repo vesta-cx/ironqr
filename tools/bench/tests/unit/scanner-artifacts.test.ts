@@ -6,6 +6,7 @@ import type { CorpusBenchAsset } from '../../src/accuracy/types.js';
 import { openScannerArtifactCache } from '../../src/study/scanner-artifact-cache.js';
 import {
   getOrComputeClusterFrontierArtifacts,
+  getOrComputeDecodeOutcomeArtifacts,
   getOrComputeScannerViewArtifacts,
 } from '../../src/study/scanner-artifacts.js';
 
@@ -88,6 +89,36 @@ describe('scanner view artifacts', () => {
       expect(second.summary().layers.proposalBatches.hits).toBe(1);
       expect(second.summary().layers.rankedFrontier.hits).toBe(1);
       expect(second.summary().layers.clusterFrontier.hits).toBe(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('caches decode outcomes after cluster frontiers', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'scanner-artifacts-'));
+    try {
+      const options = {
+        viewIds: ['gray:otsu:normal'] as const,
+        maxProposalsPerView: 12,
+        detectorPolicy: { enabledFamilies: ['row-scan', 'matcher'] as const },
+        maxProposals: 24,
+        maxClusterRepresentatives: 1,
+        maxDecodeAttempts: 1,
+      };
+      const first = openScannerArtifactCache({ enabled: true, refresh: false, directory });
+      const firstArtifacts = await getOrComputeDecodeOutcomeArtifacts(makeAsset(), first, options);
+      expect(firstArtifacts.decodedTexts).toEqual([]);
+      expect(firstArtifacts.attemptCount).toBe(0);
+      expect(first.summary().layers.decodeOutcome.writes).toBe(1);
+
+      const second = openScannerArtifactCache({ enabled: true, refresh: false, directory });
+      const secondArtifacts = await getOrComputeDecodeOutcomeArtifacts(
+        makeAsset(),
+        second,
+        options,
+      );
+      expect(secondArtifacts.decodedTexts).toEqual([]);
+      expect(second.summary().layers.decodeOutcome.hits).toBe(1);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

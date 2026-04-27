@@ -1,9 +1,19 @@
 import crypto from 'node:crypto';
-import type { ImageDataLike } from '../../../../packages/ironqr/src/contracts/scan.js';
+import { Effect } from 'effect';
+import type {
+  ImageDataLike,
+  ScanResult,
+  ScanTimingSpan,
+} from '../../../../packages/ironqr/src/contracts/scan.js';
 import {
   clusterRankedProposals,
   type ProposalCluster,
 } from '../../../../packages/ironqr/src/pipeline/clusters.js';
+import {
+  type DecodeAttempt,
+  type DecodeAttemptOutcome,
+  runDecodeCascade,
+} from '../../../../packages/ironqr/src/pipeline/decode-cascade.js';
 import {
   createNormalizedImage,
   type NormalizedImage,
@@ -305,6 +315,11 @@ export interface ClusterFrontierArtifactOptions extends ProposalFrontierArtifact
   readonly representativeVariant?: import('../../../../packages/ironqr/src/pipeline/clusters.js').ClusterRepresentativeVariant;
 }
 
+export interface DecodeOutcomeArtifactOptions extends ClusterFrontierArtifactOptions {
+  readonly maxDecodeAttempts?: number;
+  readonly continueAfterDecode?: boolean;
+}
+
 interface ProposalBatchesArtifact {
   readonly batches: readonly ProposalViewBatch[];
 }
@@ -333,6 +348,33 @@ interface ClusterFrontierArtifact {
   readonly clusters: readonly ProposalCluster[];
 }
 
+interface DecodeOutcomeArtifact {
+  readonly decodedTexts: readonly string[];
+  readonly results: readonly SerializedScanResult[];
+  readonly attemptCount: number;
+  readonly successCount: number;
+  readonly attempts: readonly SerializedDecodeAttemptMeasurement[];
+  readonly timings: DecodeOutcomeTimingSummary;
+}
+
+interface SerializedScanResult {
+  readonly text: string;
+  readonly kind: ScanResult['payload']['kind'];
+  readonly confidence: ScanResult['confidence'];
+}
+
+interface SerializedDecodeAttemptMeasurement extends DecodeAttempt {
+  readonly outcome: DecodeAttemptOutcome;
+  readonly durationMs: number;
+}
+
+interface DecodeOutcomeTimingSummary {
+  readonly geometryMs: number;
+  readonly moduleSamplingMs: number;
+  readonly decodeAttemptMs: number;
+  readonly decodeCascadeMs: number;
+}
+
 export interface ProposalFrontierArtifacts extends ScannerViewArtifacts {
   readonly proposalBatchesKey: string;
   readonly rankedFrontierKey: string;
@@ -343,6 +385,10 @@ export interface ProposalFrontierArtifacts extends ScannerViewArtifacts {
 export interface ClusterFrontierArtifacts extends ProposalFrontierArtifacts {
   readonly clusterFrontierKey: string;
   readonly clusters: readonly ProposalCluster[];
+}
+
+export interface DecodeOutcomeArtifacts extends ClusterFrontierArtifacts, DecodeOutcomeArtifact {
+  readonly decodeOutcomeKey: string;
 }
 
 export const getOrComputeProposalFrontierArtifacts = async (
@@ -385,18 +431,44 @@ export const getOrComputeClusterFrontierArtifacts = async (
     assetId: asset.id,
     assetSha256: asset.sha256,
     upstreamKey: proposalFrontier.rankedFrontierKey,
-    config: {
-      maxProposals: options.maxProposals,
-      maxClusterRepresentatives: options.maxClusterRepresentatives,
-      representativeVariant: options.representativeVariant ?? 'proposal-score',
-    },
+    config: clusterFrontierConfig(options),
   };
   const clusterFrontierKey = artifactCache.key(input);
   const cached = await artifactCache.readJson<ClusterFrontierArtifact>(input);
   if (cached !== null)
     return { ...proposalFrontier, clusterFrontierKey, clusters: cached.clusters };
+  const clusters = computeClusters(proposalFrontier.rankedCandidates, options);
+  await artifactCache.writeJson(input, { clusters } satisfies ClusterFrontierArtifact);
+  return { ...proposalFrontier, clusterFrontierKey, clusters };
+};
+
+export const getOrComputeDecodeOutcomeArtifacts = async (
+  asset: CorpusBenchAsset,
+  artifactCache: ScannerArtifactCacheHandle,
+  options: DecodeOutcomeArtifactOptions,
+): Promise<DecodeOutcomeArtifacts> => {
+  const clusterFrontier = await getOrComputeClusterFrontierArtifacts(asset, artifactCache, options);
+  const input = {
+    layer: 'decodeOutcome' as const,
+    assetId: asset.id,
+    assetSha256: asset.sha256,
+    upstreamKey: clusterFrontier.clusterFrontierKey,
+    config: decodeOutcomeConfig(options),
+  };
+  const decodeOutcomeKey = artifactCache.key(input);
+  const cached = await artifactCache.readJson<DecodeOutcomeArtifact>(input);
+  if (cached !== null) return { ...clusterFrontier, decodeOutcomeKey, ...cached };
+  const outcome = await computeDecodeOutcome(clusterFrontier, options);
+  await artifactCache.writeJson(input, outcome);
+  return { ...clusterFrontier, decodeOutcomeKey, ...outcome };
+};
+
+const computeClusters = (
+  rankedCandidates: readonly RankedProposalCandidate[],
+  options: ClusterFrontierArtifactOptions,
+): readonly ProposalCluster[] => {
   const allClusters = clusterRankedProposals(
-    proposalFrontier.rankedCandidates.map((candidate) => candidate.proposal),
+    rankedCandidates.map((candidate) => candidate.proposal),
     {
       maxRepresentatives: options.maxClusterRepresentatives,
       ...(options.representativeVariant === undefined
@@ -404,10 +476,84 @@ export const getOrComputeClusterFrontierArtifacts = async (
         : { representativeVariant: options.representativeVariant }),
     },
   );
-  const clusters = allClusters.slice(0, options.maxProposals);
-  await artifactCache.writeJson(input, { clusters } satisfies ClusterFrontierArtifact);
-  return { ...proposalFrontier, clusterFrontierKey, clusters };
+  return allClusters.slice(0, options.maxProposals);
 };
+
+const computeDecodeOutcome = async (
+  artifacts: ClusterFrontierArtifacts,
+  options: DecodeOutcomeArtifactOptions,
+): Promise<DecodeOutcomeArtifact> => {
+  const viewBank = createViewBank(artifacts.image);
+  const geometryByProposalId = new Map(
+    artifacts.rankedCandidates.map((candidate) => [
+      candidate.proposal.id,
+      candidate.initialGeometryCandidates,
+    ]),
+  );
+  const topProposalScore = artifacts.rankedCandidates[0]?.proposal.proposalScore ?? 0;
+  const attempts: SerializedDecodeAttemptMeasurement[] = [];
+  const spans: ScanTimingSpan[] = [];
+  const results: ScanResult[] = [];
+  const seenTexts = new Set<string>();
+  let attemptedCount = 0;
+  const shouldAttemptDecode = (): boolean => {
+    if (options.maxDecodeAttempts === undefined) return true;
+    if (attemptedCount >= options.maxDecodeAttempts) return false;
+    attemptedCount += 1;
+    return true;
+  };
+
+  let proposalRank = 0;
+  for (const cluster of artifacts.clusters) {
+    for (const proposal of cluster.representatives) {
+      proposalRank += 1;
+      const success = await Effect.runPromise(
+        runDecodeCascade(proposal, viewBank, {
+          proposalRank,
+          topProposalScore,
+          initialGeometryCandidates: geometryByProposalId.get(proposal.id) ?? [],
+          shouldAttemptDecode,
+          metricsSink: { record: (span) => spans.push(span) },
+          onAttemptMeasured: (attempt) => attempts.push(attempt),
+        }),
+      );
+      if (success === null) continue;
+      results.push(success.result);
+      seenTexts.add(success.result.payload.text);
+      if (!options.continueAfterDecode) {
+        return decodeOutcomeArtifact([...seenTexts], results, attempts, spans);
+      }
+    }
+  }
+
+  return decodeOutcomeArtifact([...seenTexts], results, attempts, spans);
+};
+
+const decodeOutcomeArtifact = (
+  decodedTexts: readonly string[],
+  results: readonly ScanResult[],
+  attempts: readonly SerializedDecodeAttemptMeasurement[],
+  spans: readonly ScanTimingSpan[],
+): DecodeOutcomeArtifact => ({
+  decodedTexts,
+  results: results.map((result) => ({
+    text: result.payload.text,
+    kind: result.payload.kind,
+    confidence: result.confidence,
+  })),
+  attemptCount: attempts.length,
+  successCount: attempts.filter((attempt) => attempt.outcome === 'success').length,
+  attempts,
+  timings: {
+    geometryMs: spanSum(spans, 'geometry'),
+    moduleSamplingMs: spanSum(spans, 'module-sampling'),
+    decodeAttemptMs: spanSum(spans, 'decode-attempt'),
+    decodeCascadeMs: spanSum(spans, 'decode-cascade'),
+  },
+});
+
+const spanSum = (spans: readonly ScanTimingSpan[], name: ScanTimingSpan['name']): number =>
+  round(spans.filter((span) => span.name === name).reduce((sum, span) => sum + span.durationMs, 0));
 
 const getOrComputeProposalBatches = async (
   asset: CorpusBenchAsset,
@@ -587,5 +733,21 @@ const proposalBatchConfig = (
   geometryVariant: options.geometryVariant ?? null,
 });
 
+const clusterFrontierConfig = (
+  options: ClusterFrontierArtifactOptions,
+): Record<string, unknown> => ({
+  maxProposals: options.maxProposals,
+  maxClusterRepresentatives: options.maxClusterRepresentatives,
+  representativeVariant: options.representativeVariant ?? 'proposal-score',
+});
+
+const decodeOutcomeConfig = (options: DecodeOutcomeArtifactOptions): Record<string, unknown> => ({
+  ...clusterFrontierConfig(options),
+  maxDecodeAttempts: options.maxDecodeAttempts ?? null,
+  continueAfterDecode: options.continueAfterDecode ?? false,
+});
+
 const stableHash = (value: unknown): string =>
   crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+const round = (value: number): number => Math.round(value * 100) / 100;
