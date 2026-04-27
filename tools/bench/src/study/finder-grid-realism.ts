@@ -731,9 +731,9 @@ const logStudyTiming = (
 ): void => {
   log(
     `${STUDY_TIMING_PREFIX}${JSON.stringify({
-      label,
+      id: label,
       durationMs,
-      samples,
+      outputCount: samples,
     })}`,
   );
 };

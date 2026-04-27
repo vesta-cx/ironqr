@@ -511,9 +511,52 @@ const runStudy = async (
     ...(options.seed === undefined ? {} : { seed: options.seed }),
     ...(control === undefined ? {} : { signal: control.signal, requestStop: control.requestStop }),
   });
+  await printStudyVisualizations(result.processedReportFile);
   process.stdout.write(
     `\nfullStudyReport: ${JSON.stringify(result.reportFile)}\nsummaryStudyReport: ${JSON.stringify(result.processedReportFile)}\n`,
   );
+};
+
+const printStudyVisualizations = async (processedReportFile: string): Promise<void> => {
+  const report = JSON.parse(await readFile(processedReportFile, 'utf8')) as {
+    readonly visualizations?: readonly {
+      readonly title?: unknown;
+      readonly unit?: unknown;
+      readonly rows?: readonly {
+        readonly label?: unknown;
+        readonly value?: unknown;
+        readonly bar?: unknown;
+      }[];
+    }[];
+  };
+  const visualizations = report.visualizations ?? [];
+  if (visualizations.length === 0) return;
+  process.stdout.write('\nstudy visualizations\n');
+  for (const chart of visualizations) {
+    if (!Array.isArray(chart.rows) || chart.rows.length === 0) continue;
+    const title = typeof chart.title === 'string' ? chart.title : 'Chart';
+    const unit = typeof chart.unit === 'string' && chart.unit.length > 0 ? ` (${chart.unit})` : '';
+    process.stdout.write(`\n${title}${unit}\n`);
+    const labelWidth = Math.min(
+      42,
+      Math.max(
+        8,
+        ...chart.rows.map((row) => (typeof row.label === 'string' ? row.label.length : 0)),
+      ),
+    );
+    for (const row of chart.rows) {
+      if (typeof row.label !== 'string' || typeof row.bar !== 'string') continue;
+      const value = typeof row.value === 'number' ? formatChartValue(row.value) : '-';
+      process.stdout.write(`${row.label.padEnd(labelWidth)}  ${row.bar}  ${value}\n`);
+    }
+  }
+};
+
+const formatChartValue = (value: number): string => {
+  if (!Number.isFinite(value)) return '-';
+  if (Math.abs(value) >= 100) return Math.round(value).toLocaleString('en-US');
+  if (Math.abs(value) >= 10) return value.toFixed(1);
+  return value.toFixed(2).replace(/\.00$/, '');
 };
 
 const runSuite = async (
