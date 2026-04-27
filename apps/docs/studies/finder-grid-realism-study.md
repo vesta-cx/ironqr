@@ -428,6 +428,11 @@ Decode outcome by scan-level concrete-attempt budget:
 | ---: | --- | ---: | ---: | ---: | --- | --- |
 | 25 | `baseline` | 28 / 60 | 0 | 4,436 | none | none |
 | 25 | `grid-realism-ranking` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
+| 25 | `realism-module-heavy` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
+| 25 | `realism-decode-likelihood` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
+| 25 | `realism-low-risk` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
+| 25 | `realism-geomean` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
+| 25 | `realism-lexicographic` | 29 / 60 | 0 | 4,424 | none | `asset-532613e8ac453b24` |
 | 50 | `baseline` | 29 / 60 | 0 | 8,798 | none | none |
 | 50 | `grid-realism-ranking` | 30 / 60 | 0 | 8,761 | none | `asset-532613e8ac453b24` |
 | 200 | `baseline` | 32 / 60 | 0 | 34,721 | none | none |
@@ -455,7 +460,8 @@ artifact cache: L1/L2/L3/L5/L6/L7 hits; no recomputation of scanner frontier lay
 Updated evidence-backed decisions:
 
 - Do not canonize `grid-realism-ranking` as a replacement ordering yet. It improves early budgets (25 and 50 attempts) but at 200 attempts it swaps one gain for one loss: it still gains `asset-532613e8ac453b24`, but loses `asset-1b26a1d1cbb61d25`, which baseline decodes in 181 attempts.
-- Treat the current full-replacement ordering as evidence that grid realism has useful signal but can overtake a valid high-cost baseline top representative. The next candidate should blend rather than replace: use grid realism as a bounded boost or tie-breaker on top of proposal score, or apply it within clusters after preserving strong baseline candidates.
+- At the 25-attempt objective-search run, all tested realism objectives tie: each gains `asset-532613e8ac453b24`, loses no positives, has zero false positives, and uses 4,424 attempts. Early-budget decode does not distinguish the objective formulas.
+- Treat the current full-replacement objectives as evidence that grid realism has useful signal but can overtake a valid high-cost baseline top representative at higher budgets. The next discriminating run should compare objective variants at 200 attempts or add diagnostics for the rank of known decodable representatives under each objective.
 - Keep hard rejection binned. The evidence supports prioritization only.
 - For multi-QR policy, add/compare cluster-local representative budgets separately from this scan-level capped decode test.
 
