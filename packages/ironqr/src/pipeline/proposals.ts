@@ -658,10 +658,12 @@ const proposalsFromFinderTriples = (
 ): readonly ScanProposal[] => {
   const proposals: ScanProposal[] = [];
   for (let index = 0; index < triples.length && proposals.length < maxPerView; index += 1) {
-    const triple = triples[index]!;
+    const triple = triples[index];
+    if (triple === undefined) continue;
     const estimatedVersions = candidateVersionsFromFinders(triple.finders, 2);
-    if (estimatedVersions.length === 0) continue;
-    const inferredCorners = inferQuadCorners(triple.finders, estimatedVersions[0]!);
+    const primaryVersion = estimatedVersions[0];
+    if (primaryVersion === undefined) continue;
+    const inferredCorners = inferQuadCorners(triple.finders, primaryVersion);
     proposals.push({
       id: `${binaryView.id}:triple:${index}`,
       kind: 'finder-triple',
@@ -997,7 +999,9 @@ const buildFinderTriplesFixedArrayTopK = (
       return;
     }
     let insertAt = topLength;
-    while (insertAt > 0 && compareTripleCandidates(candidate, top[insertAt - 1]!) < 0) {
+    while (insertAt > 0) {
+      const previous = top[insertAt - 1];
+      if (previous === undefined || compareTripleCandidates(candidate, previous) >= 0) break;
       insertAt -= 1;
     }
     if (insertAt >= maxCombinations) return;
@@ -1008,7 +1012,7 @@ const buildFinderTriplesFixedArrayTopK = (
     top[insertAt] = candidate;
     topLength = nextLength;
   });
-  return top.slice(0, topLength) as FinderTripleCandidate[];
+  return top.slice(0, topLength).filter(isDefined);
 };
 
 const buildFinderTriplesMinHeapTopK = (
@@ -1023,7 +1027,8 @@ const buildFinderTriplesMinHeapTopK = (
       heapPushWorstFirst(heap, candidate);
       return;
     }
-    if (compareTripleCandidates(candidate, heap[0]!) < 0) {
+    const worst = heap[0];
+    if (worst !== undefined && compareTripleCandidates(candidate, worst) < 0) {
       heap[0] = candidate;
       heapSinkWorstFirst(heap, 0);
     }
@@ -1046,9 +1051,10 @@ const forEachScoredTriple = (
   for (let i = 0; i < evidence.length - 2; i += 1) {
     for (let j = i + 1; j < evidence.length - 1; j += 1) {
       for (let k = j + 1; k < evidence.length; k += 1) {
-        const a = evidence[i]!;
-        const b = evidence[j]!;
-        const c = evidence[k]!;
+        const a = evidence[i];
+        const b = evidence[j];
+        const c = evidence[k];
+        if (a === undefined || b === undefined || c === undefined) continue;
         const score = scoreTripleForVariant(a, b, c, i, j, k, distances, options);
         if (score === null) {
           order += 1;
@@ -1086,9 +1092,9 @@ const scoreTripleForVariant = (
       a,
       b,
       c,
-      distances[distanceMatrixIndex(i, j, count)]!,
-      distances[distanceMatrixIndex(i, k, count)]!,
-      distances[distanceMatrixIndex(j, k, count)]!,
+      distances[distanceMatrixIndex(i, j, count)] ?? 0,
+      distances[distanceMatrixIndex(i, k, count)] ?? 0,
+      distances[distanceMatrixIndex(j, k, count)] ?? 0,
       geometryVariant,
       options.binaryView,
     );
@@ -1118,6 +1124,8 @@ const compareTripleCandidates = (
   right: FinderTripleCandidate,
 ): number => right.seedScore - left.seedScore || left.order - right.order;
 
+const isDefined = <T>(value: T | undefined): value is T => value !== undefined;
+
 const compareWorstFirst = (left: FinderTripleCandidate, right: FinderTripleCandidate): number =>
   right.seedScore - left.seedScore || left.order - right.order;
 
@@ -1129,7 +1137,15 @@ const heapPushWorstFirst = (
   let index = heap.length - 1;
   while (index > 0) {
     const parent = Math.floor((index - 1) / 2);
-    if (compareWorstFirst(heap[index]!, heap[parent]!) <= 0) break;
+    const current = heap[index];
+    const parentEntry = heap[parent];
+    if (
+      current === undefined ||
+      parentEntry === undefined ||
+      compareWorstFirst(current, parentEntry) <= 0
+    ) {
+      break;
+    }
     swapHeapEntries(heap, index, parent);
     index = parent;
   }
@@ -1141,8 +1157,24 @@ const heapSinkWorstFirst = (heap: FinderTripleCandidate[], startIndex: number): 
     const left = index * 2 + 1;
     const right = left + 1;
     let largest = index;
-    if (left < heap.length && compareWorstFirst(heap[left]!, heap[largest]!) > 0) largest = left;
-    if (right < heap.length && compareWorstFirst(heap[right]!, heap[largest]!) > 0) largest = right;
+    const largestEntry = heap[largest];
+    const leftEntry = heap[left];
+    if (
+      leftEntry !== undefined &&
+      largestEntry !== undefined &&
+      compareWorstFirst(leftEntry, largestEntry) > 0
+    ) {
+      largest = left;
+    }
+    const nextLargestEntry = heap[largest];
+    const rightEntry = heap[right];
+    if (
+      rightEntry !== undefined &&
+      nextLargestEntry !== undefined &&
+      compareWorstFirst(rightEntry, nextLargestEntry) > 0
+    ) {
+      largest = right;
+    }
     if (largest === index) return;
     swapHeapEntries(heap, index, largest);
     index = largest;
@@ -1150,8 +1182,10 @@ const heapSinkWorstFirst = (heap: FinderTripleCandidate[], startIndex: number): 
 };
 
 const swapHeapEntries = (heap: FinderTripleCandidate[], left: number, right: number): void => {
-  const value = heap[left]!;
-  heap[left] = heap[right]!;
+  const value = heap[left];
+  const replacement = heap[right];
+  if (value === undefined || replacement === undefined) return;
+  heap[left] = replacement;
   heap[right] = value;
 };
 
@@ -1161,14 +1195,17 @@ const buildFinderDistanceMatrix = (evidence: readonly FinderEvidence[]): Float64
   distances[distances.length - 1] = count;
   for (let i = 0; i < count - 1; i += 1) {
     for (let j = i + 1; j < count; j += 1) {
-      distances[distanceMatrixIndex(i, j, count)] = distance(evidence[i]!, evidence[j]!);
+      const left = evidence[i];
+      const right = evidence[j];
+      if (left === undefined || right === undefined) continue;
+      distances[distanceMatrixIndex(i, j, count)] = distance(left, right);
     }
   }
   return distances;
 };
 
 const distanceMatrixRowCount = (distances: Float64Array): number =>
-  distances[distances.length - 1]!;
+  distances[distances.length - 1] ?? 0;
 
 const distanceMatrixIndex = (left: number, right: number, count: number): number => {
   const i = Math.min(left, right);
@@ -1195,13 +1232,17 @@ const scoreTripleGeometry = (
     { left: a, right: c, length: distance(a, c), opposite: b },
     { left: b, right: c, length: distance(b, c), opposite: a },
   ].sort((left, right) => right.length - left.length);
+  const longest = lengths[0];
+  const middle = lengths[1];
+  const shortest = lengths[2];
+  if (longest === undefined || middle === undefined || shortest === undefined) return null;
   return scoreTripleGeometryFromSides(
     a,
     b,
     c,
-    lengths[0]!,
-    lengths[1]!,
-    lengths[2]!,
+    longest,
+    middle,
+    shortest,
     geometryVariant,
     binaryView,
   );
@@ -2238,7 +2279,7 @@ const finderRatioScore = (counts: readonly number[]): number => {
   const expected: readonly [number, number, number, number, number] = [1, 1, 3, 1, 1];
   let error = 0;
   for (let index = 0; index < 5; index += 1) {
-    error += Math.abs((counts[index] ?? 0) - expected[index]! * moduleSize) / moduleSize;
+    error += Math.abs((counts[index] ?? 0) - (expected[index] ?? 0) * moduleSize) / moduleSize;
   }
   return error > FINDER_RATIO_TOLERANCE * 5 ? 0 : Math.max(0, 2.5 - error * 0.5);
 };
@@ -2430,7 +2471,8 @@ const clusterFinderEvidence = (evidence: readonly FinderEvidence[]): FinderEvide
       continue;
     }
 
-    const existing = clustered[existingIndex]!;
+    const existing = clustered[existingIndex];
+    if (existing === undefined) continue;
     const existingWeight = Math.max(1, existing.score ?? 1);
     const candidateWeight = Math.max(1, candidate.score ?? 1);
     const total = existingWeight + candidateWeight;
