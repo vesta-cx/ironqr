@@ -298,21 +298,79 @@ Approximate all-representative AUC computed from the report rows:
 
 Timing of scoring itself was small relative to proposal generation, but the report's artifact-cache layer accounting showed all zero hits/misses/writes for this worker-backed full run despite `--refresh-cache`. Treat artifact-cache accounting in this report as a reporting bug or aggregation gap, not evidence that no artifacts were touched.
 
+Corrected policy-ranking `--no-decode` run generated on 2026-04-27 from commit `2f74780297b9ab6e6b24c0ba80d75780ff68c999`:
+
+```text
+tools/bench/reports/full/study/study-finder-grid-realism.json
+tools/bench/reports/study/study-finder-grid-realism.summary.json
+```
+
+Run configuration:
+
+```text
+assets: 203 total, 60 positive, 143 negative
+variants: baseline, grid-realism-ranking
+noDecode: true
+maxViews: 54
+maxProposals: 24
+maxProposalsPerView: 12
+maxClusterRepresentatives: 1
+```
+
+Coverage and frontier size:
+
+| Variant | Positive covered | Negative with proposals | Proposals | Clusters | Representatives | Lost positives |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `baseline` | 60 / 60 | 143 / 143 | 89,618 | 4,830 | 4,830 | none |
+| `grid-realism-ranking` | 60 / 60 | 143 / 143 | 89,618 | 4,830 | 4,830 | none |
+
+Representative-order effect:
+
+| Variant | Assets changed | First changed rank p50 / p95 / max | Positive first changed rank p50 / p95 / max | Negative first changed rank p50 / p95 / max |
+| --- | ---: | --- | --- | --- |
+| `baseline` | 0 / 203 | n/a | n/a | n/a |
+| `grid-realism-ranking` | 202 / 203 | 1 / 2 / 4 | 2 / 2 / 4 | 1 / 2 / 2 |
+
+Only `asset-a63ebea2df94c77a` (`qr-neg`, 2 representatives) kept the exact baseline order. `asset-0944aec7c73146f9` / `coronatest` remained covered; its first representative stayed first and the next candidate changed at rank 2.
+
+Policy score separation by representative:
+
+| Variant | Positive avg | Positive p50 / p95 | Negative avg | Negative p50 / p95 | Interpretation |
+| --- | ---: | --- | ---: | --- | --- |
+| `baseline` proposal score | 17.72 | 17.70 / 20.05 | 17.15 | 17.31 / 19.22 | Existing ranking has mild positive/negative separation. |
+| `grid-realism-ranking` | 0.74 | 0.73 / 0.83 | 0.72 | 0.72 / 0.79 | Coherent realism ranking has weak but non-zero separation. |
+
+Grid-realism component diagnostics over all representatives:
+
+| Component | Avg | p50 | p95 | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| projective | 0.81 | 0.83 | 0.83 | Saturated; weak as a discriminator. |
+| module | 0.64 | 0.64 | 0.85 | Most informative component from the exploratory run. |
+| bounds | 0.94 | 0.98 | 1.00 | Mostly saturated; many false frontiers are in bounds. |
+| timing | 0.58 | 0.56 | 0.70 | Weak; current phase-insensitive sampler likely underpowered. |
+| combined | 0.73 | 0.72 | 0.80 | Enough to reorder nearly all frontiers, not enough to justify filtering. |
+
+Artifact-cache layer accounting still reported all zero hits/misses/writes in the corrected worker-backed full run. The cache accounting gap remains open.
+
 ## Conclusion / evidence-backed decision
 
-The run answers the proposal-coverage guard: the default scoring-only variants did not lose any positive proposal assets, and `coronatest` remained covered. It does **not** justify hard rejection or canonization.
+The corrected policy run answers the no-decode frontier-order question: `grid-realism-ranking` is coverage-safe in proposal-only mode and materially changes representative order for nearly every asset. It still does **not** justify hard rejection or production canonization because the score separation is weak and no decode-confirmation effects have been measured.
 
 Evidence-backed decisions:
 
-- Do not promote `projective-realism-score` or `grid-bounds-score` as standalone ranking signals; their positive/negative score distributions are effectively indistinguishable.
-- Keep `module-consistency-score` as the most promising component signal, but only as ranking evidence. Its separation is real but modest (`avg +0.07`, AUC ≈ 0.635), so it needs decode-confirmation and likely a better frontier-delta metric before canonization.
-- Keep `grid-timing-score` as a research direction, but improve the sampler before relying on it. The current phase-insensitive row/column 6 score has weak separation (`avg +0.03`, AUC ≈ 0.545).
-- Do not run or promote hard `combined-grid-realism-reject-very-conservative` yet. The scoring components are not strong enough to set safe thresholds from this run.
-- Next implementation should evaluate ranking/frontier impact, not just raw score distributions: reorder representatives by `module-consistency-score`, `grid-timing-score`, and a revised combined score, then compare lost positives, decode attempts, processed representatives, and frontier changes with L8 decode confirmation.
+- Keep `grid-realism-ranking` as the next decode-confirmation candidate. It preserved 60 / 60 positive proposal coverage, preserved `coronatest`, and changed 202 / 203 representative frontiers.
+- Treat the component checks as diagnostics only. Projective and bounds are saturated; module consistency is the most useful component; timing needs a stronger grid sampler before it can carry much weight.
+- Do not promote hard rejection. The full policy score only separates positives and negatives weakly (`0.74` vs `0.72` average), so thresholding would be unjustified.
+- Use L8 decode confirmation next to compare actual scanner outcomes: lost decoded positives, false positives, decode attempts, processed representatives, first-success rank, and `coronatest` decoded status.
+
+Answered:
+
+- Cheap grid-realism scoring can run before decode.
+- The coherent grid-realism policy preserves proposal coverage in `--no-decode` mode.
+- The coherent policy materially changes representative ordering.
 
 Partially answered:
 
-- Whether cheap realism signals can be computed before decode: yes.
-- Whether first-pass scores separate positives from negatives strongly enough: no; only module consistency is moderately promising.
-- Whether hard filtering is safe: unanswered, and current evidence argues against trying it yet.
+- Whether the ranking improves real decode work: unanswered until decode confirmation.
+- Whether timing-grid evidence is useful: weak in the current sampler and needs improvement.
 - Whether cache layer summaries are reliable under worker full runs: no; the report exposed an accounting gap.
