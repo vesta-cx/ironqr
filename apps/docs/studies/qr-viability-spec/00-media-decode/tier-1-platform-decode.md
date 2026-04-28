@@ -1,7 +1,5 @@
 # Tier 1 — Platform Decode
 
-Platform decode is the MVP media-decode branch.
-
 Use the active runtime's image decoder when it can produce browser `ImageData` for the input format.
 
 ## Implementations
