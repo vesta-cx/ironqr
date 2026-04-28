@@ -272,9 +272,7 @@ The implementation and reports must measure:
 
 ## Study cache note
 
-Runtime scanning owns finder seeds through the active scan pipeline. It does not persist finder detection outputs across scans.
-
-Benchmark/study tooling may persist this stage as part of:
+Runtime scanning owns finder seeds through the active scan pipeline and any production in-memory memoization. Benchmark/study tooling may additionally write this stage to disk as part of:
 
 ```text
 L4 finder evidence

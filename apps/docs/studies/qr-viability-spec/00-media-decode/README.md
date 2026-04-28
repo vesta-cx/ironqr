@@ -333,6 +333,6 @@ unsupported color/HDR conversion policy
 
 ## Study cache note
 
-Runtime scanning does not persist stage-00 decoded media frames. Benchmark/study tooling may add an L0 decoded-media-frame artifact only when decoder comparisons need cross-run reuse.
+Runtime scanning may use production in-memory decoder/session state, but it does not write stage-00 decoded media frames to disk. Benchmark/study tooling may add an L0 decoded-media-frame artifact only when decoder comparisons need cross-run reuse.
 
 Study L0 identity changes when media decode policy changes, such as orientation handling, color profile conversion, animated-frame selection, HEIC/HEIF decoder selection, or decoder backend.

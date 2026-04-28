@@ -424,9 +424,7 @@ The implementation and reports must measure:
 
 ## Study cache note
 
-Runtime scanning does not persist finder evidence across scans.
-
-Benchmark/study tooling may persist finder evidence as:
+Runtime scanning owns finder evidence through the active scan pipeline and any production in-memory memoization. Benchmark/study tooling may additionally write finder evidence to disk as:
 
 ```text
 L4 finder evidence

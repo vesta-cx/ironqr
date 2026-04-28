@@ -1,8 +1,6 @@
 # Study Cache Note
 
-Runtime scanning emits `SimpleImageData` and keeps per-scan derived data in `ViewBank`. It does not persist normalized frames across scans.
-
-Benchmark/study tooling may persist this stage as:
+Runtime scanning emits `SimpleImageData` and uses production `ViewBank` memoization for per-scan derived data. Benchmark/study tooling may additionally write this stage to disk as:
 
 ```text
 L1 normalized frame

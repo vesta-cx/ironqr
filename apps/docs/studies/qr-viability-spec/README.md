@@ -92,9 +92,9 @@ many assets/workers → many independent contexts
 cross-run study reuse → explicit study artifact cache, not hidden object mutation
 ```
 
-### Persistent caching is study-only
+### Disk-backed layer caches are study-only
 
-Runtime scanner code uses canonical artifacts and per-scan `ViewBank` memoization. Persistent layer caches are benchmark/study infrastructure only.
+Runtime scanner code uses canonical artifacts and per-scan `ViewBank` memoization in production. The study-only part is writing tiered/layered artifacts to disk and using numeric cache versions to invalidate those persisted files.
 
 Do not blur these:
 
@@ -102,7 +102,7 @@ Do not blur these:
 | --- | --- | --- | --- |
 | Canonical artifact | stage output | pipeline | `SimpleImageData` |
 | Runtime memoization | one scan/frame | `ViewBank` | cached `gray` view |
-| Study artifact cache | across benchmark/study runs | study tooling | L1-L8 files |
+| Disk-backed study artifact cache | across benchmark/study runs | study tooling | L1-L8 files + version numbers |
 
 ## Directory convention
 

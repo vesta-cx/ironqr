@@ -242,9 +242,7 @@ The implementation and reports must measure:
 
 ## Study cache note
 
-Runtime scanning owns binary views through `ViewBank`. It does not persist binary views across scans.
-
-Benchmark/study tooling may persist this stage as:
+Runtime scanning owns binary views through production `ViewBank` memoization. Benchmark/study tooling may additionally write this stage to disk as:
 
 ```text
 L3 binary views
