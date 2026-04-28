@@ -7,7 +7,7 @@ It is useful when lighting changes across the image.
 ## Input
 
 ```text
-values: Uint8Array
+data: Uint8Array
 width: number
 height: number
 radius: number
@@ -102,6 +102,6 @@ Sauvola adapts to local brightness. A pixel can be dark relative to its neighbor
 
 ## Validation metrics
 
-- Which valid decodes require Sauvola views?
-- Which false positives or empty-payload decodes come from Sauvola views?
-- Does Sauvola need different ranking/budget treatment than Otsu?
+- Valid decodes requiring Sauvola views.
+- False positives or empty-payload decodes from Sauvola views.
+- Ranking/budget treatment for Sauvola compared with Otsu.

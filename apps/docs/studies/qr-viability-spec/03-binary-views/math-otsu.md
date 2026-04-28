@@ -7,7 +7,7 @@ It is useful when foreground and background form two mostly separate brightness 
 ## Input
 
 ```text
-values: Uint8Array
+data: Uint8Array
 ```
 
 Each value is `0..255`.
@@ -31,8 +31,8 @@ v = 0..255
 For each threshold `t`, split pixels into two classes:
 
 ```text
-background = values <= t
-foreground = values > t
+background = data <= t
+foreground = data > t
 ```
 
 Compute:
@@ -83,6 +83,6 @@ Polarity is applied later by `BinaryView` reads.
 
 ## Validation metrics
 
-- How often do Otsu views produce valid finder triples compared with local thresholds?
-- Are Otsu false positives lower than Sauvola/hybrid?
-- Does Otsu remain valuable for decode after scalar/channel expansion?
+- Valid finder triples from Otsu views compared with local thresholds.
+- Otsu false-positive rate compared with Sauvola/hybrid.
+- Decode contribution from Otsu after scalar/channel expansion.

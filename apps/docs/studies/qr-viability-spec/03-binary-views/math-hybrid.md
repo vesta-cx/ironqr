@@ -7,7 +7,7 @@ It is a rescue-family threshold for hard photographed assets.
 ## Input
 
 ```text
-values: Uint8Array
+data: Uint8Array
 width: number
 height: number
 radius: number
@@ -32,7 +32,7 @@ HYBRID_ADAPTIVE_WEIGHT = 0.55
 Compute Otsu's global threshold:
 
 ```text
-global = otsuThreshold(values)
+global = otsuThreshold(data)
 ```
 
 This gives a stable image-wide brightness cutoff.
@@ -85,6 +85,6 @@ Hybrid tries to keep global stability while allowing local rescue.
 
 ## Validation metrics
 
-- Which assets are rescued only by hybrid views?
-- Does hybrid increase false-positive empty decodes?
-- Should hybrid views run early, late, or only after cheaper views fail?
+- Assets rescued only by hybrid views.
+- False-positive empty decode delta from hybrid views.
+- Best execution position for hybrid views: early, late, or after cheaper views fail.
