@@ -57,12 +57,12 @@ decoder success/failure
 canvas/context availability when canvas is part of the path
 ```
 
-Early dimension validation uses the shared image limits:
+Early dimension validation uses the shared image-limits module exported for stage 00 and stage 01:
 
 ```text
-width <= 8192
-height <= 8192
-width × height <= 35_389_440
+width <= MAX_IMAGE_DIMENSION
+height <= MAX_IMAGE_DIMENSION
+width × height <= MAX_IMAGE_PIXELS
 ```
 
 Stage 01 still validates decoded dimensions, area, buffer type, and buffer length.

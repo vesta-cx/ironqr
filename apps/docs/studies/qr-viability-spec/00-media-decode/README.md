@@ -188,12 +188,14 @@ Many source types expose dimensions before or during decode:
 
 Stage 00 must reject impossible or over-budget dimensions as early as metadata permits.
 
-Current dimension limits:
+Shared image dimension limits:
 
 ```ts
-MAX_IMAGE_DIMENSION = 8192;
-MAX_IMAGE_PIXELS = 35_389_440; // 8192 × 4320
+export const MAX_IMAGE_DIMENSION = 8192;
+export const MAX_IMAGE_PIXELS = 35_389_440; // 8192 × 4320
 ```
+
+These constants are shared by stage 00 metadata preflight and stage 01 decoded-frame validation. Define and export them from one shared image-limits module so stages use the same budget without duplicating literals.
 
 Stage 00 applies these limits to metadata dimensions when they are available before decode:
 
