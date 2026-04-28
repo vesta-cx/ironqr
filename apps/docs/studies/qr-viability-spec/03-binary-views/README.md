@@ -28,7 +28,7 @@ interface ScalarView {
 
 ## Output views
 
-A binary view is a polarity-aware view over thresholded scalar data.
+A binary view is a materialized black/white view.
 
 ```ts
 interface BinaryView {
@@ -38,33 +38,25 @@ interface BinaryView {
   readonly polarity: BinaryPolarity;
   readonly width: number;
   readonly height: number;
-  readonly backing: BinaryViewBacking;
-}
-
-interface BinaryViewBacking {
-  readonly scalarViewId: ScalarViewId;
-  readonly threshold: ThresholdMethod;
-  readonly width: number;
-  readonly height: number;
   readonly data: Uint8Array;
 }
 ```
 
-`BinaryViewBacking.data` stores threshold bits as bytes:
+`data` stores QR-ink decisions as bytes:
 
 ```text
-1 = above threshold / ink in normal polarity
-0 = below threshold / background in normal polarity
+1 = dark / QR ink
+0 = light / background
 ```
 
-The binary view applies polarity on read:
+Both polarities are materialized for fast detector reads:
 
 ```text
-normal:   backing bit 1 means dark
-inverted: backing bit 1 means light
+normal.data[index] = thresholdResult[index]
+inverted.data[index] = 1 - normal.data[index]
 ```
 
-So the same backing store can serve both dark-on-light and light-on-dark binary views.
+The inverted view is derived from the already-materialized normal binary view, not from `SimpleImageData` and not by re-running thresholding.
 
 ## Current binary view id format
 
@@ -177,25 +169,14 @@ normal QR:   black code on white background
 inverted QR: light code on dark background
 ```
 
-Instead of building two threshold buffers, the scanner builds one backing store and reads it with two polarities:
-
-```ts
-readBinaryBit(view, index)
-```
-
-For normal:
+Normal polarity is threshold output. Inverted polarity is materialized from normal polarity:
 
 ```text
-backing bit 1 → dark
-backing bit 0 → light
+normal.data[index] = thresholdResult[index]
+inverted.data[index] = 1 - normal.data[index]
 ```
 
-For inverted:
-
-```text
-backing bit 1 → light
-backing bit 0 → dark
-```
+Detector hot loops read `view.data[index]` directly. They do not dispatch through polarity-aware getters.
 
 ## Target realism artifact
 
