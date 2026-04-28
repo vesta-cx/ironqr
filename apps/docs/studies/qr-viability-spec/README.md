@@ -80,7 +80,7 @@ NormalizedImage
   pure L1 decoded pixels
 
 ViewBank / ScanContext
-  per-scan temporary memoization of scalar views, binary planes, binary views, OKLab planes
+  per-scan temporary memoization of scalar views, binary views, and intermediate view data
 
 ScannerArtifactCache
   persistent per-layer/per-asset artifact cache
