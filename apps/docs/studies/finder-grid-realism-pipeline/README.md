@@ -1,8 +1,31 @@
-# Math-Based QR Realism Pipeline
+# Math-Based QR Realism Pipeline Spec
 
-This directory defines the next QR scanner realism pipeline as a sequence of small, empirical stages.
+This directory is the working spec for IronQR's math-based QR realism pipeline.
+
+It defines the pipeline as a sequence of small, empirical stages. Each stage owns one responsibility, one artifact contract, and one set of study questions.
 
 The goal is to stop treating “QR-looking” signals as one blurry score. Each stage should produce a concrete artifact that later stages can measure, cache, compare, and use for ranking or filtering.
+
+## Spec status
+
+This is a living implementation spec, not just explanatory prose.
+
+Use it to decide:
+
+```text
+what artifact each stage owns
+which data is canonical vs derived
+where runtime memoization is allowed
+where persistent study caching begins/ends
+which math/residuals must be measured before production policy changes
+```
+
+When code and this spec disagree, either:
+
+1. update the code to match the spec, or
+2. update the spec with evidence explaining why the old plan was wrong.
+
+Do not let them silently drift.
 
 ## Pipeline shape
 
@@ -19,6 +42,68 @@ The goal is to stop treating “QR-looking” signals as one blurry score. Each 
 → later: semantic QR checks
 → later: decode confirmation + threshold sweeps
 ```
+
+## Artifact and state rules
+
+### Canonical artifacts are pure
+
+A stage artifact should contain the semantic output of that stage, not hidden runtime state.
+
+For example, L1 normalized image is:
+
+```ts
+interface NormalizedImage {
+  readonly width: number;
+  readonly height: number;
+  readonly rgbaPixels: Uint8ClampedArray;
+}
+```
+
+It must not own derived scalar/binary view caches.
+
+### Runtime memoization belongs to execution context
+
+Temporary derived-view reuse belongs in a per-scan execution object, such as:
+
+```text
+ViewBank
+ScanContext
+```
+
+not inside canonical artifacts.
+
+The intended separation is:
+
+```text
+NormalizedImage
+  pure L1 decoded pixels
+
+ViewBank / ScanContext
+  per-scan temporary memoization of scalar views, binary planes, binary views, OKLab planes
+
+ScannerArtifactCache
+  persistent per-layer/per-asset study cache
+```
+
+This keeps parallel execution and async work easier to reason about:
+
+```text
+one image/frame → one ViewBank/ScanContext → garbage-collected after scan
+many assets/workers → many independent contexts
+study reuse → explicit artifact cache, not hidden object mutation
+```
+
+### Persistent caching is explicit and versioned
+
+Persistent study/cache artifacts use layer-specific cache keys and numeric versions. Runtime memoization is not a persisted artifact.
+
+Do not blur these:
+
+| Concept | Lifetime | Owner | Example |
+| --- | --- | --- | --- |
+| Canonical artifact | stage output | pipeline/study | `NormalizedImage` |
+| Runtime memoization | one scan/frame | `ViewBank` / `ScanContext` | cached `gray` view |
+| Persistent artifact cache | across study runs | `ScannerArtifactCache` | L1-L8 files |
 
 ## Directory convention
 
@@ -41,10 +126,11 @@ Each stage README should document:
 
 1. **Input**: what data it receives.
 2. **Output artifact**: what it must emit.
-3. **Math / algorithm**: short overview only; detailed derivations belong in `math-*.md`.
-4. **Why this signal exists**: what failure mode it helps.
-5. **Empirical questions**: what the study should measure.
-6. **Cache boundary**: whether this stage should be cached separately.
+3. **Canonical vs runtime state**: what belongs in the artifact and what belongs in `ViewBank`/`ScanContext`.
+4. **Math / algorithm**: short overview only; detailed derivations belong in `math-*.md`.
+5. **Why this signal exists**: what failure mode it helps.
+6. **Empirical questions**: what the study should measure.
+7. **Cache boundary**: whether this stage should be cached separately.
 
 ## Current-vs-target language
 
@@ -61,6 +147,18 @@ The target pipeline adds richer finder geometry and shared-grid residuals so we 
 Can this finder evidence mathematically explain a valid QR grid?
 If we threshold this confidence, how much work do we save and how many real decodes do we lose?
 ```
+
+## Spec invariants
+
+These rules should hold unless a study disproves them:
+
+1. **L1 is decoded pixels only.** Derived views do not belong inside the normalized-image artifact.
+2. **Coordinates for geometry are continuous.** Finder/module centers and edges may be fractional image-space points.
+3. **Rounding is a sampling concern.** Do not round during geometry fitting; only sample/interpolate at image-read boundaries.
+4. **Finder evidence starts as a seed.** Center/module-size evidence is not enough for final realism decisions.
+5. **Ranking precedes filtering.** Hard rejection needs threshold sweeps proving work saved with no unacceptable decode loss.
+6. **Decode confirmation is the accuracy guard.** Realism scores are useful only if they preserve valid decoded positives and control false positives.
+7. **False-positive accounting must distinguish raw decoder success from accepted scan result.** Empty-payload decodes should stay visible as diagnostics even if rejected from public results.
 
 ## Current stage docs
 

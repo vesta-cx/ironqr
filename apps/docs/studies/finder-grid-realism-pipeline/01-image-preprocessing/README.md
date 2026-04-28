@@ -26,27 +26,27 @@ For already decoded data, the scanner uses:
 createNormalizedImage(imageData);
 ```
 
-## Current output artifact
+## Target output artifact
 
-The current artifact is:
+The target artifact is pure decoded-pixel data:
 
 ```ts
 interface NormalizedImage {
   readonly width: number;
   readonly height: number;
   readonly rgbaPixels: Uint8ClampedArray;
-  readonly derivedViews: DerivedViewCache;
 }
 ```
 
 Meaning:
 
-| Field          | Meaning                                                                     |
-| -------------- | --------------------------------------------------------------------------- |
-| `width`        | Image width in pixels.                                                      |
-| `height`       | Image height in pixels.                                                     |
-| `rgbaPixels`   | Flat RGBA pixel buffer, 4 bytes per pixel.                                  |
-| `derivedViews` | Lazy cache for scalar views, binary views, binary planes, and OKLab planes. |
+| Field        | Meaning                                    |
+| ------------ | ------------------------------------------ |
+| `width`      | Image width in pixels.                     |
+| `height`     | Image height in pixels.                    |
+| `rgbaPixels` | Flat RGBA pixel buffer, 4 bytes per pixel. |
+
+Current code still attaches `derivedViews` to `NormalizedImage` as runtime memoization. This spec treats that as an implementation detail to remove or move into `ViewBank` / `ScanContext`. It is not part of the L1 artifact contract.
 
 The RGBA layout is:
 
@@ -147,9 +147,24 @@ So transparent pixels behave as if shown on white.
 
 This is important for QR artwork with transparent backgrounds.
 
-## Target realism artifact
+## Runtime state boundary
 
-For math-based realism, this stage should remain simple and stable:
+Derived scalar/binary/OKLab views are runtime memoization, not L1 image data.
+
+Target ownership:
+
+```text
+NormalizedImage
+  width, height, rgbaPixels only
+
+ViewBank / ScanContext
+  scalar view cache
+  binary plane cache
+  binary view cache
+  OKLab plane cache
+```
+
+For math-based realism, this stage should remain simple and stable. If metadata is needed, it should be explicit artifact metadata, not mutable runtime cache:
 
 ```ts
 interface NormalizedFrameArtifact {
@@ -161,7 +176,7 @@ interface NormalizedFrameArtifact {
 }
 ```
 
-The key addition is not more data; it is precise metadata about coordinate and alpha policy so downstream geometry has no ambiguity.
+The key addition is precise metadata about coordinate and alpha policy so downstream geometry has no ambiguity.
 
 ## Empirical questions
 
