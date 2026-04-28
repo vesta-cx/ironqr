@@ -29,14 +29,11 @@ The input pixels are canonical SDR, row-major RGBA bytes. Runtime-specific `Imag
 Scalar views are runtime-derived views owned by `ViewBank`. Persistent cache artifacts may store the same bytes as L2 scalar-view artifacts.
 
 ```ts
-type ScalarViewFamily = 'rgb' | 'oklab' | 'derived';
-
 interface ScalarView {
   readonly id: ScalarViewId;
   readonly width: number;
   readonly height: number;
   readonly data: Uint8Array;
-  readonly family: ScalarViewFamily;
 }
 ```
 
@@ -47,9 +44,10 @@ Meaning:
 | `id` | Stable scalar view id, such as `gray` or `oklab-l`. |
 | `width`, `height` | Same dimensions as input image. |
 | `data` | One byte per pixel. |
-| `family` | Broad view family used by decode-neighborhood logic. |
 
 Current implementation may still call the byte array `values`. This spec uses `data` consistently with `SimpleImageData` and later view types.
+
+View grouping belongs in static view registry metadata, keyed by `ScalarViewId`, rather than on every `ScalarView` object.
 
 ## Current scalar view ids
 
@@ -69,7 +67,7 @@ oklab-b
 
 They fall into three groups.
 
-## Group 1: derived grayscale
+## Group 1: grayscale
 
 ```text
 gray
@@ -186,7 +184,7 @@ The goal is not to make every scalar view equally valuable. The goal is to creat
 
 ## Current proposal-view subset
 
-The scanner has a prioritized proposal-view subset derived from a prior exhaustive view report. These are binary view ids, but they imply scalar families that have historically helped.
+The scanner has a prioritized proposal-view subset derived from a prior exhaustive view report. These are binary view ids, but they imply scalar view ids that have historically helped.
 
 Current first entries:
 
@@ -212,7 +210,6 @@ interface ScalarViewArtifact {
   readonly width: number;
   readonly height: number;
   readonly data: Uint8Array;
-  readonly family: ScalarViewFamily;
   readonly formula: string;
 }
 ```
