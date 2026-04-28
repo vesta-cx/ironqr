@@ -38,7 +38,7 @@ Input is the `ImageData` produced by stage 00.
 Current code still has a combined public entry point:
 
 ```ts
-normalizeImageInput(input)
+normalizeImageInput(input);
 ```
 
 That function performs media decode when needed and then calls normalization. In this spec, those responsibilities are split:
@@ -62,11 +62,11 @@ interface SimpleImageData {
 
 Meaning:
 
-| Field | Meaning |
-| --- | --- |
-| `width` | Image width in pixels. |
-| `height` | Image height in pixels. |
-| `data` | Flat row-major RGBA byte buffer, 4 bytes per pixel. |
+| Field    | Meaning                                             |
+| -------- | --------------------------------------------------- |
+| `width`  | Image width in pixels.                              |
+| `height` | Image height in pixels.                             |
+| `data`   | Flat row-major RGBA byte buffer, 4 bytes per pixel. |
 
 `SimpleImageData` intentionally uses only the subset of browser `ImageData` that IronQR needs:
 
@@ -83,12 +83,6 @@ colorSpace
 pixelFormat
 Float16Array HDR data
 methods / DOM object identity
-```
-
-Semantic alias:
-
-```ts
-type NormalizedImage = SimpleImageData;
 ```
 
 Current implementation uses `rgbaPixels` rather than `data`. This spec prefers `data` to match `ImageData` unless implementation evidence shows that `rgbaPixels` avoids confusion. Either way, the canonical artifact is the same semantic object: width, height, and `Uint8ClampedArray` RGBA bytes.
@@ -116,33 +110,49 @@ accept directly or copy according to ownership policy
 
 Modern browser `ImageData` may use `Float16Array`, usually for HDR or wide-gamut canvas/image APIs.
 
-This is more than “just another byte array.” It may involve:
+Stage 01 converts HDR / float16 `ImageData` to SDR `SimpleImageData`:
 
 ```text
-HDR transfer functions
-wide-gamut color spaces
-values outside normal 0..1 range
-float precision
-browser/runtime color-management policy
-```
-
-Stage 01 handles `Float16Array` with one explicit policy:
-
-```text
-convert Float16Array to Uint8ClampedArray with a documented color/HDR policy
-or reject with unsupported decoded pixel format
-```
-
-A conservative future conversion may be:
-
-```text
-convert to canonical sRGB-like 0..1
-clamp to 0..1
+read float16 RGBA channels
+convert source color space to the canonical SDR RGB space
+tone map HDR channel values into SDR range
+clamp normalized RGB and alpha to 0..1
 multiply by 255
 write Uint8ClampedArray
 ```
 
-Document and validate the conversion with HDR/wide-gamut fixtures before making it a product guarantee.
+MVP tone-mapping policy:
+
+```text
+use platform color conversion when it provides SDR ImageData output
+otherwise apply an explicit deterministic SDR tone map in stage 01
+```
+
+The deterministic fallback must define:
+
+```text
+source color-space interpretation
+NaN / infinite channel handling
+negative channel handling
+HDR shoulder curve
+alpha conversion
+rounding to Uint8ClampedArray
+```
+
+Suggested fallback for QR viability:
+
+```text
+sanitize non-finite RGB to 0
+clamp negative RGB to 0
+apply a luminance-preserving HDR shoulder for RGB values above SDR white
+clamp final RGB to 0..1
+clamp alpha to 0..1
+write 0..255 Uint8ClampedArray channels
+```
+
+Stage 01 rejects float16 input only when the runtime exposes insufficient color-space or pixel-format information to apply the documented SDR conversion safely.
+
+Validate HDR/wide-gamut conversion with fixtures before making it a product guarantee.
 
 ## RGBA layout
 
@@ -180,7 +190,11 @@ interface RgbaPixel {
   readonly a: number;
 }
 
-const isPixelInBounds = (image: SimpleImageData, x: number, y: number): boolean =>
+const isPixelInBounds = (
+  image: SimpleImageData,
+  x: number,
+  y: number,
+): boolean =>
   Number.isInteger(x) &&
   Number.isInteger(y) &&
   x >= 0 &&
@@ -188,7 +202,11 @@ const isPixelInBounds = (image: SimpleImageData, x: number, y: number): boolean 
   x < image.width &&
   y < image.height;
 
-const rgbaPixelOffset = (image: SimpleImageData, x: number, y: number): number => {
+const rgbaPixelOffset = (
+  image: SimpleImageData,
+  x: number,
+  y: number,
+): number => {
   if (!isPixelInBounds(image, x, y)) {
     throw new RangeError(
       `Pixel coordinate (${x}, ${y}) is outside ${image.width}x${image.height}.`,
@@ -197,7 +215,11 @@ const rgbaPixelOffset = (image: SimpleImageData, x: number, y: number): number =
   return (y * image.width + x) * 4;
 };
 
-const readRgbaPixel = (image: SimpleImageData, x: number, y: number): RgbaPixel => {
+const readRgbaPixel = (
+  image: SimpleImageData,
+  x: number,
+  y: number,
+): RgbaPixel => {
   const base = rgbaPixelOffset(image, x, y);
   return {
     r: image.data[base + 0] ?? 0,
@@ -293,7 +315,7 @@ Derived scalar/binary/OKLab views are runtime memoization owned outside L1 image
 Target ownership:
 
 ```text
-SimpleImageData / NormalizedImage
+SimpleImageData
   width, height, Uint8ClampedArray RGBA data only
 
 ViewBank / ScanContext
@@ -312,9 +334,9 @@ Artifact metadata is explicit and separate from mutable runtime cache:
 ```ts
 interface NormalizedFrameArtifact {
   readonly image: SimpleImageData;
-  readonly coordinateConvention: 'pixel-centers-at-integers';
-  readonly alphaCompositePolicy: 'views-composite-on-white';
-  readonly normalizedPixelFormat: 'rgba-unorm8';
+  readonly coordinateConvention: "pixel-centers-at-integers";
+  readonly alphaCompositePolicy: "views-composite-on-white";
+  readonly normalizedPixelFormat: "rgba-unorm8";
 }
 ```
 
@@ -324,14 +346,14 @@ The key addition is precise metadata about pixel format, coordinate policy, and 
 
 This stage affects every later QR signal. Reports must track:
 
-| Metric | Purpose |
-| --- | --- |
-| Rejected decoded pixel formats | Ensure Float16/HDR inputs follow explicit conversion/rejection policy. |
-| Normalization conversion counts | Track when stage 01 converts vs accepts directly. |
-| Transparent asset behavior | QR artwork may rely on transparency. |
-| Very large image materialization time | Cache and budget planning. |
-| Source-dimension correlation with decode/finder failures | Very small modules can become unresolvable. |
-| 8192×4320 area budget behavior across browser, Node, native, and WASM backends | Product input guarantee. |
+| Metric                                                                         | Purpose                                                                |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Rejected decoded pixel formats                                                 | Ensure Float16/HDR inputs follow explicit conversion/rejection policy. |
+| Normalization conversion counts                                                | Track when stage 01 converts vs accepts directly.                      |
+| Transparent asset behavior                                                     | QR artwork may rely on transparency.                                   |
+| Very large image materialization time                                          | Cache and budget planning.                                             |
+| Source-dimension correlation with decode/finder failures                       | Very small modules can become unresolvable.                            |
+| 8192×4320 area budget behavior across browser, Node, native, and WASM backends | Product input guarantee.                                               |
 
 ## Cache boundary
 
