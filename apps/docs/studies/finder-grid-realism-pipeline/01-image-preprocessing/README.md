@@ -68,6 +68,62 @@ b = rgbaPixels[base + 2]
 a = rgbaPixels[base + 3]
 ```
 
+## Shared RGBA pixel readers
+
+The spec should expose safe coordinate helpers for non-hot code, tests, and documentation. These helpers encode the row-major RGBA layout in one place.
+
+```ts
+interface RgbaPixel {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+  readonly a: number;
+}
+
+const isPixelInBounds = (image: NormalizedImage, x: number, y: number): boolean =>
+  Number.isInteger(x) &&
+  Number.isInteger(y) &&
+  x >= 0 &&
+  y >= 0 &&
+  x < image.width &&
+  y < image.height;
+
+const rgbaPixelOffset = (image: NormalizedImage, x: number, y: number): number => {
+  if (!isPixelInBounds(image, x, y)) {
+    throw new RangeError(`Pixel coordinate (${x}, ${y}) is outside ${image.width}x${image.height}.`);
+  }
+  return (y * image.width + x) * 4;
+};
+
+const readRgbaPixel = (image: NormalizedImage, x: number, y: number): RgbaPixel => {
+  const base = rgbaPixelOffset(image, x, y);
+  return {
+    r: image.rgbaPixels[base + 0] ?? 0,
+    g: image.rgbaPixels[base + 1] ?? 0,
+    b: image.rgbaPixels[base + 2] ?? 0,
+    a: image.rgbaPixels[base + 3] ?? 0,
+  };
+};
+
+const tryReadRgbaPixel = (image: NormalizedImage, x: number, y: number): RgbaPixel | null => {
+  if (!isPixelInBounds(image, x, y)) return null;
+  const base = (y * image.width + x) * 4;
+  return {
+    r: image.rgbaPixels[base + 0] ?? 0,
+    g: image.rgbaPixels[base + 1] ?? 0,
+    b: image.rgbaPixels[base + 2] ?? 0,
+    a: image.rgbaPixels[base + 3] ?? 0,
+  };
+};
+```
+
+Policy:
+
+- `readRgbaPixel(...)` throws on invalid integer coordinates.
+- `tryReadRgbaPixel(...)` returns `null` on invalid integer coordinates.
+- Hot full-frame loops may use direct offset math after validating image dimensions once.
+- Subpixel geometry must not use these integer pixel readers directly; it should use interpolation/sampling helpers.
+
 ## Coordinate convention
 
 The scanner's image-space coordinate convention should be documented as:
