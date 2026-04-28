@@ -57,7 +57,7 @@ That function performs media decode when needed and then calls normalization. In
 | [Pixel layout and access](./pixel-layout-and-access.md) | Row-major RGBA layout, coordinate convention, and safe pixel readers. |
 | [Validation](./validation.md) | Dimension, area, buffer type, buffer length, and metrics. |
 | [Alpha policy](./alpha-policy.md) | Preserve alpha in L1; scalar views composite over white. |
-| [Runtime state boundary](./runtime-state-boundary.md) | `ViewBank` / `ScanContext` own derived-view memoization. |
+| [Runtime state boundary](./runtime-state-boundary.md) | `ViewBank` owns derived-view memoization. |
 | [L1 artifact and cache boundary](./l1-artifact-cache.md) | Artifact metadata and cache-version bump policy. |
 
 ## Output

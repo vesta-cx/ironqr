@@ -68,7 +68,6 @@ Temporary derived-view reuse belongs in a per-scan execution object, such as:
 
 ```text
 ViewBank
-ScanContext
 ```
 
 not inside canonical artifacts.
@@ -79,7 +78,7 @@ The intended separation is:
 NormalizedImage
   pure L1 decoded pixels
 
-ViewBank / ScanContext
+ViewBank
   per-scan temporary memoization of scalar views, binary views, and derived view backing stores
 
 ScannerArtifactCache
@@ -89,7 +88,7 @@ ScannerArtifactCache
 This keeps parallel execution and async work easier to reason about:
 
 ```text
-one image/frame → one ViewBank/ScanContext → garbage-collected after scan
+one image/frame → one ViewBank → garbage-collected after scan
 many assets/workers → many independent contexts
 cross-run reuse → explicit artifact cache, not hidden object mutation
 ```
@@ -103,7 +102,7 @@ Do not blur these:
 | Concept | Lifetime | Owner | Example |
 | --- | --- | --- | --- |
 | Canonical artifact | stage output | pipeline | `NormalizedImage` |
-| Runtime memoization | one scan/frame | `ViewBank` / `ScanContext` | cached `gray` view |
+| Runtime memoization | one scan/frame | `ViewBank` | cached `gray` view |
 | Persistent artifact cache | across runs | `ScannerArtifactCache` | L1-L8 files |
 
 ## Directory convention
@@ -127,7 +126,7 @@ Each stage README should document:
 
 1. **Input**: what data it receives.
 2. **Output artifact**: what it must emit.
-3. **Canonical vs runtime state**: what belongs in the artifact and what belongs in `ViewBank`/`ScanContext`.
+3. **Canonical vs runtime state**: what belongs in the artifact and what belongs in `ViewBank`.
 4. **Math / algorithm**: short overview only; detailed derivations belong in `math-*.md`.
 5. **Why this signal exists**: what failure mode it helps.
 6. **Validation metrics**: what evidence must be collected to prove the stage works.
