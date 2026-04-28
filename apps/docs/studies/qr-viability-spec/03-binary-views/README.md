@@ -2,13 +2,16 @@
 
 Binary views turn scalar values into black/white pixels.
 
-This stage defines:
+This stage defines the threshold method and polarity semantics that convert scalar values into QR-ink decisions.
+
+Every scalar-view/threshold-method pair exposes both polarities:
 
 ```text
-Which pixels are dark enough to count as QR ink?
-Which threshold method produced that decision?
-Should normal and inverted polarity both be tested?
+normal
+inverted
 ```
+
+Both polarities are tested because QR artwork can be dark-on-light or light-on-dark.
 
 ## Current input
 
