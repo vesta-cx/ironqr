@@ -1,6 +1,6 @@
 # Tier 1 — Platform Decode
 
-Platform decode is the first media-decode branch.
+Platform decode is the MVP media-decode branch.
 
 Use the active runtime's image decoder when it can produce browser `ImageData` for the input format.
 
@@ -61,12 +61,23 @@ canvas/context availability when canvas is part of the path
 
 Stage 01 still validates decoded dimensions, area, buffer type, and buffer length.
 
-## Escalation
+## MVP fallback
 
-Route to [Tier 2 — Existing Format Libraries](./tier-2-existing-format-libraries.md) when:
+For the MVP, platform decode failure routes to [Tier 4 — Actionable Rejection](./tier-4-actionable-rejection.md):
+
+```text
+platform decoder lacks the format
+platform decoder fails for the source
+platform decoder API is unavailable
+```
+
+## Post-MVP escalation
+
+After the MVP, route to [Tier 2 — Existing Format Libraries](./tier-2-existing-format-libraries.md) when:
 
 ```text
 platform decoder lacks the format
 platform decoder exists only in some target runtimes
 platform decoder behavior is insufficient for product requirements
+format support is a product requirement
 ```

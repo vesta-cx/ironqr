@@ -110,24 +110,31 @@ image smoothing/raster details from drawImage/getImageData
 
 ## Format support policy
 
-Format support branches by implementation source. Each branch emits browser `ImageData` or an actionable media-decode error.
+MVP format support uses [Tier 1 — Platform Decode](./tier-1-platform-decode.md).
 
 ```text
 source
 → Tier 1 platform decode
-→ Tier 2 existing format library
-→ Tier 3 IronQR-owned decoder
-→ Tier 4 actionable rejection
+→ ImageData or actionable media-decode error
 ```
 
-| Tier | Branch | Contract |
-| --- | --- | --- |
-| 1 | [Platform decode](./tier-1-platform-decode.md) | Use browser/runtime/native decode paths when available. |
-| 2 | [Existing format libraries](./tier-2-existing-format-libraries.md) | Use mature browser/WASM/Node/native bindings for widely used formats. |
-| 3 | [IronQR-owned decoder](./tier-3-ironqr-owned-decoder.md) | Add IronQR decoder code only when platform decode and existing libraries cannot satisfy a required format. |
-| 4 | [Actionable rejection](./tier-4-actionable-rejection.md) | Return a clear unsupported-format error with caller guidance. |
+Post-MVP branches remain documented for the target architecture:
 
-Decoder policy:
+| Tier | Branch | Status | Contract |
+| --- | --- | --- | --- |
+| 1 | [Platform decode](./tier-1-platform-decode.md) | MVP | Use browser/runtime/native decode paths when available. |
+| 2 | [Existing format libraries](./tier-2-existing-format-libraries.md) | Post-MVP | Use mature browser/WASM/Node/native bindings for widely used formats. |
+| 3 | [IronQR-owned decoder](./tier-3-ironqr-owned-decoder.md) | Post-MVP | Add IronQR decoder code only when platform decode and existing libraries cannot satisfy a required format. |
+| 4 | [Actionable rejection](./tier-4-actionable-rejection.md) | MVP fallback | Return a clear unsupported-format error with caller guidance. |
+
+MVP decoder policy:
+
+```text
+try platform decode
+else reject with actionable unsupported-format error
+```
+
+Post-MVP decoder policy:
 
 ```text
 try platform decode if supported
@@ -136,13 +143,13 @@ else use an IronQR-owned decoder when required and no suitable implementation ex
 else reject with actionable unsupported-format error
 ```
 
-Explicit target:
+Explicit post-MVP target:
 
 ```text
 HEIC / HEIF for iPhone uploads
 ```
 
-HEIC/HEIF follows the same branch order: platform decode first, existing decoder binding second, IronQR-owned decoder only if required.
+HEIC/HEIF support follows the same branch order: platform decode first, existing decoder binding second, IronQR-owned decoder only if required.
 
 ## Format detection
 
