@@ -61,10 +61,10 @@ okB =  0.0259040371 × Lcone + 0.7827717662 × Mcone - 0.8086757660 × Scone
 
 Interpretation:
 
-| Plane | Rough meaning |
-| --- | --- |
-| `okL` | perceptual lightness |
-| `okA` | green/red-ish chroma axis |
+| Plane | Rough meaning               |
+| ----- | --------------------------- |
+| `okL` | perceptual lightness        |
+| `okA` | green/red-ish chroma axis   |
 | `okB` | blue/yellow-ish chroma axis |
 
 ## Step 4: encode to 8-bit scalar views
@@ -72,26 +72,34 @@ Interpretation:
 The pipeline stores scalar views as `Uint8Array`, so OKLab channels are encoded to bytes.
 
 ```text
-oklab-l = clampByte(okL × 255)
-oklab+a = clampByte(128 + okA × 180)
-oklab-a = clampByte(128 - okA × 180)
-oklab+b = clampByte(128 + okB × 180)
-oklab-b = clampByte(128 - okB × 180)
+OKLAB_CHROMA_BYTE_CENTER = 127.5
+OKLAB_CHROMA_BYTE_GAIN = 180
+
+oklab-l = clampByte(round(okL × 255))
+oklab-a = clampByte(round(OKLAB_CHROMA_BYTE_CENTER + okA × OKLAB_CHROMA_BYTE_GAIN))
+oklab-b = clampByte(round(OKLAB_CHROMA_BYTE_CENTER + okB × OKLAB_CHROMA_BYTE_GAIN))
 ```
 
-`oklab+a` and `oklab-a` expose opposite directions of the same chroma axis. Same for `oklab+b` / `oklab-b`.
+`oklab-a` and `oklab-b` are neutral-centered signed chroma-axis views. The `180` gain spreads practical OKLab chroma values across more of the byte range for thresholding.
 
-## Why signed pairs exist
+## Chroma direction
 
-Thresholding asks “which pixels are dark?” But chroma contrast has direction.
+Chroma contrast has direction: a QR may be foreground-red/background-green or foreground-green/background-red. Those are opposite signs on the `a` axis.
 
-A QR may be foreground-red/background-green or foreground-green/background-red. Those are opposite signs on the `a` axis.
+Stage 02 emits one scalar view per signed chroma axis. Stage 03 binary polarity handles direction:
 
-By materializing both signs, the scanner lets thresholding discover contrast in either direction without guessing the foreground color.
+```text
+oklab-a:otsu:normal
+oklab-a:otsu:inverted
+oklab-b:otsu:normal
+oklab-b:otsu:inverted
+```
+
+The symmetric center `127.5` makes binary inversion the canonical opposite-direction view instead of materializing separate `+` and `-` scalar views.
 
 ## Validation metrics
 
-- Successful decode provenance by OKLab scalar view.
-- Empty-payload false positives by OKLab scalar view.
+- Successful decode provenance by OKLab scalar view and binary polarity.
+- Empty-payload false positives by OKLab scalar view and binary polarity.
 - Positives rescued by chroma-axis views after grayscale miss.
-- False-positive and success balance across signed pairs.
+- False-positive and success balance across normal/inverted polarity.

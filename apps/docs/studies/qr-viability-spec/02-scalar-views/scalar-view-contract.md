@@ -11,11 +11,11 @@ interface ScalarView {
 }
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Stable scalar view id, such as `gray` or `oklab-l`. |
-| `width`, `height` | Same dimensions as input `SimpleImageData`. |
-| `data` | One byte per pixel. |
+| Field             | Meaning                                             |
+| ----------------- | --------------------------------------------------- |
+| `id`              | Stable scalar view id, such as `gray` or `oklab-l`. |
+| `width`, `height` | Same dimensions as input `SimpleImageData`.         |
+| `data`            | One byte per pixel.                                 |
 
 Current implementation may still call the byte array `values`. This spec uses `data` consistently with `SimpleImageData` and later view types.
 

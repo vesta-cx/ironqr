@@ -11,4 +11,4 @@ Bump L2 when:
 - scalar view list changes,
 - formulas change,
 - alpha-composite policy changes in a way that affects scalar values,
-- OKLab encoding scale or sign convention changes.
+- OKLab byte center, chroma gain, or axis encoding changes.

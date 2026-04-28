@@ -82,6 +82,7 @@ Examples:
 gray:otsu:normal
 gray:otsu:inverted
 oklab-l:sauvola:normal
+oklab-a:otsu:inverted
 b:hybrid:normal
 ```
 

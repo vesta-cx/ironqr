@@ -26,17 +26,17 @@ The input pixels are canonical SDR, row-major RGBA bytes. Runtime-specific `Imag
 
 ## Stage notes
 
-| Note | Contract |
-| --- | --- |
-| [Scalar view contract](./scalar-view-contract.md) | Runtime `ScalarView` shape and L2 artifact metadata. |
-| [Scalar view registry](./scalar-view-registry.md) | Current scalar view ids and grouping metadata. |
-| [Grayscale view](./grayscale-view.md) | Rec. 601 luma scalar view. |
-| [RGB channel views](./rgb-channel-views.md) | `r`, `g`, and `b` scalar views. |
-| [OKLab views](./oklab-views.md) | `oklab-l` and signed OKLab chroma-axis scalar views. |
-| [OKLab math](./math-oklab.md) | Detailed OKLab conversion and encoding math. |
-| [Scalar selection policy](./scalar-selection-policy.md) | Why the scalar set exists and current proposal-view priority evidence. |
-| [Validation](./validation.md) | Contribution, rescue, false-positive, and proposal-volume metrics. |
-| [L2 artifact and cache boundary](./l2-artifact-cache.md) | L2 cache boundary and version bump policy. |
+| Note                                                     | Contract                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Scalar view contract](./scalar-view-contract.md)        | Runtime `ScalarView` shape and L2 artifact metadata.                   |
+| [Scalar view registry](./scalar-view-registry.md)        | Current scalar view ids and grouping metadata.                         |
+| [Grayscale view](./grayscale-view.md)                    | Rec. 601 luma scalar view.                                             |
+| [RGB channel views](./rgb-channel-views.md)              | `r`, `g`, and `b` scalar views.                                        |
+| [OKLab views](./oklab-views.md)                          | `oklab-l`, `oklab-a`, and `oklab-b` scalar views.                      |
+| [OKLab math](./math-oklab.md)                            | Detailed OKLab conversion and encoding math.                           |
+| [Scalar selection policy](./scalar-selection-policy.md)  | Why the scalar set exists and current proposal-view priority evidence. |
+| [Validation](./validation.md)                            | Contribution, rescue, false-positive, and proposal-volume metrics.     |
+| [L2 artifact and cache boundary](./l2-artifact-cache.md) | L2 cache boundary and version bump policy.                             |
 
 ## Output
 
