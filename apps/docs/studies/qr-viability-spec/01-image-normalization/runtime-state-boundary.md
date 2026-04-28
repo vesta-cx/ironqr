@@ -11,9 +11,13 @@ SimpleImageData
 ViewBank / ScanContext
   scalar view cache
   binary view cache
-  reusable derived buffers
+  derived view backing stores
 ```
 
 `ViewBank` / `ScanContext` owns runtime memoization.
 
-Use “view” as the generic term for scanner-readable derived image data. Scalar views and binary views are both views. Current implementation details may store reusable derived buffers, such as polarity-free threshold bits for binary views or OKLab channel materialization for scalar views. These buffers support views, but they are not separate view kinds and not L1 image data.
+Use “view” as the generic term for scanner-readable derived image data. Scalar views and binary views are both views.
+
+A view may be backed by stored bytes or by a lightweight adapter over another backing store. For example, normal and inverted binary views can share one threshold backing store and calculate polarity on read instead of materializing two buffers.
+
+`ViewBank` / `ScanContext` owns both view objects and their backing stores. These backing stores support views, but they are not separate view kinds and not L1 image data.
