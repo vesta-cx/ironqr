@@ -73,7 +73,7 @@ They fall into three groups.
 gray
 ```
 
-Formula after alpha compositing on white, in gamma-encoded canonical SDR RGB byte space:
+Formula after alpha compositing on white, using Rec. 601 luma coefficients in gamma-encoded canonical SDR RGB byte space:
 
 ```text
 gray = round(0.299 × R8 + 0.587 × G8 + 0.114 × B8)
@@ -84,10 +84,12 @@ Where `R8`, `G8`, and `B8` are the 0..255 alpha-composited SDR RGB channel value
 Equivalent normalized form:
 
 ```text
-gray = round((0.299 × r' + 0.587 × g' + 0.114 × b') × 255)
+gray = round((0.299 × R' + 0.587 × G' + 0.114 × B') × 255)
 ```
 
-Where `r'`, `g'`, and `b'` are gamma-encoded canonical SDR RGB channels normalized to `0..1`, not linear-light RGB.
+Where `R'`, `G'`, and `B'` are gamma-encoded canonical SDR RGB channels normalized to `0..1`, not linear-light RGB.
+
+This is Rec. 601-style luma (`Y'`), not linear luminance (`Y`).
 
 Why use it:
 
