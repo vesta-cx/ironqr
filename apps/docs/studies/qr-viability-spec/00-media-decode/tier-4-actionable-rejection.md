@@ -1,7 +1,5 @@
 # Tier 4 — Actionable Rejection
 
-Actionable rejection is the final media-decode branch.
-
 Use this branch when the source cannot be decoded into browser `ImageData` by platform decode, an existing format library, or an IronQR-owned decoder.
 
 ## Error contract

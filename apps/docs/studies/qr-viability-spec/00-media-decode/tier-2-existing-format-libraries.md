@@ -1,7 +1,5 @@
 # Tier 2 — Existing Format Libraries
 
-Existing format libraries are the second media-decode branch.
-
 For widely used formats with mature browser, WASM, Node, or native bindings, integrate an existing implementation before adding IronQR-owned decoder code.
 
 ## Selection criteria

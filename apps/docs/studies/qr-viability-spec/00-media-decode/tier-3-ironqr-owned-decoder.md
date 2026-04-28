@@ -1,7 +1,5 @@
 # Tier 3 — IronQR-Owned Decoder
 
-IronQR-owned decoders are the third media-decode branch.
-
 Add an IronQR-owned decoder for a format when platform decode and existing format libraries cannot satisfy the product/runtime requirement.
 
 ## Entry criteria
