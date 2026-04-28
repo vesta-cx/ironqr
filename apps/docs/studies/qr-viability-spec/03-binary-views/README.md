@@ -13,43 +13,22 @@ inverted
 
 Both polarities are tested because QR artwork can be dark-on-light or light-on-dark.
 
-## Current input
+## Input
 
 Input is one scalar view:
 
 ```ts
 interface ScalarView {
-  id: ScalarViewId;
-  width: number;
-  height: number;
-  values: Uint8Array; // 0..255
-}
-```
-
-## Current output artifacts
-
-The current pipeline separates a polarity-free binary plane from polarity-aware binary views.
-
-### Binary plane
-
-```ts
-interface BinaryPlane {
-  readonly scalarViewId: ScalarViewId;
-  readonly threshold: ThresholdMethod;
+  readonly id: ScalarViewId;
   readonly width: number;
   readonly height: number;
-  readonly data: Uint8Array;
+  readonly data: Uint8Array; // 0..255
 }
 ```
 
-`data` stores bits as bytes:
+## Output views
 
-```text
-1 = dark
-0 = light
-```
-
-### Binary view
+A binary view is a polarity-aware view over thresholded scalar data.
 
 ```ts
 interface BinaryView {
@@ -59,19 +38,33 @@ interface BinaryView {
   readonly polarity: BinaryPolarity;
   readonly width: number;
   readonly height: number;
-  readonly plane: BinaryPlane;
-  readonly binary: Uint8Array;
+  readonly backing: BinaryViewBacking;
 }
+
+interface BinaryViewBacking {
+  readonly scalarViewId: ScalarViewId;
+  readonly threshold: ThresholdMethod;
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+}
+```
+
+`BinaryViewBacking.data` stores threshold bits as bytes:
+
+```text
+1 = above threshold / ink in normal polarity
+0 = below threshold / background in normal polarity
 ```
 
 The binary view applies polarity on read:
 
 ```text
-normal:   plane bit 1 means dark
-inverted: plane bit 1 means light
+normal:   backing bit 1 means dark
+inverted: backing bit 1 means light
 ```
 
-So the same threshold plane can serve both dark-on-light and light-on-dark candidates.
+So the same backing store can serve both dark-on-light and light-on-dark binary views.
 
 ## Current binary view id format
 
@@ -184,7 +177,7 @@ normal QR:   black code on white background
 inverted QR: light code on dark background
 ```
 
-Instead of building two threshold planes, the scanner builds one plane and reads it with two polarities:
+Instead of building two threshold buffers, the scanner builds one backing store and reads it with two polarities:
 
 ```ts
 readBinaryBit(view, index)
@@ -193,15 +186,15 @@ readBinaryBit(view, index)
 For normal:
 
 ```text
-plane 1 → dark
-plane 0 → light
+backing bit 1 → dark
+backing bit 0 → light
 ```
 
 For inverted:
 
 ```text
-plane 1 → light
-plane 0 → dark
+backing bit 1 → light
+backing bit 0 → dark
 ```
 
 ## Target realism artifact
