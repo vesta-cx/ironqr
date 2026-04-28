@@ -69,7 +69,7 @@ Interpretation:
 
 ## Step 4: encode to 8-bit scalar views
 
-The pipeline stores scalar views as `Uint8Array`, so OKLab planes are encoded to bytes.
+The pipeline stores scalar views as `Uint8Array`, so OKLab channels are encoded to bytes.
 
 ```text
 oklab-l = clampByte(okL × 255)
@@ -91,7 +91,7 @@ By materializing both signs, the scanner lets thresholding discover contrast in 
 
 ## Validation metrics
 
-- Which OKLab scalar views produce successful decode provenance?
-- Which OKLab scalar views produce empty-payload false positives?
-- Do chroma-axis views rescue positives that grayscale misses?
-- Are signed pairs symmetric in practice, or does one sign dominate false positives?
+- Successful decode provenance by OKLab scalar view.
+- Empty-payload false positives by OKLab scalar view.
+- Positives rescued by chroma-axis views after grayscale miss.
+- False-positive and success balance across signed pairs.

@@ -2,43 +2,41 @@
 
 Scalar views turn RGBA image pixels into one grayscale-like number per pixel.
 
-A scalar view is not black/white yet. It is a single 8-bit plane:
+A scalar view is not black/white yet. It is a single 8-bit view:
 
 ```text
 0..255 value per pixel
 ```
 
-This stage defines:
+This stage defines the scalar image signals exposed before thresholding and detector work.
 
-```text
-Which image signals do we expose before thresholding?
-Why these color channels?
-Which views actually contribute finder evidence and valid decodes?
-```
+## Input
 
-## Current input
-
-Input is the normalized image from stage 01:
+Input is the `SimpleImageData` emitted by stage 01:
 
 ```ts
-interface NormalizedImage {
-  width: number;
-  height: number;
-  rgbaPixels: Uint8ClampedArray;
+interface SimpleImageData {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8ClampedArray;
 }
 ```
 
-## Current output artifact
+The input pixels are canonical SDR, row-major RGBA bytes. Runtime-specific `ImageData` fields and HDR/float16 data have already been normalized by stage 01.
 
-Current scalar view shape:
+## Output view
+
+Scalar views are runtime-derived views owned by `ViewBank`. Persistent cache artifacts may store the same bytes as L2 scalar-view artifacts.
 
 ```ts
+type ScalarViewFamily = 'rgb' | 'oklab' | 'derived';
+
 interface ScalarView {
   readonly id: ScalarViewId;
   readonly width: number;
   readonly height: number;
-  readonly values: Uint8Array;
-  readonly family: 'rgb' | 'oklab' | 'derived';
+  readonly data: Uint8Array;
+  readonly family: ScalarViewFamily;
 }
 ```
 
@@ -48,8 +46,10 @@ Meaning:
 | --- | --- |
 | `id` | Stable scalar view id, such as `gray` or `oklab-l`. |
 | `width`, `height` | Same dimensions as input image. |
-| `values` | One byte per pixel. |
+| `data` | One byte per pixel. |
 | `family` | Broad view family used by decode-neighborhood logic. |
+
+Current implementation may still call the byte array `values`. This spec uses `data` consistently with `SimpleImageData` and later view types.
 
 ## Current scalar view ids
 
@@ -155,7 +155,7 @@ This is perceptual lightness. It is often a better brightness signal than simple
 
 ### Signed color-axis views
 
-The `a` and `b` planes can be positive or negative, but scalar views must be `0..255`. The scanner encodes both directions:
+The `a` and `b` channels can be positive or negative, but scalar views must be `0..255`. The scanner encodes both directions:
 
 ```text
 oklab+a = clampByte(128 + a × 180)
@@ -164,7 +164,7 @@ oklab+b = clampByte(128 + b × 180)
 oklab-b = clampByte(128 - b × 180)
 ```
 
-Why both signs?
+Both signs rationale
 
 A QR may be darker in one chroma direction or the opposite. Instead of assuming which side is foreground, both signed directions are exposed to thresholding.
 
@@ -202,22 +202,22 @@ b:hybrid:normal
 
 This means `gray`, `oklab-l`, and `b` have been strong early contributors in previous empirical runs.
 
-## Target realism artifact
+## Artifact metadata
 
-For math-based realism, scalar views should remain simple, but reports should preserve contribution accounting:
+For math-based QR viability, scalar views remain simple, while reports preserve contribution accounting:
 
 ```ts
 interface ScalarViewArtifact {
   readonly id: ScalarViewId;
   readonly width: number;
   readonly height: number;
-  readonly values: Uint8Array;
-  readonly family: 'derived' | 'rgb' | 'oklab';
+  readonly data: Uint8Array;
+  readonly family: ScalarViewFamily;
   readonly formula: string;
 }
 ```
 
-The formula metadata helps when comparing behavior across view changes.
+The formula metadata helps compare behavior across view changes.
 
 ## Validation metrics
 
@@ -225,11 +225,11 @@ The implementation and reports must eventually capture:
 
 | Metric | Purpose |
 | --- | --- |
-| Which scalar views produce finder evidence that reaches valid decode? | Avoid spending detector work on low-value views. |
-| Which scalar views produce false-positive empty decodes? | Identify risky channels. |
-| Do chroma views rescue positives missed by grayscale? | Justifies their cost. |
-| Do some views produce many proposals but no valid decode? | Candidate for lower priority or budget cap. |
-| Does view usefulness differ by corpus family? | Generated/stylized/photographic QR may need different view order. |
+| Finder evidence reaching valid decode by scalar view | Avoid spending detector work on low-value views. |
+| False-positive empty decodes by scalar view | Identify risky channels. |
+| Positives rescued by chroma views after grayscale miss | Justify chroma-view cost. |
+| Proposal volume without valid decode by scalar view | Identify views for lower priority or budget caps. |
+| View usefulness by corpus family | Generated/stylized/photographic QR may need different view order. |
 
 ## Cache boundary
 
