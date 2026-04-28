@@ -1,4 +1,14 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+import {
+  type BenchmarkVerdict,
+  buildReportCorpus,
+  failedVerdict,
+  passedVerdict,
+  REPORT_SCHEMA_VERSION,
+  readRepoMetadata,
+  unavailableVerdict,
+  writeReportWithSnapshot,
+} from '../core/reports.js';
 import { collapseHome } from '../shared/paths.js';
 import { statusCodeForResult } from './scoring.js';
 import type {
@@ -129,14 +139,14 @@ export const printAccuracyHome = (
     'help',
     ['command'],
     [
+      ['bun run bench'],
       ['bun run bench accuracy'],
-      ['bun run bench accuracy --list-engines'],
       ['bun run bench accuracy --refresh-cache'],
       ['bun run bench accuracy --no-progress'],
       ['bun run bench accuracy --workers 8'],
-      ['bun run bench accuracy --verbose'],
-      ['bun run bench accuracy --ironqr-trace off|summary|full'],
       ['bun run bench performance'],
+      ['bun run bench performance --iterations 8'],
+      ['bun run bench engines'],
     ],
   );
 };
@@ -146,6 +156,7 @@ export const printAccuracySummary = (
   options: { readonly failuresOnly?: boolean; readonly verbose?: boolean } = {},
 ): void => {
   printScalar('report', result.reportFile);
+  printScalar('status', result.status);
   printScalar('corpusAssets', result.corpusAssetCount);
   printScalar('positives', result.positiveCount);
   printScalar('negatives', result.negativeCount);
@@ -156,6 +167,11 @@ export const printAccuracySummary = (
   printScalar('cacheHits', result.cache.hits);
   printScalar('cacheMisses', result.cache.misses);
   printScalar('cacheWrites', result.cache.writes);
+  if (result.partial) {
+    printScalar('partialReason', result.partial.reason);
+    printScalar('pendingAssets', result.partial.pendingAssetCount);
+    printScalar('pendingJobs', result.partial.pendingJobCount);
+  }
 
   printTable(
     'summaries',
@@ -226,5 +242,177 @@ export const printAccuracySummary = (
 };
 
 export const writeAccuracyReport = async (result: AccuracyBenchmarkResult): Promise<void> => {
-  await writeFile(result.reportFile, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  await writeReportWithSnapshot(result.reportFile, await buildAccuracyReport(result));
+};
+
+export const buildAccuracyReport = async (result: AccuracyBenchmarkResult) => {
+  const ironqr = result.summaries.find((summary) => summary.engineId === 'ironqr');
+  if (!ironqr) throw new Error('Missing ironqr accuracy summary');
+  const baselines = result.summaries.filter((summary) => summary.engineId !== 'ironqr');
+  const gaps = findAccuracyGaps(result);
+  const pass = result.partial
+    ? unavailableVerdict(`Accuracy benchmark ended early: ${result.partial.reason}`)
+    : buildAccuracyPassVerdict(result, gaps);
+  const regression = result.partial
+    ? unavailableVerdict('Partial accuracy reports are not comparable for regression checks.')
+    : await buildAccuracyRegressionVerdict(result, ironqr, gaps);
+  return {
+    kind: 'accuracy-report' as const,
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    status:
+      result.status === 'errored' || result.status === 'interrupted'
+        ? result.status
+        : hasEngineErrors(result)
+          ? 'errored'
+          : pass.status === 'failed'
+            ? 'failed'
+            : 'passed',
+    verdicts: { pass, regression },
+    benchmark: {
+      name: 'Accuracy Benchmark',
+      description:
+        'Compares `ironqr` correctness against every target baseline engine on the selected corpus. This report answers where `ironqr` is ahead of, tied with, or behind other engines. Start with `summary.ironqr`, then inspect `summary.gaps` for baseline passes that `ironqr` missed and `ironqr` wins that baselines missed. Use `details.assets` for per-asset decoded text, expected text, matched text, and error details.',
+    },
+    command: { name: 'accuracy' as const, argv: process.argv.slice(2) },
+    repo: await readRepoMetadata(result.repoRoot),
+    corpus: await buildReportCorpus({
+      repoRoot: result.repoRoot,
+      assets: result.assets,
+    }),
+    selection: result.selection,
+    engines: result.engines.map((engine) => ({
+      id: engine.id,
+      adapterVersion: engine.adapterVersion,
+      packageName: engine.packageName,
+      ...(engine.packageVersion === null ? {} : { packageVersion: engine.packageVersion }),
+      runtimeVersion: engine.runtimeVersion,
+    })),
+    options: result.options,
+    summary: {
+      ironqr,
+      baselines,
+      gaps: {
+        ironqrMissedBaselineHitCount: gaps.ironqrMissedBaselineHit.length,
+        ironqrHitBaselineMissedCount: gaps.ironqrHitBaselineMissed.length,
+        topIronqrMissedBaselineHits: gaps.ironqrMissedBaselineHit.slice(0, 20),
+        topIronqrHitBaselineMisses: gaps.ironqrHitBaselineMissed.slice(0, 20),
+      },
+      pass,
+      regression,
+      cache: result.cache,
+      partial: result.partial ?? null,
+    },
+    details: {
+      engines: result.engines,
+      assets: result.assets,
+      gaps,
+      partial: result.partial ?? null,
+    },
+  };
+};
+
+const hasEngineErrors = (result: AccuracyBenchmarkResult): boolean =>
+  result.assets.some((asset) => asset.results.some((entry) => entry.outcome === 'fail-error'));
+
+const buildAccuracyRegressionVerdict = async (
+  result: AccuracyBenchmarkResult,
+  ironqr: AccuracyBenchmarkResult['summaries'][number],
+  gaps: ReturnType<typeof findAccuracyGaps>,
+): Promise<BenchmarkVerdict> => {
+  try {
+    const previous = JSON.parse(await readFile(result.reportFile, 'utf8')) as {
+      readonly summary?: {
+        readonly ironqr?: { readonly fullPassRate?: number; readonly falsePositiveRate?: number };
+        readonly gaps?: { readonly ironqrMissedBaselineHitCount?: number };
+      };
+    };
+    const previousIronqr = previous.summary?.ironqr;
+    if (!previousIronqr)
+      return unavailableVerdict('Previous accuracy summary is missing ironqr data.');
+    const previousGapCount = previous.summary?.gaps?.ironqrMissedBaselineHitCount ?? 0;
+    if (ironqr.falsePositiveRate > (previousIronqr.falsePositiveRate ?? 0)) {
+      return failedVerdict(
+        'ironqr false-positive rate regressed versus previous accuracy summary.',
+      );
+    }
+    if (ironqr.fullPassRate < (previousIronqr.fullPassRate ?? 0)) {
+      return failedVerdict('ironqr full-pass rate regressed versus previous accuracy summary.');
+    }
+    if (gaps.ironqrMissedBaselineHit.length > previousGapCount) {
+      return failedVerdict(
+        'ironqr baseline-miss gap count regressed versus previous accuracy summary.',
+      );
+    }
+    return passedVerdict('Accuracy summary did not regress versus previous report.');
+  } catch {
+    return unavailableVerdict(
+      'No previous accuracy summary is available for regression comparison.',
+    );
+  }
+};
+
+const buildAccuracyPassVerdict = (
+  result: AccuracyBenchmarkResult,
+  gaps: ReturnType<typeof findAccuracyGaps>,
+): BenchmarkVerdict => {
+  const ironqr = result.summaries.find((summary) => summary.engineId === 'ironqr');
+  if (!ironqr) return failedVerdict('ironqr did not produce a summary.');
+  const engineErrors = result.assets.flatMap((asset) =>
+    asset.results.filter((entry) => entry.outcome === 'fail-error'),
+  );
+  if (engineErrors.length > 0) {
+    return failedVerdict(`benchmark engine error(s) occurred: ${engineErrors.length}`);
+  }
+  if (ironqr.falsePositives > 0) {
+    return failedVerdict(`ironqr produced ${ironqr.falsePositives} false positive(s).`);
+  }
+  if (gaps.ironqrMissedBaselineHit.length > 0) {
+    return failedVerdict(
+      `ironqr missed ${gaps.ironqrMissedBaselineHit.length} asset/engine pass(es) achieved by baselines.`,
+    );
+  }
+  return passedVerdict('ironqr includes all baseline passes and has zero false positives.');
+};
+
+const findAccuracyGaps = (result: AccuracyBenchmarkResult) => {
+  const ironqrMissedBaselineHit: Array<Record<string, unknown>> = [];
+  const ironqrHitBaselineMissed: Array<Record<string, unknown>> = [];
+  for (const asset of result.assets) {
+    const ironqr = asset.results.find((entry) => entry.engineId === 'ironqr');
+    if (!ironqr) continue;
+    for (const baseline of asset.results.filter((entry) => entry.engineId !== 'ironqr')) {
+      const ironqrSatisfiesBaseline =
+        baseline.outcome === 'pass'
+          ? ironqr.outcome === 'pass'
+          : baseline.outcome === 'partial-pass'
+            ? ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass'
+            : true;
+      const baselineSatisfiesIronqr =
+        ironqr.outcome === 'pass'
+          ? baseline.outcome === 'pass'
+          : ironqr.outcome === 'partial-pass'
+            ? baseline.outcome === 'pass' || baseline.outcome === 'partial-pass'
+            : true;
+      const baselinePassed = baseline.outcome === 'pass' || baseline.outcome === 'partial-pass';
+      const ironqrPassed = ironqr.outcome === 'pass' || ironqr.outcome === 'partial-pass';
+      if (baselinePassed && !ironqrSatisfiesBaseline) {
+        ironqrMissedBaselineHit.push({
+          assetId: asset.assetId,
+          baselineEngineId: baseline.engineId,
+          ironqrOutcome: ironqr.outcome,
+          baselineOutcome: baseline.outcome,
+        });
+      }
+      if (ironqrPassed && !baselineSatisfiesIronqr) {
+        ironqrHitBaselineMissed.push({
+          assetId: asset.assetId,
+          baselineEngineId: baseline.engineId,
+          ironqrOutcome: ironqr.outcome,
+          baselineOutcome: baseline.outcome,
+        });
+      }
+    }
+  }
+  return { ironqrMissedBaselineHit, ironqrHitBaselineMissed };
 };

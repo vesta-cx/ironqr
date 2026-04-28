@@ -117,8 +117,8 @@ const importStagedRemoteAssetsEffect = (options: ImportStagedRemoteAssetsOptions
           options.overrideLabel ??
           (approvedAsset.groundTruth
             ? approvedAsset.groundTruth.qrCount === 0
-              ? 'non-qr-negative'
-              : 'qr-positive'
+              ? 'qr-neg'
+              : 'qr-pos'
             : approvedAsset.suggestedLabel),
         provenance: buildRemoteSource(approvedAsset, options),
         sourceSha256: approvedAsset.sourceSha256,

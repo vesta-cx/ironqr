@@ -1,16 +1,30 @@
+import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveRepoRootFromModuleUrl } from '../../corpus-cli/src/repo-root.js';
 import {
+  type BenchmarkVerdict,
   getDefaultAccuracyCachePath,
   getDefaultAccuracyReportPath,
+  getDefaultPerformanceCachePath,
   inspectAccuracyEngines,
+  listStudyPlugins,
   printAccuracyHome,
   printAccuracySummary,
-  printPerformancePlaceholder,
+  printPerformanceSummary,
   resolveAccuracyEngines,
   runAccuracyBenchmark,
+  runPerformanceBenchmark,
+  runStudyBenchmark,
   writeAccuracyReport,
+  writePerformanceReport,
+  writeReportWithSnapshot,
 } from './index.js';
+
+const parseLabel = (value: string): 'qr-pos' | 'qr-neg' => {
+  if (value === 'qr-pos' || value === 'qr-neg') return value;
+  throw new Error(`--label must be qr-pos or qr-neg, got: ${value}`);
+};
 
 const parsePositiveInteger = (value: string, flag: string): number => {
   if (!/^[1-9]\d*$/.test(value)) {
@@ -19,49 +33,73 @@ const parsePositiveInteger = (value: string, flag: string): number => {
   return Number(value);
 };
 
-const isProgressMode = (value: string): value is CliOptions['progressMode'] => {
-  return (
-    value === 'auto' ||
-    value === 'plain' ||
-    value === 'dashboard' ||
-    value === 'tui' ||
-    value === 'off'
-  );
+const parseWorkerCount = (value: string, flag: string): number => {
+  if (!/^(0|[1-9]\d*)$/.test(value)) {
+    throw new Error(`${flag} must be a non-negative integer, got: ${value}`);
+  }
+  return Number(value);
+};
+
+const parseStudyFlagValue = (value: string): string | number | boolean => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+  return value;
 };
 
 interface CliOptions {
   readonly help: boolean;
-  readonly engines: readonly string[];
   readonly failuresOnly: boolean;
-  readonly listEngines: boolean;
   readonly reportFile?: string;
+  readonly reportDir?: string;
   readonly cacheFile?: string;
   readonly cacheEnabled: boolean;
-  readonly ironqrCacheEnabled: boolean;
   readonly refreshCache: boolean;
-  readonly progressMode: 'auto' | 'plain' | 'dashboard' | 'tui' | 'off';
-  readonly verbose: boolean;
-  readonly ironqrTraceMode: 'off' | 'summary' | 'full';
+  readonly refreshCacheEngineId?: string;
+  readonly progressEnabled: boolean;
   readonly workers?: number;
+  readonly iterations?: number;
+  readonly assetIds: readonly string[];
+  readonly labels: readonly ('qr-pos' | 'qr-neg')[];
+  readonly maxAssets?: number;
+  readonly seed?: string;
+  readonly studyId?: string;
+  readonly listStudies: boolean;
+  readonly studyFlags: Readonly<Record<string, string | number | boolean>>;
 }
 
 export const parseArgs = (
   argv: readonly string[],
 ): { readonly mode: string | undefined; readonly options: CliOptions } => {
-  const [mode, ...rest] = argv;
-  const engines: string[] = [];
+  const mode = argv[0]?.startsWith('-') ? undefined : argv[0];
+  const rawRest = mode === undefined ? argv : argv.slice(1);
+  let studyId: string | undefined;
+  let rest = rawRest;
+  if (mode === 'study' && rawRest[0] === 'run' && rawRest[1] && !rawRest[1].startsWith('-')) {
+    studyId = rawRest[1];
+    rest = rawRest.slice(2);
+  } else if (mode === 'study' && rawRest[0] && !rawRest[0].startsWith('-')) {
+    studyId = rawRest[0];
+    rest = rawRest.slice(1);
+  }
   let help = false;
+  let listStudies = studyId === 'list';
+  if (listStudies) studyId = undefined;
   let failuresOnly = false;
-  let listEngines = false;
   let reportFile: string | undefined;
+  let reportDir: string | undefined;
   let cacheFile: string | undefined;
   let cacheEnabled = true;
-  let ironqrCacheEnabled = true;
   let refreshCache = false;
-  let progressMode: 'auto' | 'plain' | 'dashboard' | 'tui' | 'off' = 'auto';
-  let verbose = false;
-  let ironqrTraceMode: 'off' | 'summary' | 'full' = 'off';
+  let refreshCacheEngineId: string | undefined;
+  let progressEnabled = true;
   let workers: number | undefined;
+  let iterations: number | undefined;
+  const assetIds: string[] = [];
+  const labels: Array<'qr-pos' | 'qr-neg'> = [];
+  let maxAssets: number | undefined;
+  let seed: string | undefined;
+  const studyFlags: Record<string, string | number | boolean> = {};
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -70,90 +108,113 @@ export const parseArgs = (
       help = true;
       continue;
     }
-    if (arg === '--failures-only') {
-      failuresOnly = true;
+    if (mode === 'study' && (arg === '--list' || arg === 'list')) {
+      listStudies = true;
       continue;
     }
-    if (arg === '--list-engines') {
-      listEngines = true;
+    if (arg === '--failures-only') {
+      failuresOnly = true;
       continue;
     }
     if (arg === '--no-cache') {
       cacheEnabled = false;
       continue;
     }
-    if (arg === '--no-ironqr-cache') {
-      ironqrCacheEnabled = false;
-      continue;
-    }
     if (arg === '--refresh-cache') {
       refreshCache = true;
+      const next = rest[index + 1];
+      if (next && !next.startsWith('-')) {
+        refreshCacheEngineId = next;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg.startsWith('--refresh-cache=')) {
+      refreshCache = true;
+      refreshCacheEngineId = arg.slice('--refresh-cache='.length);
       continue;
     }
     if (arg === '--no-progress' || arg === '--quiet') {
-      progressMode = 'off';
+      progressEnabled = false;
       continue;
     }
-    if (arg === '--progress') {
+    if (arg === '--progress' || arg.startsWith('--progress=')) {
+      throw new Error('Use --no-progress to disable OpenTUI progress');
+    }
+    if (arg === '--engine' || arg.startsWith('--engine=')) {
+      throw new Error(
+        'Benchmarks always run the full target engine set; --engine is not supported',
+      );
+    }
+    if (arg === '--ironqr-trace' || arg.startsWith('--ironqr-trace=')) {
+      throw new Error(
+        'Focused accuracy does not support full trace collection; use bench performance',
+      );
+    }
+    if (arg === '--asset') {
       const next = rest[index + 1];
-      if (!next) throw new Error('--progress requires a value');
-      if (!isProgressMode(next)) {
-        throw new Error(`--progress must be one of auto|plain|dashboard|tui|off, got: ${next}`);
-      }
-      progressMode = next;
+      if (!next) throw new Error('--asset requires a value');
+      assetIds.push(next);
       index += 1;
       continue;
     }
-    if (arg.startsWith('--progress=')) {
-      const value = arg.slice('--progress='.length);
-      if (!isProgressMode(value)) {
-        throw new Error(`--progress must be one of auto|plain|dashboard|tui|off, got: ${value}`);
-      }
-      progressMode = value;
+    if (arg.startsWith('--asset=')) {
+      assetIds.push(arg.slice('--asset='.length));
       continue;
     }
-    if (arg === '--verbose') {
-      verbose = true;
-      continue;
-    }
-    if (arg === '--ironqr-trace') {
+    if (arg === '--label') {
       const next = rest[index + 1];
-      if (!next) throw new Error('--ironqr-trace requires a value');
-      if (next !== 'off' && next !== 'summary' && next !== 'full') {
-        throw new Error(`--ironqr-trace must be one of off|summary|full, got: ${next}`);
-      }
-      ironqrTraceMode = next;
+      if (!next) throw new Error('--label requires a value');
+      labels.push(parseLabel(next));
       index += 1;
       continue;
     }
-    if (arg.startsWith('--ironqr-trace=')) {
-      const value = arg.slice('--ironqr-trace='.length);
-      if (value !== 'off' && value !== 'summary' && value !== 'full') {
-        throw new Error(`--ironqr-trace must be one of off|summary|full, got: ${value}`);
-      }
-      ironqrTraceMode = value;
+    if (arg.startsWith('--label=')) {
+      labels.push(parseLabel(arg.slice('--label='.length)));
+      continue;
+    }
+    if (arg === '--max-assets') {
+      const next = rest[index + 1];
+      if (!next) throw new Error('--max-assets requires a value');
+      maxAssets = parsePositiveInteger(next, '--max-assets');
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--max-assets=')) {
+      maxAssets = parsePositiveInteger(arg.slice('--max-assets='.length), '--max-assets');
+      continue;
+    }
+    if (arg === '--seed') {
+      const next = rest[index + 1];
+      if (!next) throw new Error('--seed requires a value');
+      seed = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--seed=')) {
+      seed = arg.slice('--seed='.length);
       continue;
     }
     if (arg === '--workers') {
       const next = rest[index + 1];
       if (!next) throw new Error('--workers requires a value');
-      workers = parsePositiveInteger(next, '--workers');
+      workers = parseWorkerCount(next, '--workers');
       index += 1;
       continue;
     }
     if (arg.startsWith('--workers=')) {
-      workers = parsePositiveInteger(arg.slice('--workers='.length), '--workers');
+      workers = parseWorkerCount(arg.slice('--workers='.length), '--workers');
       continue;
     }
-    if (arg === '--engine') {
+    if (arg === '--iterations') {
       const next = rest[index + 1];
-      if (!next) throw new Error('--engine requires a value');
-      engines.push(next);
+      if (!next) throw new Error('--iterations requires a value');
+      iterations = parsePositiveInteger(next, '--iterations');
       index += 1;
       continue;
     }
-    if (arg.startsWith('--engine=')) {
-      engines.push(arg.slice('--engine='.length));
+    if (arg.startsWith('--iterations=')) {
+      iterations = parsePositiveInteger(arg.slice('--iterations='.length), '--iterations');
       continue;
     }
     if (arg === '--report-file') {
@@ -167,6 +228,17 @@ export const parseArgs = (
       reportFile = arg.slice('--report-file='.length);
       continue;
     }
+    if (arg === '--report-dir') {
+      const next = rest[index + 1];
+      if (!next) throw new Error('--report-dir requires a value');
+      reportDir = next;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--report-dir=')) {
+      reportDir = arg.slice('--report-dir='.length);
+      continue;
+    }
     if (arg === '--cache-file') {
       const next = rest[index + 1];
       if (!next) throw new Error('--cache-file requires a value');
@@ -178,95 +250,669 @@ export const parseArgs = (
       cacheFile = arg.slice('--cache-file='.length);
       continue;
     }
+    if (mode === 'study' && arg.startsWith('--')) {
+      const [rawName, inlineValue] = arg.slice(2).split('=', 2);
+      if (!rawName) throw new Error(`Unknown argument: ${arg}`);
+      if (inlineValue !== undefined) {
+        studyFlags[rawName] = parseStudyFlagValue(inlineValue);
+        continue;
+      }
+      const next = rest[index + 1];
+      if (next && !next.startsWith('-')) {
+        studyFlags[rawName] = parseStudyFlagValue(next);
+        index += 1;
+        continue;
+      }
+      studyFlags[rawName] = true;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return {
-    mode,
-    options: {
-      help,
-      engines,
-      failuresOnly,
-      listEngines,
-      cacheEnabled,
-      ironqrCacheEnabled,
-      refreshCache,
-      progressMode,
-      verbose,
-      ironqrTraceMode,
-      ...(workers === undefined ? {} : { workers }),
-      ...(reportFile === undefined ? {} : { reportFile }),
-      ...(cacheFile === undefined ? {} : { cacheFile }),
-    },
-  };
+  const options = {
+    help,
+    failuresOnly,
+    cacheEnabled,
+    refreshCache,
+    progressEnabled,
+    listStudies,
+    studyFlags,
+    ...(refreshCacheEngineId === undefined ? {} : { refreshCacheEngineId }),
+    ...(workers === undefined ? {} : { workers }),
+    ...(iterations === undefined ? {} : { iterations }),
+    assetIds,
+    labels,
+    ...(maxAssets === undefined ? {} : { maxAssets }),
+    ...(seed === undefined ? {} : { seed }),
+    ...(studyId === undefined ? {} : { studyId }),
+    ...(reportFile === undefined ? {} : { reportFile }),
+    ...(reportDir === undefined ? {} : { reportDir }),
+    ...(cacheFile === undefined ? {} : { cacheFile }),
+  } satisfies CliOptions;
+  validateModeOptions(mode, options);
+  return { mode, options };
+};
+
+const validateModeOptions = (mode: string | undefined, options: CliOptions): void => {
+  const command = mode ?? 'suite';
+  if (options.help) return;
+  if (command === 'accuracy' && options.iterations !== undefined) {
+    throw new Error('--iterations is only supported by bench performance and the full suite');
+  }
+  if (command === 'study' && options.listStudies && options.studyId !== undefined) {
+    throw new Error('bench study list does not accept a study id');
+  }
+  if (command === 'study' && options.iterations !== undefined) {
+    throw new Error('--iterations is not supported by bench study');
+  }
+  if (command === 'engines') {
+    const unsupported = [
+      options.failuresOnly ? '--failures-only' : null,
+      options.reportFile ? '--report-file' : null,
+      options.reportDir ? '--report-dir' : null,
+      options.cacheFile ? '--cache-file' : null,
+      options.workers !== undefined ? '--workers' : null,
+      options.iterations !== undefined ? '--iterations' : null,
+      options.assetIds.length > 0 ? '--asset' : null,
+      options.labels.length > 0 ? '--label' : null,
+      options.maxAssets !== undefined ? '--max-assets' : null,
+      options.seed !== undefined ? '--seed' : null,
+      options.refreshCache ? '--refresh-cache' : null,
+      !options.cacheEnabled ? '--no-cache' : null,
+    ].filter(Boolean);
+    if (unsupported.length > 0) {
+      throw new Error(`bench engines does not support: ${unsupported.join(', ')}`);
+    }
+  }
 };
 
 const printUsage = (): void => {
   console.log('bin: bun run bench');
-  console.log('description: Benchmark QR decoders against the approved corpus manifest');
+  console.log('description: Full benchmark suite for ironqr accuracy and performance');
   console.log('commands:');
+  console.log('  "bun run bench"');
   console.log('  "bun run bench accuracy"');
-  console.log('  "bun run bench accuracy --list-engines"');
-  console.log('  "bun run bench accuracy --engine ironqr --engine zxing-cpp"');
-  console.log('  "bun run bench accuracy --refresh-cache"');
-  console.log('  "bun run bench accuracy --no-cache"');
-  console.log('  "bun run bench accuracy --no-ironqr-cache"');
-  console.log('  "bun run bench accuracy --progress auto|tui|dashboard|plain|off"');
-  console.log('  "bun run bench accuracy --no-progress"');
-  console.log('  "bun run bench accuracy --workers 8"');
-  console.log('  "bun run bench accuracy --verbose"');
-  console.log('  "bun run bench accuracy --ironqr-trace off|summary|full"');
   console.log('  "bun run bench performance"');
+  console.log('  "bun run bench study list"');
+  console.log('  "bun run bench study view-proposals"');
+  console.log('  "bun run bench engines"');
+  console.log('  "bun run bench accuracy --refresh-cache"');
+  console.log('  "bun run bench performance --iterations 8"');
+  console.log('  "bun run bench --no-progress"');
 };
 
-const runAccuracy = async (repoRoot: string, options: CliOptions): Promise<void> => {
-  if (options.listEngines) {
-    printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-    return;
-  }
+const resolveReportFile = (
+  repoRoot: string,
+  options: CliOptions,
+  defaultFileName: string,
+  defaultPath: string,
+): string => {
+  if (options.reportFile) return path.resolve(repoRoot, options.reportFile);
+  if (options.reportDir)
+    return path.join(path.resolve(repoRoot, options.reportDir), defaultFileName);
+  return defaultPath;
+};
 
-  const reportFile = options.reportFile
-    ? path.resolve(repoRoot, options.reportFile)
-    : getDefaultAccuracyReportPath(repoRoot);
+interface RunControl {
+  readonly signal: AbortSignal;
+  readonly requestStop: () => void;
+}
+
+const printSeedWhenLogOnly = (command: string, seed: string | null | undefined): void => {
+  if (seed === undefined) return;
+  console.log(`${command}Seed: ${JSON.stringify(seed)}`);
+};
+
+const runAccuracy = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
+  const reportFile = resolveReportFile(
+    repoRoot,
+    options,
+    'accuracy.json',
+    getDefaultAccuracyReportPath(repoRoot),
+  );
   const cacheFile = options.cacheFile
     ? path.resolve(repoRoot, options.cacheFile)
     : getDefaultAccuracyCachePath(repoRoot);
-  const engines = resolveAccuracyEngines(options.engines);
+  const engines = resolveAccuracyEngines();
+  const seed = options.seed ?? crypto.randomUUID();
+  if (!options.progressEnabled) printSeedWhenLogOnly('accuracy', seed);
   const result = await runAccuracyBenchmark(repoRoot, engines, reportFile, {
     cache: {
       enabled: options.cacheEnabled,
       refresh: options.refreshCache,
       file: cacheFile,
-      disabledEngineIds: options.ironqrCacheEnabled ? [] : ['ironqr'],
+      disabledEngineIds: [],
+      refreshEngineIds: options.refreshCacheEngineId ? [options.refreshCacheEngineId] : [],
     },
-    progress: {
-      enabled: options.progressMode !== 'off',
-      mode: options.progressMode,
-      verbose: options.verbose,
-    },
+    progress: { enabled: options.progressEnabled },
     execution: {
       ...(options.workers === undefined ? {} : { workers: options.workers }),
+      ...(control === undefined
+        ? {}
+        : { signal: control.signal, requestStop: control.requestStop }),
     },
-    ...(options.verbose || options.ironqrTraceMode !== 'off'
-      ? {
-          observability: {
-            verbose: options.verbose,
-            ironqrTraceMode: options.ironqrTraceMode,
-          },
-        }
-      : {}),
+    selection: {
+      assetIds: options.assetIds,
+      labels: options.labels,
+      ...(options.maxAssets === undefined ? {} : { maxAssets: options.maxAssets }),
+      ...(seed === undefined ? {} : { seed }),
+    },
   });
-  printAccuracySummary(result, { failuresOnly: options.failuresOnly, verbose: options.verbose });
-  if (options.progressMode !== 'off') {
-    console.error(`[bench] stage report: writing ${result.reportFile}`);
-  }
+  printAccuracySummary(result, { failuresOnly: options.failuresOnly });
   await writeAccuracyReport(result);
+  if (result.status === 'errored') process.exitCode = 1;
 };
 
-const runPerformance = (): void => {
-  printPerformancePlaceholder(process.argv[1] ?? 'bun run bench', {
-    message: 'performance benchmark is not implemented yet; use `bench accuracy` for now',
+const runPerformance = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
+  const reportFile = resolveReportFile(
+    repoRoot,
+    options,
+    'performance.json',
+    path.join(repoRoot, 'tools', 'bench', 'reports', 'performance.json'),
+  );
+  const cacheFile = options.cacheFile
+    ? path.resolve(repoRoot, options.cacheFile)
+    : getDefaultPerformanceCachePath(repoRoot);
+  const seed = options.seed ?? crypto.randomUUID();
+  if (!options.progressEnabled) printSeedWhenLogOnly('performance', seed);
+  const result = await runPerformanceBenchmark(repoRoot, reportFile, {
+    ...(options.iterations === undefined ? {} : { iterations: options.iterations }),
+    ...(options.workers === undefined ? {} : { workers: options.workers }),
+    cache: {
+      enabled: options.cacheEnabled,
+      refresh: options.refreshCache,
+      file: cacheFile,
+      ...(options.refreshCacheEngineId ? { refreshEngineId: options.refreshCacheEngineId } : {}),
+    },
+    progress: { enabled: options.progressEnabled },
+    ...(control === undefined ? {} : { signal: control.signal, requestStop: control.requestStop }),
+    selection: {
+      seed: seed ?? null,
+      assetIds: options.assetIds,
+      labels: options.labels,
+      ...(options.maxAssets === undefined ? {} : { maxAssets: options.maxAssets }),
+      filters: {
+        assetIds: options.assetIds,
+        labels: options.labels,
+        maxAssets: options.maxAssets ?? null,
+      },
+    },
   });
+  printPerformanceSummary(result);
+  await writePerformanceReport(result);
+  if (result.report.status === 'errored') process.exitCode = 1;
+};
+
+const printStudyList = (): void => {
+  const plugins = listStudyPlugins();
+  console.log(`studies[${plugins.length}]{id,title,version,flags}:`);
+  for (const plugin of plugins) {
+    const flags = plugin.flags?.map((flag) => `--${flag.name}`).join(' ') ?? '';
+    console.log(
+      `  ${JSON.stringify(plugin.id)},${JSON.stringify(plugin.title)},${JSON.stringify(plugin.version)},${JSON.stringify(flags)}`,
+    );
+  }
+};
+
+const runStudy = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
+  if (options.listStudies) {
+    printStudyList();
+    return;
+  }
+  if (!options.studyId)
+    throw new Error('bench study requires a study id, e.g. bench study view-proposals');
+  const reportFile = options.reportFile
+    ? path.resolve(repoRoot, options.reportFile)
+    : options.reportDir
+      ? path.join(
+          path.resolve(repoRoot, options.reportDir),
+          'full',
+          'study',
+          `study-${options.studyId}.json`,
+        )
+      : undefined;
+  const processedReportFile = options.reportFile
+    ? path.join(
+        path.dirname(path.resolve(repoRoot, options.reportFile)),
+        `${path.basename(path.resolve(repoRoot, options.reportFile), '.json')}.summary.json`,
+      )
+    : options.reportDir
+      ? path.join(
+          path.resolve(repoRoot, options.reportDir),
+          'study',
+          `study-${options.studyId}.summary.json`,
+        )
+      : undefined;
+  const cacheFile = options.cacheFile ? path.resolve(repoRoot, options.cacheFile) : undefined;
+  const result = await runStudyBenchmark(repoRoot, options.studyId, {
+    ...(reportFile === undefined ? {} : { reportFile }),
+    ...(processedReportFile === undefined ? {} : { processedReportFile }),
+    ...(cacheFile === undefined ? {} : { cacheFile }),
+    progressEnabled: options.progressEnabled,
+    cacheEnabled: options.cacheEnabled,
+    refreshCache: options.refreshCache,
+    studyFlags: options.studyFlags,
+    ...(options.workers === undefined ? {} : { workers: options.workers }),
+    assetIds: options.assetIds,
+    labels: options.labels,
+    ...(options.maxAssets === undefined ? {} : { maxAssets: options.maxAssets }),
+    ...(options.seed === undefined ? {} : { seed: options.seed }),
+    ...(control === undefined ? {} : { signal: control.signal, requestStop: control.requestStop }),
+  });
+  await printStudyVisualizations(result.processedReportFile);
+  process.stdout.write(
+    `\nfullStudyReport: ${JSON.stringify(result.reportFile)}\nsummaryStudyReport: ${JSON.stringify(result.processedReportFile)}\n`,
+  );
+};
+
+const printStudyVisualizations = async (processedReportFile: string): Promise<void> => {
+  const report = JSON.parse(await readFile(processedReportFile, 'utf8')) as {
+    readonly visualizations?: readonly {
+      readonly title?: unknown;
+      readonly unit?: unknown;
+      readonly rows?: readonly {
+        readonly label?: unknown;
+        readonly value?: unknown;
+        readonly bar?: unknown;
+      }[];
+    }[];
+  };
+  const visualizations = report.visualizations ?? [];
+  if (visualizations.length === 0) return;
+  process.stdout.write('\nstudy visualizations\n');
+  for (const chart of visualizations) {
+    if (!Array.isArray(chart.rows) || chart.rows.length === 0) continue;
+    const title = typeof chart.title === 'string' ? chart.title : 'Chart';
+    const unit = typeof chart.unit === 'string' && chart.unit.length > 0 ? ` (${chart.unit})` : '';
+    process.stdout.write(`\n${title}${unit}\n`);
+    const labelWidth = Math.min(
+      42,
+      Math.max(
+        8,
+        ...chart.rows.map((row) => (typeof row.label === 'string' ? row.label.length : 0)),
+      ),
+    );
+    for (const row of chart.rows) {
+      if (typeof row.label !== 'string' || typeof row.bar !== 'string') continue;
+      const value = typeof row.value === 'number' ? formatChartValue(row.value) : '-';
+      process.stdout.write(`${row.label.padEnd(labelWidth)}  ${row.bar}  ${value}\n`);
+    }
+  }
+};
+
+const formatChartValue = (value: number): string => {
+  if (!Number.isFinite(value)) return '-';
+  if (Math.abs(value) >= 100) return Math.round(value).toLocaleString('en-US');
+  if (Math.abs(value) >= 10) return value.toFixed(1);
+  return value.toFixed(2).replace(/\.00$/, '');
+};
+
+const runSuite = async (
+  repoRoot: string,
+  options: CliOptions,
+  control?: RunControl,
+): Promise<void> => {
+  const suiteOptions = { ...options, seed: options.seed ?? crypto.randomUUID() };
+  const reportDir = options.reportDir
+    ? path.resolve(repoRoot, options.reportDir)
+    : path.join(repoRoot, 'tools', 'bench', 'reports');
+  const accuracyReportFile = path.join(reportDir, 'accuracy.json');
+  const performanceReportFile = path.join(reportDir, 'performance.json');
+  await runAccuracy(repoRoot, { ...suiteOptions, reportFile: accuracyReportFile }, control);
+  const accuracyReport = await readReport(accuracyReportFile);
+  if (accuracyReport.status === 'errored' || accuracyReport.status === 'interrupted') {
+    await writePartialSuiteSummary(
+      repoRoot,
+      reportDir,
+      options,
+      suiteOptions,
+      accuracyReport,
+      null,
+    );
+    if (accuracyReport.status === 'errored') process.exitCode = 1;
+    return;
+  }
+  await runPerformance(repoRoot, { ...suiteOptions, reportFile: performanceReportFile }, control);
+  const performanceReport = await readReport(performanceReportFile);
+  if (performanceReport.status === 'errored' || performanceReport.status === 'interrupted') {
+    await writePartialSuiteSummary(
+      repoRoot,
+      reportDir,
+      options,
+      suiteOptions,
+      accuracyReport,
+      performanceReport,
+    );
+    if (performanceReport.status === 'errored') process.exitCode = 1;
+    return;
+  }
+  const accuracyPass = readVerdict(accuracyReport, 'pass');
+  const accuracyRegression = readVerdict(accuracyReport, 'regression');
+  const performancePass = readVerdict(performanceReport, 'pass');
+  const performanceRegression = readVerdict(performanceReport, 'regression');
+  const pass: BenchmarkVerdict =
+    accuracyPass.status === 'failed' || performancePass.status === 'failed'
+      ? {
+          status: 'failed',
+          description: 'Accuracy or performance benchmark reported a failed pass verdict.',
+        }
+      : { status: 'passed', description: 'Accuracy and performance pass verdicts did not fail.' };
+  const regression: BenchmarkVerdict =
+    accuracyRegression.status === 'failed' || performanceRegression.status === 'failed'
+      ? {
+          status: 'failed',
+          description: 'Accuracy or performance benchmark reported a regression.',
+        }
+      : accuracyRegression.status === 'unavailable' ||
+          performanceRegression.status === 'unavailable'
+        ? {
+            status: 'unavailable',
+            description: 'At least one component regression verdict is unavailable.',
+          }
+        : { status: 'passed', description: 'No component benchmark reported a regression.' };
+  const accuracySummary = recordAt(accuracyReport, 'summary');
+  const performanceSummary = recordAt(performanceReport, 'summary');
+  const accuracyIronqr = recordAt(accuracySummary, 'ironqr');
+  const performanceIronqr = recordAt(performanceSummary, 'ironqr');
+  const performanceRanking = recordAt(performanceSummary, 'ranking');
+  const accuracyGaps = recordAt(accuracySummary, 'gaps');
+  const suiteRepo = reportRepo(accuracyReport.repo, repoRoot);
+  const summary = {
+    kind: 'suite-report',
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    status: pass.status === 'failed' ? 'failed' : 'passed',
+    verdicts: { pass, regression },
+    benchmark: {
+      name: 'Bench Full Suite',
+      description:
+        'Runs the standard `ironqr` benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. This report answers whether the current branch regressed on correctness or speed. Start with `summary.verdicts`, then inspect `summary.highlights`, then open the linked accuracy and performance reports for details.',
+    },
+    command: { name: 'suite', argv: process.argv.slice(2) },
+    repo: suiteRepo,
+    corpus: accuracyReport.corpus ?? performanceReport.corpus,
+    selection: accuracyReport.selection ??
+      performanceReport.selection ?? { seed: null, filters: {} },
+    engines: mergeEngines(accuracyReport.engines, performanceReport.engines),
+    options: {
+      cacheEnabled: options.cacheEnabled,
+      refreshCache: options.refreshCache,
+      refreshCacheEngineId: options.refreshCacheEngineId ?? null,
+      workers: options.workers ?? null,
+      iterations: options.iterations ?? null,
+      maxAssets: options.maxAssets ?? null,
+      seed: suiteOptions.seed ?? null,
+    },
+    summary: {
+      verdicts: {
+        accuracyPass,
+        accuracyRegression,
+        performancePass,
+        performanceRegression,
+      },
+      highlights: {
+        ironqrAccuracyRank: rankAccuracyIronqr(accuracySummary),
+        ironqrSpeedRank: numberOrNull(performanceRanking.ironqrP95Rank),
+        ironqrPassRate: numberOrZero(accuracyIronqr.fullPassRate),
+        ironqrP95DurationMs: numberOrZero(performanceIronqr.p95DurationMs),
+        biggestAccuracyGaps: arrayOrEmpty(accuracyGaps.topIronqrMissedBaselineHits),
+        slowestIronqrAssets: slowestIronqrAssets(performanceReport),
+      },
+    },
+    details: { accuracyReportFile, performanceReportFile },
+  };
+  const summaryFile = path.join(reportDir, 'summary.json');
+  const finalSummary = {
+    ...summary,
+    verdicts: {
+      ...summary.verdicts,
+      regression: await buildSuiteRegressionVerdict(summaryFile, summary.summary),
+    },
+  };
+  await writeReportWithSnapshot(summaryFile, finalSummary);
+  console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
+};
+
+const writePartialSuiteSummary = async (
+  repoRoot: string,
+  reportDir: string,
+  options: CliOptions,
+  suiteOptions: CliOptions,
+  accuracyReport: Record<string, unknown>,
+  performanceReport: Record<string, unknown> | null,
+): Promise<void> => {
+  const componentStatus =
+    performanceReport?.status === 'errored' || performanceReport?.status === 'interrupted'
+      ? performanceReport.status
+      : accuracyReport.status === 'errored' || accuracyReport.status === 'interrupted'
+        ? accuracyReport.status
+        : 'errored';
+  const pass: BenchmarkVerdict = {
+    status: 'unavailable',
+    description: `Suite stopped before all component benchmarks completed: ${componentStatus}.`,
+  };
+  const regression: BenchmarkVerdict = {
+    status: 'unavailable',
+    description: 'Partial suite reports are not comparable for regression checks.',
+  };
+  const summaryFile = path.join(reportDir, 'summary.json');
+  const report = {
+    kind: 'suite-report',
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    status: componentStatus,
+    verdicts: { pass, regression },
+    benchmark: {
+      name: 'Bench Full Suite',
+      description:
+        'Runs the standard `ironqr` benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. This report answers whether the current branch regressed on correctness or speed. Start with `summary.verdicts`, then inspect `summary.highlights`, then open the linked accuracy and performance reports for details.',
+    },
+    command: { name: 'suite', argv: process.argv.slice(2) },
+    repo: reportRepo(accuracyReport.repo, repoRoot),
+    corpus: accuracyReport.corpus ?? performanceReport?.corpus,
+    selection: accuracyReport.selection ??
+      performanceReport?.selection ?? { seed: null, filters: {} },
+    engines: mergeEngines(accuracyReport.engines, performanceReport?.engines),
+    options: {
+      cacheEnabled: options.cacheEnabled,
+      refreshCache: options.refreshCache,
+      refreshCacheEngineId: options.refreshCacheEngineId ?? null,
+      workers: options.workers ?? null,
+      iterations: options.iterations ?? null,
+      maxAssets: options.maxAssets ?? null,
+      seed: suiteOptions.seed ?? null,
+    },
+    summary: {
+      verdicts: {
+        accuracyPass: readVerdict(accuracyReport, 'pass'),
+        accuracyRegression: readVerdict(accuracyReport, 'regression'),
+        performancePass: performanceReport ? readVerdict(performanceReport, 'pass') : pass,
+        performanceRegression: performanceReport
+          ? readVerdict(performanceReport, 'regression')
+          : regression,
+      },
+      partial: {
+        reason: `Suite stopped because a component report ended with status ${componentStatus}.`,
+        accuracyStatus: accuracyReport.status ?? null,
+        performanceStatus: performanceReport?.status ?? null,
+      },
+    },
+    details: {
+      accuracyReportFile: path.join(reportDir, 'accuracy.json'),
+      performanceReportFile: performanceReport ? path.join(reportDir, 'performance.json') : null,
+    },
+  };
+  await writeReportWithSnapshot(summaryFile, report);
+  console.log(`summaryReport: ${JSON.stringify(summaryFile)}`);
+};
+
+const readReport = async (filePath: string): Promise<Record<string, unknown>> => {
+  return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+};
+
+const buildSuiteRegressionVerdict = async (
+  summaryFile: string,
+  currentSummary: Record<string, unknown>,
+): Promise<BenchmarkVerdict> => {
+  try {
+    const previous = await readReport(summaryFile);
+    const previousHighlights = recordAt(recordAt(previous, 'summary'), 'highlights');
+    const currentHighlights = recordAt(currentSummary, 'highlights');
+    const previousPassRate = numberOrNull(previousHighlights.ironqrPassRate);
+    const currentPassRate = numberOrNull(currentHighlights.ironqrPassRate);
+    const previousP95 = numberOrNull(previousHighlights.ironqrP95DurationMs);
+    const currentP95 = numberOrNull(currentHighlights.ironqrP95DurationMs);
+    const previousAccuracyRank = numberOrNull(previousHighlights.ironqrAccuracyRank);
+    const currentAccuracyRank = numberOrNull(currentHighlights.ironqrAccuracyRank);
+    const previousSpeedRank = numberOrNull(previousHighlights.ironqrSpeedRank);
+    const currentSpeedRank = numberOrNull(currentHighlights.ironqrSpeedRank);
+    const previousGapCount = arrayOrEmpty(previousHighlights.biggestAccuracyGaps).length;
+    const currentGapCount = arrayOrEmpty(currentHighlights.biggestAccuracyGaps).length;
+    if (
+      previousPassRate === null ||
+      currentPassRate === null ||
+      previousP95 === null ||
+      currentP95 === null
+    ) {
+      return {
+        status: 'unavailable',
+        description: 'Previous suite summary is missing comparable highlights.',
+      };
+    }
+    if (currentPassRate < previousPassRate) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite pass rate regressed versus previous summary.',
+      };
+    }
+    if (currentP95 > previousP95) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite p95 duration regressed versus previous summary.',
+      };
+    }
+    if (
+      previousAccuracyRank !== null &&
+      currentAccuracyRank !== null &&
+      currentAccuracyRank > previousAccuracyRank
+    ) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite accuracy rank regressed versus previous summary.',
+      };
+    }
+    if (
+      previousSpeedRank !== null &&
+      currentSpeedRank !== null &&
+      currentSpeedRank > previousSpeedRank
+    ) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite speed rank regressed versus previous summary.',
+      };
+    }
+    if (currentGapCount > previousGapCount) {
+      return {
+        status: 'failed',
+        description: 'ironqr suite accuracy gap count regressed versus previous summary.',
+      };
+    }
+    return {
+      status: 'passed',
+      description: 'Suite summary did not regress versus previous report.',
+    };
+  } catch {
+    return {
+      status: 'unavailable',
+      description: 'No previous suite summary is available for regression comparison.',
+    };
+  }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const recordAt = (record: Record<string, unknown>, key: string): Record<string, unknown> => {
+  const value = record[key];
+  return isRecord(value) ? value : {};
+};
+
+const arrayOrEmpty = (value: unknown): readonly unknown[] => (Array.isArray(value) ? value : []);
+
+const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+
+const numberOrZero = (value: unknown): number => numberOrNull(value) ?? 0;
+
+const reportRepo = (value: unknown, repoRoot: string) => {
+  if (!isRecord(value)) return { root: repoRoot, commit: null, dirty: null };
+  return {
+    root: typeof value.root === 'string' ? value.root : repoRoot,
+    commit: typeof value.commit === 'string' ? value.commit : null,
+    dirty: typeof value.dirty === 'boolean' ? value.dirty : null,
+  };
+};
+
+const mergeEngines = (...engineLists: readonly unknown[]): readonly unknown[] => {
+  const engines = new Map<string, unknown>();
+  for (const engineList of engineLists) {
+    if (!Array.isArray(engineList)) continue;
+    for (const engine of engineList) {
+      if (!isRecord(engine) || typeof engine.id !== 'string') continue;
+      engines.set(engine.id, engine);
+    }
+  }
+  return [...engines.values()];
+};
+
+const rankAccuracyIronqr = (accuracySummary: Record<string, unknown>): number | null => {
+  const ironqr = recordAt(accuracySummary, 'ironqr');
+  const baselines = arrayOrEmpty(accuracySummary.baselines).filter(isRecord);
+  if (!isRecord(ironqr) || typeof ironqr.engineId !== 'string') return null;
+  const ranked = [ironqr, ...baselines].sort((left, right) => {
+    const passRateDelta = numberOrZero(right.fullPassRate) - numberOrZero(left.fullPassRate);
+    if (passRateDelta !== 0) return passRateDelta;
+    return numberOrZero(left.falsePositiveRate) - numberOrZero(right.falsePositiveRate);
+  });
+  const index = ranked.findIndex((engine) => engine.engineId === 'ironqr');
+  return index === -1 ? null : index + 1;
+};
+
+const slowestIronqrAssets = (performanceReport: Record<string, unknown>): readonly unknown[] => {
+  const details = recordAt(performanceReport, 'details');
+  return arrayOrEmpty(details.assets)
+    .filter(isRecord)
+    .filter((asset) => asset.engineId === 'ironqr')
+    .sort(
+      (left, right) =>
+        numberOrZero(right.engineScanDurationMs) - numberOrZero(left.engineScanDurationMs),
+    )
+    .slice(0, 20);
+};
+
+const readVerdict = (
+  report: Record<string, unknown>,
+  key: 'pass' | 'regression',
+): BenchmarkVerdict => {
+  const verdicts = report.verdicts as { readonly [K in typeof key]?: BenchmarkVerdict } | undefined;
+  return (
+    verdicts?.[key] ?? {
+      status: 'unavailable',
+      description: `Missing ${key} verdict in component report.`,
+    }
+  );
 };
 
 const main = async (): Promise<void> => {
@@ -276,29 +922,53 @@ const main = async (): Promise<void> => {
     printUsage();
     return;
   }
-  if (!mode) {
-    printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-    return;
-  }
 
-  switch (mode) {
-    case 'accuracy':
-      await runAccuracy(repoRoot, options);
+  const abortController = new AbortController();
+  let sigintCount = 0;
+  const requestStop = (): void => {
+    if (abortController.signal.aborted) return;
+    abortController.abort(new Error('Interrupted by user request.'));
+  };
+  const onSigint = (): void => {
+    sigintCount += 1;
+    if (sigintCount === 1) {
+      requestStop();
       return;
-    case 'performance':
-      runPerformance();
-      return;
-    case 'engines':
-      printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
-      return;
-    case '--help':
-    case '-h':
-    case 'help':
-      printUsage();
-      return;
-    default:
-      printUsage();
-      throw new Error(`Unknown bench mode: ${mode}`);
+    }
+    process.stderr.write('\n[bench] force exiting after second interrupt\n');
+    process.exit(130);
+  };
+  process.on('SIGINT', onSigint);
+  const control = { signal: abortController.signal, requestStop };
+
+  try {
+    switch (mode ?? 'suite') {
+      case 'suite':
+        await runSuite(repoRoot, options, control);
+        return;
+      case 'accuracy':
+        await runAccuracy(repoRoot, options, control);
+        return;
+      case 'performance':
+        await runPerformance(repoRoot, options, control);
+        return;
+      case 'study':
+        await runStudy(repoRoot, options, control);
+        return;
+      case 'engines':
+        printAccuracyHome(process.argv[1] ?? 'bun run bench', repoRoot, inspectAccuracyEngines());
+        return;
+      case '--help':
+      case '-h':
+      case 'help':
+        printUsage();
+        return;
+      default:
+        printUsage();
+        throw new Error(`Unknown bench mode: ${mode}`);
+    }
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 };
 

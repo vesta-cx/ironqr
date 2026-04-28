@@ -98,8 +98,18 @@ The recipe catalog should cover a mix of realistic failure modes, including fami
 - background blending
 - multi-step combo recipes
 
+Warp-model study coverage should extend this catalog with non-planar classes that stress geometry assumptions:
+- stronger cylinder-wrap variants for poles, bottles, cups, cans, and pipes
+- tapered/conical wraps for paper cups, traffic cones, buckets, and lampshades
+- cloth/fabric mesh warps for shirts, bags, flags, curtains, and wrinkles
+- curled-paper / peeling-sticker edge warps
+- radial/fisheye lens distortion
+- screen/glare/moiré composites
+
+These generated assets should remain deterministic and should record exact transformation parameters in `synthetic.transformations[]` so warp-model studies can group results by known distortion family and severity.
+
 ## Background compositing policy
-When background blending is used, prefer approved canonical `non-qr-negative` assets as the background source.
+When background blending is used, prefer approved canonical `qr-neg` assets as the background source.
 
 That preserves a useful connection between synthetic foregrounds and real-world negative texture/background clutter.
 

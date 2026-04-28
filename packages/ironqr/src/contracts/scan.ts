@@ -53,6 +53,31 @@ export type ScanTimingMetadataLevel = S.Schema.Type<typeof ScanTimingMetadataLev
 export const ScanTraceEventsLevelSchema = S.Literals(['off', 'summary', 'full']);
 export type ScanTraceEventsLevel = S.Schema.Type<typeof ScanTraceEventsLevelSchema>;
 
+export type ScanTimingSpanName =
+  | 'normalize'
+  | 'scalar-view'
+  | 'binary-plane'
+  | 'binary-view'
+  | 'proposal-view'
+  | 'ranking'
+  | 'clustering'
+  | 'structure'
+  | 'geometry'
+  | 'module-sampling'
+  | 'decode-attempt'
+  | 'decode-cascade';
+
+export interface ScanTimingSpan {
+  readonly name: ScanTimingSpanName;
+  readonly durationMs: number;
+  readonly startedAtMs?: number;
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface ScanMetricsSink {
+  record: (span: ScanTimingSpan) => void;
+}
+
 export const ScanObservabilityResultSchema = S.Struct({
   path: S.optional(ScanPathMetadataLevelSchema),
   attempts: S.optional(ScanAttemptMetadataLevelSchema),

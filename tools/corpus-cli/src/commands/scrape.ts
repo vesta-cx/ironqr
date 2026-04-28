@@ -37,7 +37,7 @@ export const runScrapeCommand = async (
     scrapeRemoteAssets({
       repoRoot: context.repoRoot,
       seedUrls: inputs.seedUrls,
-      label: 'qr-positive',
+      label: 'qr-pos',
       ...(inputs.limit ? { limit: inputs.limit } : {}),
       fetchDelayMs: DEFAULT_FETCH_DELAY_MS,
       log: (line) => {

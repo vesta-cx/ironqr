@@ -20,7 +20,7 @@ describe('real-world benchmark runner', () => {
     const result = scoreRealWorldPositive(
       {
         id: 'asset-1',
-        label: 'qr-positive',
+        label: 'qr-pos',
         assetPath: 'tools/perfbench/fixtures/real-world/assets/asset-1.webp',
         sha256: 'abc',
         byteLength: 1,
@@ -41,7 +41,7 @@ describe('real-world benchmark runner', () => {
     const result = scoreRealWorldPositive(
       {
         id: 'asset-1',
-        label: 'qr-positive',
+        label: 'qr-pos',
         assetPath: 'tools/perfbench/fixtures/real-world/assets/asset-1.webp',
         sha256: 'abc',
         byteLength: 1,
@@ -74,7 +74,7 @@ describe('real-world benchmark runner', () => {
     await importLocalAssets({
       repoRoot,
       paths: [fixturePath],
-      label: 'qr-positive',
+      label: 'qr-pos',
       reviewStatus: 'approved',
       reviewer: 'mia',
       groundTruth: {

@@ -1,7 +1,13 @@
 import { Effect } from 'effect';
-import type { ScanObservabilityOptions, ScanOptions, ScanResult } from '../contracts/scan.js';
+import type {
+  ScanMetricsSink,
+  ScanObservabilityOptions,
+  ScanOptions,
+  ScanResult,
+  ScanTimingSpanName,
+} from '../contracts/scan.js';
 import { ScannerError } from '../qr/errors.js';
-import { clusterRankedProposals } from './clusters.js';
+import { type ClusterRepresentativeVariant, clusterRankedProposals } from './clusters.js';
 import {
   type DecodeAttempt,
   type DecodeAttemptOutcome,
@@ -10,8 +16,11 @@ import {
 import { normalizeImageInput } from './frame.js';
 import { assessProposalStructure } from './plausibility.js';
 import {
+  type FinderEvidenceDetectionPolicy,
   generateProposalBatchForView,
   type ProposalGenerationSummary,
+  type ProposalGeometryVariant,
+  type ProposalRankingVariant,
   type ProposalScoreBreakdown,
   type ProposalViewBatch,
   type RankedProposalCandidate,
@@ -39,6 +48,26 @@ import { type BinaryViewId, createViewBank, type ScalarViewId, type ViewBank } f
 export interface ScanRuntimeOptions extends ScanOptions {
   /** Optional typed trace sink for diagnostics, tests, and benchmark harnesses. */
   readonly traceSink?: TraceSink;
+  /** Optional proposal-generation view override. Defaults to the production priority subset. */
+  readonly proposalViewIds?: readonly BinaryViewId[];
+  /** Optional detector-family policy for proposal-generation studies. */
+  readonly proposalDetectorPolicy?: FinderEvidenceDetectionPolicy;
+  /** Optional finder-triple geometry scoring/filtering variant for proposal/decode studies. */
+  readonly proposalGeometryVariant?: ProposalGeometryVariant;
+  /** Optional global proposal ranking variant for decode-prioritization studies. */
+  readonly proposalRankingVariant?: ProposalRankingVariant;
+  /** Optional representative ordering policy within each proposal cluster. */
+  readonly proposalClusterRepresentativeVariant?: ClusterRepresentativeVariant;
+  /** Optional low-overhead timing span sink for performance harnesses. */
+  readonly metricsSink?: ScanMetricsSink;
+  /** Maximum proposal representatives to try inside one cluster. */
+  readonly maxClusterRepresentatives?: number;
+  /** Maximum structural failures tolerated inside one cluster before killing it. */
+  readonly maxClusterStructuralFailures?: number;
+  /** Continue probing cluster representatives after a successful decode. Used by exhaustive studies. */
+  readonly continueAfterDecode?: boolean;
+  /** Optional limit on decode attempts per scan, for bounded policy studies. */
+  readonly maxDecodeAttempts?: number;
   /** Optional cooperative scheduler used between proposal-view batches. */
   readonly scheduler?: ScanScheduler;
 }
@@ -340,8 +369,10 @@ interface ProposalBatchSource {
 const MAX_CLUSTER_REPRESENTATIVES = 3;
 const MAX_CLUSTER_STRUCTURAL_FAILURES = 3;
 const MAX_EARLY_FRONTIER_PASSES = 4;
-const DEFAULT_MAX_PROPOSALS = 24;
 const MAX_SCAN_BUDGET = 10_000;
+// No evidence-backed default cluster cap yet. Studies can use this uncapped
+// ceiling to derive a production budget from first-success cluster ranks.
+const DEFAULT_MAX_PROPOSALS = MAX_SCAN_BUDGET;
 
 /**
  * Runs the full ranked proposal pipeline and returns either plain results or an
@@ -395,9 +426,16 @@ const scanFrameExecutionOnce = (
     const normalizeStartedAt = nowMs();
     const image = yield* normalizeImageInput(input);
     const normalizeFrameMs = nowMs() - normalizeStartedAt;
+    recordTimingSpan(options.metricsSink, 'normalize', normalizeStartedAt, {
+      width: image.width,
+      height: image.height,
+    });
     traceSink?.emit({ type: 'scan-started', width: image.width, height: image.height });
 
-    const viewBank = createViewBank(image, traceSink ? { traceSink } : {});
+    const viewBank = createViewBank(image, {
+      ...(traceSink === undefined ? {} : { traceSink }),
+      ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
+    });
 
     const maxProposalsPerView = resolveMaxProposalsPerView(options);
     const maxProposals = normalizeProposalBudget(resolveMaxProposals(options));
@@ -421,14 +459,25 @@ const scanFrameExecutionOnce = (
       generatedProposals,
       maxProposals,
       traceSink,
+      options.metricsSink,
+      options.maxClusterRepresentatives,
+      options.proposalRankingVariant,
+      options.proposalClusterRepresentativeVariant,
     );
     let stopScanning = false;
     let earlyFrontierPasses = 0;
     const batchSource = createSequentialProposalBatchSource({
       viewBank,
-      viewIds: viewBank.listProposalViewIds(),
+      viewIds: options.proposalViewIds ?? viewBank.listProposalViewIds(),
       ...(maxProposalsPerView === undefined ? {} : { maxProposalsPerView }),
+      ...(options.proposalDetectorPolicy === undefined
+        ? {}
+        : { detectorPolicy: options.proposalDetectorPolicy }),
+      ...(options.proposalGeometryVariant === undefined
+        ? {}
+        : { geometryVariant: options.proposalGeometryVariant }),
       ...(traceSink === undefined ? {} : { traceSink }),
+      ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       scheduler: options.scheduler ?? defaultScanScheduler,
     });
 
@@ -449,7 +498,16 @@ const scanFrameExecutionOnce = (
       }
       earlyFrontierPasses += 1;
 
-      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      latestSnapshot = buildFrontierSnapshot(
+        viewBank,
+        generatedProposals,
+        maxProposals,
+        traceSink,
+        options.metricsSink,
+        options.maxClusterRepresentatives,
+        options.proposalRankingVariant,
+        options.proposalClusterRepresentativeVariant,
+      );
       rankingMs += latestSnapshot.rankingMs;
       clusteringMs += latestSnapshot.clusteringMs;
 
@@ -457,7 +515,14 @@ const scanFrameExecutionOnce = (
       const processed = yield* processFrontierClusters(latestSnapshot, viewBank, processingState, {
         allowMultiple: false,
         maxNewRepresentatives: 1,
+        maxStructuralFailures:
+          options.maxClusterStructuralFailures ?? MAX_CLUSTER_STRUCTURAL_FAILURES,
+        continueAfterDecode: options.continueAfterDecode === true,
+        ...(options.maxDecodeAttempts === undefined
+          ? {}
+          : { maxDecodeAttempts: options.maxDecodeAttempts }),
         ...(traceSink === undefined ? {} : { traceSink }),
+        ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
       clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
       stopScanning = processed.stopScanning;
@@ -468,7 +533,16 @@ const scanFrameExecutionOnce = (
     }
 
     if (!stopScanning) {
-      latestSnapshot = buildFrontierSnapshot(viewBank, generatedProposals, maxProposals, traceSink);
+      latestSnapshot = buildFrontierSnapshot(
+        viewBank,
+        generatedProposals,
+        maxProposals,
+        traceSink,
+        options.metricsSink,
+        options.maxClusterRepresentatives,
+        options.proposalRankingVariant,
+        options.proposalClusterRepresentativeVariant,
+      );
       rankingMs += latestSnapshot.rankingMs;
       clusteringMs += latestSnapshot.clusteringMs;
 
@@ -476,7 +550,14 @@ const scanFrameExecutionOnce = (
       const processed = yield* processFrontierClusters(latestSnapshot, viewBank, processingState, {
         allowMultiple: options.allowMultiple === true,
         maxNewRepresentatives: Number.POSITIVE_INFINITY,
+        maxStructuralFailures:
+          options.maxClusterStructuralFailures ?? MAX_CLUSTER_STRUCTURAL_FAILURES,
+        continueAfterDecode: options.continueAfterDecode === true,
+        ...(options.maxDecodeAttempts === undefined
+          ? {}
+          : { maxDecodeAttempts: options.maxDecodeAttempts }),
         ...(traceSink === undefined ? {} : { traceSink }),
+        ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
       });
       clusterProcessingMs += nowMs() - clusterProcessingStartedAt;
       stopScanning = processed.stopScanning;
@@ -535,7 +616,10 @@ const createSequentialProposalBatchSource = (options: {
   readonly viewBank: ViewBank;
   readonly viewIds: readonly BinaryViewId[];
   readonly maxProposalsPerView?: number;
+  readonly detectorPolicy?: FinderEvidenceDetectionPolicy;
+  readonly geometryVariant?: ProposalGeometryVariant;
   readonly traceSink?: TraceSink;
+  readonly metricsSink?: ScanMetricsSink;
   readonly scheduler: ScanScheduler;
 }): ProposalBatchSource => {
   let index = 0;
@@ -551,11 +635,22 @@ const createSequentialProposalBatchSource = (options: {
         yield* options.scheduler.yieldBeforeProposalView?.(binaryViewId) ?? Effect.void;
         if (cancelled) return null;
 
+        const startedAtMs = nowMs();
         const batch = generateProposalBatchForView(options.viewBank, binaryViewId, {
           ...(options.maxProposalsPerView === undefined
             ? {}
             : { maxProposalsPerView: options.maxProposalsPerView }),
+          ...(options.detectorPolicy === undefined
+            ? {}
+            : { detectorPolicy: options.detectorPolicy }),
+          ...(options.geometryVariant === undefined
+            ? {}
+            : { geometryVariant: options.geometryVariant }),
           ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
+        });
+        recordTimingSpan(options.metricsSink, 'proposal-view', startedAtMs, {
+          binaryViewId,
+          proposalCount: batch.proposals.length,
         });
 
         yield* options.scheduler.yieldAfterProposalBatch?.(batch) ?? Effect.void;
@@ -575,31 +670,53 @@ const buildFrontierSnapshot = (
   generatedProposals: readonly ScanProposal[],
   maxProposals: number,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
+  maxClusterRepresentatives?: number,
+  rankingVariant?: ProposalRankingVariant,
+  clusterRepresentativeVariant?: ClusterRepresentativeVariant,
 ): FrontierSnapshot => {
   const rankingStartedAt = nowMs();
-  const rankedProposalCandidates = rankProposalCandidates(
-    viewBank,
-    generatedProposals,
-    traceSink === undefined ? {} : { traceSink },
-  );
+  const rankedProposalCandidates = rankProposalCandidates(viewBank, generatedProposals, {
+    ...(traceSink === undefined ? {} : { traceSink }),
+    ...(rankingVariant === undefined ? {} : { rankingVariant }),
+  });
   const rankingMs = nowMs() - rankingStartedAt;
+  recordTimingSpan(metricsSink, 'ranking', rankingStartedAt, {
+    proposalCount: generatedProposals.length,
+  });
 
-  const boundedRankedProposalCandidates = rankedProposalCandidates.slice(0, maxProposals);
+  const viableRankedProposalCandidates = rankedProposalCandidates.filter((candidate) =>
+    hasViableGeometry(candidate, viewBank),
+  );
   const proposals = rankedProposalCandidates.map((candidate) => candidate.proposal);
-  const boundedProposals = boundedRankedProposalCandidates.map((candidate) => candidate.proposal);
-  const rankedProposalById = new Map(
-    boundedRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
-  );
-  const topProposalScore = boundedProposals[0]?.proposalScore ?? 0;
-  const proposalRankById = new Map(
-    boundedProposals.map((proposal, index) => [proposal.id, index + 1]),
-  );
+  const viableProposals = viableRankedProposalCandidates.map((candidate) => candidate.proposal);
 
   const clusteringStartedAt = nowMs();
-  const clusters = clusterRankedProposals(boundedProposals, {
-    maxRepresentatives: MAX_CLUSTER_REPRESENTATIVES,
+  const allClusters = clusterRankedProposals(viableProposals, {
+    maxRepresentatives: maxClusterRepresentatives ?? MAX_CLUSTER_REPRESENTATIVES,
+    ...(clusterRepresentativeVariant === undefined
+      ? {}
+      : { representativeVariant: clusterRepresentativeVariant }),
   });
+  const clusters = allClusters.slice(0, maxProposals);
   const clusteringMs = nowMs() - clusteringStartedAt;
+  const boundedProposals = clusters.flatMap((cluster) => cluster.proposals);
+  const rankedProposalById = new Map(
+    viableRankedProposalCandidates.map((candidate) => [candidate.proposal.id, candidate]),
+  );
+  const topProposalScore = clusters[0]?.clusterScore ?? boundedProposals[0]?.proposalScore ?? 0;
+  const proposalRankById = new Map(
+    clusters.flatMap((cluster, clusterIndex) =>
+      cluster.representatives.map((proposal) => [proposal.id, clusterIndex + 1] as const),
+    ),
+  );
+  recordTimingSpan(metricsSink, 'clustering', clusteringStartedAt, {
+    proposalCount: proposals.length,
+    viableProposalCount: viableProposals.length,
+    boundedProposalCount: boundedProposals.length,
+    totalClusterCount: allClusters.length,
+    clusterCount: clusters.length,
+  });
 
   const representativeCount = clusters.reduce(
     (sum, cluster) => sum + cluster.representatives.length,
@@ -629,6 +746,31 @@ const buildFrontierSnapshot = (
   } satisfies FrontierSnapshot;
 };
 
+const hasViableGeometry = (candidate: RankedProposalCandidate, viewBank: ViewBank): boolean => {
+  for (const geometry of candidate.initialGeometryCandidates) {
+    const sourceView = viewBank.getBinaryView(geometry.binaryViewId);
+    if (geometryProjectsNearImage(geometry, sourceView.width, sourceView.height)) return true;
+  }
+  return false;
+};
+
+const geometryProjectsNearImage = (
+  geometry: RankedProposalCandidate['initialGeometryCandidates'][number],
+  width: number,
+  height: number,
+): boolean => {
+  if (!Number.isFinite(geometry.bounds.width) || !Number.isFinite(geometry.bounds.height))
+    return false;
+  if (geometry.bounds.width < 8 || geometry.bounds.height < 8) return false;
+  const margin = Math.max(geometry.bounds.width, geometry.bounds.height) * 0.5;
+  return (
+    geometry.bounds.x + geometry.bounds.width >= -margin &&
+    geometry.bounds.y + geometry.bounds.height >= -margin &&
+    geometry.bounds.x <= width - 1 + margin &&
+    geometry.bounds.y <= height - 1 + margin
+  );
+};
+
 const processFrontierClusters = (
   snapshot: FrontierSnapshot,
   viewBank: ViewBank,
@@ -636,7 +778,11 @@ const processFrontierClusters = (
   options: {
     readonly allowMultiple: boolean;
     readonly maxNewRepresentatives: number;
+    readonly maxStructuralFailures: number;
+    readonly continueAfterDecode: boolean;
+    readonly maxDecodeAttempts?: number;
     readonly traceSink?: TraceSink;
+    readonly metricsSink?: ScanMetricsSink;
   },
 ): Effect.Effect<ClusterProcessingResult, ScannerError> => {
   return Effect.gen(function* () {
@@ -644,6 +790,12 @@ const processFrontierClusters = (
 
     for (let clusterIndex = 0; clusterIndex < snapshot.clusters.length; clusterIndex += 1) {
       if (processedThisPass >= options.maxNewRepresentatives) break;
+      if (
+        options.maxDecodeAttempts !== undefined &&
+        state.attemptRecords.length >= options.maxDecodeAttempts
+      ) {
+        break;
+      }
       const cluster = snapshot.clusters[clusterIndex];
       if (!cluster) continue;
       const clusterRank = clusterIndex + 1;
@@ -672,6 +824,12 @@ const processFrontierClusters = (
 
       for (const proposal of pendingRepresentatives) {
         if (processedThisPass >= options.maxNewRepresentatives) break;
+        if (
+          options.maxDecodeAttempts !== undefined &&
+          state.attemptRecords.length >= options.maxDecodeAttempts
+        ) {
+          break;
+        }
         const representativeIndex = cluster.representatives.indexOf(proposal);
         const proposalRank = snapshot.proposalRankById.get(proposal.id) ?? 1;
         state.attemptedProposalIds.add(proposal.id);
@@ -690,7 +848,15 @@ const processFrontierClusters = (
           binaryViewId: proposal.binaryViewId,
         });
 
+        const structureStartedAt = nowMs();
         const structure = assessProposalStructure(proposal, viewBank);
+        recordTimingSpan(options.metricsSink, 'structure', structureStartedAt, {
+          clusterId: cluster.id,
+          proposalId: proposal.id,
+          proposalRank,
+          passed: structure.passed,
+          score: structure.score,
+        });
         options.traceSink?.emit({
           type: 'proposal-structure-assessed',
           clusterId: cluster.id,
@@ -708,7 +874,7 @@ const processFrontierClusters = (
         if (!structure.passed) {
           structuralFailures += 1;
           state.structuralFailuresByClusterId.set(cluster.id, structuralFailures);
-          if (structuralFailures >= MAX_CLUSTER_STRUCTURAL_FAILURES) {
+          if (structuralFailures >= options.maxStructuralFailures) {
             clusterOutcome = 'killed';
             state.killedClusterCount += 1;
             break;
@@ -719,12 +885,28 @@ const processFrontierClusters = (
         const initialGeometryCandidates = snapshot.rankedProposalById.get(
           proposal.id,
         )?.initialGeometryCandidates;
+        const decodeCascadeStartedAt = nowMs();
         const success = yield* runDecodeCascade(proposal, viewBank, {
           ...(options.traceSink === undefined ? {} : { traceSink: options.traceSink }),
+          ...(options.metricsSink === undefined ? {} : { metricsSink: options.metricsSink }),
           ...(initialGeometryCandidates === undefined ? {} : { initialGeometryCandidates }),
           proposalRank,
           topProposalScore: snapshot.topProposalScore,
+          ...(options.maxDecodeAttempts === undefined
+            ? {}
+            : {
+                shouldAttemptDecode: () =>
+                  state.attemptRecords.length < (options.maxDecodeAttempts ?? 0),
+              }),
           onAttemptMeasured: (attempt) => {
+            recordTimingSpan(options.metricsSink, 'decode-attempt', nowMs() - attempt.durationMs, {
+              proposalId: attempt.proposalId,
+              geometryCandidateId: attempt.geometryCandidateId,
+              decodeBinaryViewId: attempt.decodeBinaryViewId,
+              sampler: attempt.sampler,
+              refinement: attempt.refinement,
+              outcome: attempt.outcome,
+            });
             state.attemptRecords.push({
               sequence: state.attemptRecords.length + 1,
               proposalId: attempt.proposalId,
@@ -737,11 +919,17 @@ const processFrontierClusters = (
             });
           },
         });
+        recordTimingSpan(options.metricsSink, 'decode-cascade', decodeCascadeStartedAt, {
+          proposalId: proposal.id,
+          proposalRank,
+          outcome: success === null ? 'no-decode' : 'success',
+        });
         if (success === null) continue;
         const ranked = toRankedResult(success.result, proposal, success.attempt);
         if (!pushUniqueRankedResult(state.results, state.seenResults, ranked)) {
           clusterOutcome = 'duplicate';
-          break;
+          if (!options.continueAfterDecode) break;
+          continue;
         }
         clusterOutcome = 'decoded';
         winningProposalId = proposal.id;
@@ -757,7 +945,7 @@ const processFrontierClusters = (
           );
           return { stopScanning: true };
         }
-        break;
+        if (!options.continueAfterDecode) break;
       }
 
       emitClusterFinished(
@@ -1106,6 +1294,15 @@ const createInternalTraceArtifacts = (
     counter,
     sink,
   };
+};
+
+const recordTimingSpan = (
+  metricsSink: ScanMetricsSink | undefined,
+  name: ScanTimingSpanName,
+  startedAtMs: number,
+  metadata: Record<string, unknown>,
+): void => {
+  metricsSink?.record({ name, startedAtMs, durationMs: nowMs() - startedAtMs, metadata });
 };
 
 const nowMs = (): number => performance.now();

@@ -213,7 +213,7 @@ describe('remote corpus import', () => {
         {
           repoRoot,
           seedUrls: [PIXABAY_API_QR_SEARCH_URL],
-          label: 'qr-positive',
+          label: 'qr-pos',
           limit: 2,
         },
         buildPixabayApiFetch(),
@@ -250,7 +250,7 @@ describe('remote corpus import', () => {
         {
           repoRoot,
           seedUrls: [PIXABAY_API_QR_SEARCH_URL],
-          label: 'qr-positive',
+          label: 'qr-pos',
           limit: 1,
         },
         fetchImpl,
@@ -260,7 +260,7 @@ describe('remote corpus import', () => {
         {
           repoRoot,
           seedUrls: [PIXABAY_API_QR_SEARCH_URL],
-          label: 'qr-positive',
+          label: 'qr-pos',
           limit: 1,
         },
         fetchImpl,
@@ -287,7 +287,7 @@ describe('remote corpus import', () => {
           {
             repoRoot,
             seedUrls: [PIXABAY_API_QR_SEARCH_URL],
-            label: 'qr-positive',
+            label: 'qr-pos',
             limit: 1,
           },
           buildPixabayApiFetch(),
@@ -307,7 +307,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       buildMockFetch(),
@@ -372,7 +372,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       async (input) => {
@@ -430,7 +430,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       async (input) => {
@@ -482,7 +482,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pdimagearchive.org/gallery/qr-samples/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       async (input) => {
@@ -526,7 +526,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       async (input) => {
@@ -584,7 +584,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       trackingFetch,
@@ -599,7 +599,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       trackingFetch,
@@ -620,7 +620,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -632,7 +632,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -649,7 +649,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -676,7 +676,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 2,
       },
       buildMockFetch(),
@@ -693,7 +693,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -780,7 +780,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -861,7 +861,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       buildMockFetch(),
@@ -981,7 +981,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
         log: (line) => skipped.push(line),
       },
@@ -1000,7 +1000,7 @@ describe('remote corpus import', () => {
         {
           repoRoot,
           seedUrls: ['https://example.com/not-allowed'],
-          label: 'non-qr-negative',
+          label: 'qr-neg',
         },
         buildMockFetch(),
       ),
@@ -1025,7 +1025,7 @@ describe('remote corpus import', () => {
         {
           repoRoot,
           seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-          label: 'qr-positive',
+          label: 'qr-pos',
         },
         redirectFetch,
       ),
@@ -1077,7 +1077,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
       },
       redirectFetch,
@@ -1132,7 +1132,7 @@ describe('remote corpus import', () => {
       {
         repoRoot,
         seedUrls: ['https://pixabay.com/images/search/qr%20code/'],
-        label: 'qr-positive',
+        label: 'qr-pos',
         limit: 1,
         log: (line) => logs.push(line),
       },
@@ -1152,7 +1152,7 @@ describe('remote corpus import', () => {
       JSON.stringify({
         version: MAJOR_VERSION,
         id: 'stage-deadbeefcafef00d',
-        suggestedLabel: 'qr-positive',
+        suggestedLabel: 'qr-pos',
         imageFileName: '../../etc/passwd',
         sourcePageUrl: 'https://pixabay.com/photos/first/',
         imageUrl: 'https://cdn.pixabay.com/first.png',
@@ -1200,7 +1200,7 @@ describe('remote corpus import', () => {
       JSON.stringify({
         version: MAJOR_VERSION,
         id: 'stage-deadbeefcafef00d',
-        suggestedLabel: 'qr-positive',
+        suggestedLabel: 'qr-pos',
         imageFileName: 'image.png',
         sourcePageUrl: 'file:///etc/passwd',
         imageUrl: 'https://cdn.pixabay.com/first.png',
@@ -1234,7 +1234,7 @@ describe('remote corpus import', () => {
       JSON.stringify({
         version: MAJOR_VERSION,
         id: 'stage-deadbeefcafef00d',
-        suggestedLabel: 'qr-positive',
+        suggestedLabel: 'qr-pos',
         imageFileName: 'image.png',
         sourcePageUrl: 'http://127.0.0.1/internal',
         imageUrl: 'https://cdn.pixabay.com/first.png',

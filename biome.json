@@ -7,7 +7,17 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!dist", "!node_modules", "!coverage", "!test-results"]
+    "includes": [
+      "**",
+      "!dist",
+      "!node_modules",
+      "!coverage",
+      "!test-results",
+      "!tools/bench/reports/*.json",
+      "!tools/bench/reports/runs",
+      "!tools/bench/reports/full",
+      "!tools/bench/reports/study"
+    ]
   },
   "formatter": {
     "enabled": true,

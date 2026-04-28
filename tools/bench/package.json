@@ -22,13 +22,16 @@
     "build": "tsup --config tsup.config.ts",
     "clean": "rm -rf dist",
     "lint": "biome check .",
+    "migrate:study-cache": "bun scripts/migrate-study-cache.ts",
     "test": "bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@opentui/core": "0.1.103",
+    "@techstark/opencv-js": "^4.12.0-release.1",
     "@undecaf/zbar-wasm": "^0.11.0",
     "@zxing/library": "^0.21.3",
+    "effect": "^4.0.0-beta.43",
     "jsqr": "^1.4.0",
     "quirc": "^1.0.0-alpha.4",
     "sharp": "^0.34.4",

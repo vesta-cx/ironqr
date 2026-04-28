@@ -48,7 +48,7 @@ Imported assets should begin as `pending` unless someone has actually reviewed
 and approved them.
 
 Recommended review checklist:
-- label is correct (`qr-positive` vs `non-qr-negative`)
+- label is correct (`qr-pos` vs `qr-neg`)
 - image is actually usable (not truncated, corrupt, or unrelated)
 - provenance / attribution / license notes are present when needed
 - duplicates are intentional, or should be collapsed

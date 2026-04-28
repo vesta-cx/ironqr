@@ -5,6 +5,13 @@ import type { BinaryViewId } from './views.js';
 const DEFAULT_MAX_CLUSTER_REPRESENTATIVES = 3;
 const PROPOSAL_CLUSTER_QUANTIZATION = 24;
 
+export type ClusterRepresentativeVariant =
+  | 'proposal-score'
+  | 'timing-score'
+  | 'quiet-timing-score'
+  | 'decode-signal-score'
+  | 'view-diverse-score';
+
 /**
  * One grouped QR candidate spanning multiple near-duplicate proposals.
  */
@@ -13,10 +20,16 @@ export interface ProposalCluster {
   readonly id: string;
   /** Best-first ranked proposals that collapsed into the cluster. */
   readonly proposals: readonly ScanProposal[];
-  /** Diverse representative proposals to probe before spending more budget. */
+  /** Best-first proposals to try for this potential QR code. */
   readonly representatives: readonly ScanProposal[];
   /** Score of the strongest proposal in the cluster. */
   readonly bestProposalScore: number;
+  /** Aggregate cluster confidence combining score, support, and view diversity. */
+  readonly clusterScore: number;
+  /** Number of proposals supporting this cluster. */
+  readonly supportCount: number;
+  /** Number of distinct binary views supporting this cluster. */
+  readonly viewDiversity: number;
 }
 
 /**
@@ -25,6 +38,8 @@ export interface ProposalCluster {
 export interface ProposalClusterOptions {
   /** Maximum representative proposals retained per cluster. */
   readonly maxRepresentatives?: number;
+  /** Representative ordering policy within one near-duplicate cluster. */
+  readonly representativeVariant?: ClusterRepresentativeVariant;
 }
 
 /**
@@ -39,7 +54,8 @@ export const clusterRankedProposals = (
   proposals: readonly ScanProposal[],
   options: ProposalClusterOptions = {},
 ): readonly ProposalCluster[] => {
-  const maxRepresentatives = normalizeRepresentativeBudget(options.maxRepresentatives);
+  const representativeBudget = normalizeRepresentativeBudget(options.maxRepresentatives);
+  const representativeVariant = options.representativeVariant ?? 'proposal-score';
   const grouped = new Map<string, ScanProposal[]>();
 
   for (const proposal of proposals) {
@@ -57,17 +73,100 @@ export const clusterRankedProposals = (
       const orderedProposals = [...clusterProposals].sort(
         (left, right) => right.proposalScore - left.proposalScore,
       );
-      const representatives = selectClusterRepresentatives(orderedProposals, maxRepresentatives)
-        .slice()
-        .sort((left, right) => right.proposalScore - left.proposalScore);
+      const clusterScore = scoreCluster(orderedProposals);
+      const representatives = selectClusterRepresentatives(
+        orderedProposals,
+        representativeBudget,
+        representativeVariant,
+      );
       return {
         id,
         proposals: orderedProposals,
         representatives,
         bestProposalScore: orderedProposals[0]?.proposalScore ?? 0,
+        clusterScore,
+        supportCount: orderedProposals.length,
+        viewDiversity: new Set(orderedProposals.map((proposal) => proposal.binaryViewId)).size,
       };
     })
-    .sort((left, right) => right.bestProposalScore - left.bestProposalScore);
+    .sort((left, right) => right.clusterScore - left.clusterScore);
+};
+
+const selectClusterRepresentatives = (
+  proposals: readonly ScanProposal[],
+  budget: number,
+  variant: ClusterRepresentativeVariant,
+): readonly ScanProposal[] => {
+  if (variant === 'view-diverse-score') return selectViewDiverseRepresentatives(proposals, budget);
+  return [...proposals]
+    .sort((left, right) => representativeScore(right, variant) - representativeScore(left, variant))
+    .slice(0, budget);
+};
+
+const selectViewDiverseRepresentatives = (
+  proposals: readonly ScanProposal[],
+  budget: number,
+): readonly ScanProposal[] => {
+  const selected: ScanProposal[] = [];
+  const seenFamilies = new Set<string>();
+  const remaining = [...proposals];
+  while (selected.length < budget && remaining.length > 0) {
+    remaining.sort((left, right) => {
+      const leftNewFamily = seenFamilies.has(viewFamilyKey(left.binaryViewId)) ? 0 : 1;
+      const rightNewFamily = seenFamilies.has(viewFamilyKey(right.binaryViewId)) ? 0 : 1;
+      return rightNewFamily - leftNewFamily || right.proposalScore - left.proposalScore;
+    });
+    const next = remaining.shift();
+    if (next === undefined) break;
+    selected.push(next);
+    seenFamilies.add(viewFamilyKey(next.binaryViewId));
+  }
+  return selected;
+};
+
+const representativeScore = (
+  proposal: ScanProposal,
+  variant: Exclude<ClusterRepresentativeVariant, 'view-diverse-score'>,
+): number => {
+  const breakdown = proposal.scoreBreakdown;
+  if (variant === 'timing-score') return breakdown.timingScore;
+  if (variant === 'quiet-timing-score') {
+    return breakdown.quietZoneScore * 2 + breakdown.timingScore * 3 + breakdown.alignmentScore;
+  }
+  if (variant === 'decode-signal-score') {
+    return (
+      breakdown.geometryScore +
+      breakdown.quietZoneScore * 2 +
+      breakdown.timingScore * 4 +
+      breakdown.alignmentScore * 2 -
+      breakdown.penalties * 1.5
+    );
+  }
+  return proposal.proposalScore;
+};
+
+const scoreCluster = (proposals: readonly ScanProposal[]): number => {
+  const bestScore = proposals[0]?.proposalScore ?? 0;
+  const supportBonus = Math.log1p(proposals.length) * 0.75;
+  const viewDiversity = new Set(proposals.map((proposal) => proposal.binaryViewId)).size;
+  const familyDiversity = new Set(proposals.map((proposal) => viewFamilyKey(proposal.binaryViewId)))
+    .size;
+  const diversityBonus = Math.log1p(viewDiversity) * 0.4 + Math.log1p(familyDiversity) * 0.25;
+  const spreadPenalty = clusterSpreadPenalty(proposals);
+  return bestScore + supportBonus + diversityBonus - spreadPenalty;
+};
+
+const clusterSpreadPenalty = (proposals: readonly ScanProposal[]): number => {
+  const centroids = proposals
+    .map((proposal) => centroid(proposalClusterPoints(proposal)))
+    .filter((point): point is Point => point !== null);
+  if (centroids.length < 2) return 0;
+  const center = centroid(centroids);
+  if (!center) return 0;
+  const averageDistance =
+    centroids.reduce((sum, point) => sum + Math.hypot(point.x - center.x, point.y - center.y), 0) /
+    centroids.length;
+  return Math.min(3, averageDistance / PROPOSAL_CLUSTER_QUANTIZATION);
 };
 
 const proposalClusterKey = (proposal: ScanProposal): string => {
@@ -88,65 +187,12 @@ const proposalClusterKey = (proposal: ScanProposal): string => {
   ].join(':');
 };
 
-const selectClusterRepresentatives = (
-  proposals: readonly ScanProposal[],
-  maxRepresentatives: number,
-): readonly ScanProposal[] => {
-  const budget = normalizeRepresentativeBudget(maxRepresentatives);
-  const selected: ScanProposal[] = [];
-  const seenIds = new Set<string>();
-  const seenFamilies = new Set<string>();
-  const seenProfiles = new Set<string>();
-
-  const push = (proposal: ScanProposal): void => {
-    if (selected.length >= budget || seenIds.has(proposal.id)) return;
-    seenIds.add(proposal.id);
-    selected.push(proposal);
-  };
-
-  const first = proposals[0];
-  if (first) {
-    push(first);
-    seenFamilies.add(viewFamilyKey(first.binaryViewId));
-    seenProfiles.add(viewProfileKey(first.binaryViewId));
-  }
-
-  for (const proposal of proposals) {
-    if (selected.length >= budget) break;
-    const family = viewFamilyKey(proposal.binaryViewId);
-    if (seenFamilies.has(family)) continue;
-    push(proposal);
-    seenFamilies.add(family);
-    seenProfiles.add(viewProfileKey(proposal.binaryViewId));
-  }
-
-  for (const proposal of proposals) {
-    if (selected.length >= budget) break;
-    const profile = viewProfileKey(proposal.binaryViewId);
-    if (seenProfiles.has(profile)) continue;
-    push(proposal);
-    seenProfiles.add(profile);
-  }
-
-  for (const proposal of proposals) {
-    if (selected.length >= budget) break;
-    push(proposal);
-  }
-
-  return selected;
-};
-
 const viewFamilyKey = (binaryViewId: BinaryViewId): string => {
   const { scalarViewId } = parseBinaryViewId(binaryViewId);
   if (scalarViewId === 'gray') return 'gray';
   if (scalarViewId === 'oklab-l') return 'oklab-l';
   if (scalarViewId.startsWith('oklab')) return 'oklab-chroma';
   return 'rgb';
-};
-
-const viewProfileKey = (binaryViewId: BinaryViewId): string => {
-  const { scalarViewId, threshold, polarity } = parseBinaryViewId(binaryViewId);
-  return `${viewFamilyKey(binaryViewId)}:${threshold}:${polarity}:${scalarViewId}`;
 };
 
 const proposalClusterPoints = (proposal: ScanProposal): readonly Point[] => {
@@ -164,6 +210,14 @@ const proposalClusterPoints = (proposal: ScanProposal): readonly Point[] => {
   return proposal.finderLikeEvidence.map((finder) => ({ x: finder.centerX, y: finder.centerY }));
 };
 
+const centroid = (points: readonly Point[]): Point | null => {
+  if (points.length === 0) return null;
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
+};
+
 const normalizeRepresentativeBudget = (value: number | undefined): number => {
   if (value === undefined || !Number.isFinite(value)) return DEFAULT_MAX_CLUSTER_REPRESENTATIVES;
   return Math.max(1, Math.trunc(value));
@@ -172,7 +226,14 @@ const normalizeRepresentativeBudget = (value: number | undefined): number => {
 const parseBinaryViewId = (
   binaryViewId: BinaryViewId,
 ): { readonly scalarViewId: string; readonly threshold: string; readonly polarity: string } => {
-  const parts = binaryViewId.split(':');
-  if (parts.length !== 3) throw new RangeError(`Invalid binary view id: ${binaryViewId}.`);
-  return { scalarViewId: parts[0]!, threshold: parts[1]!, polarity: parts[2]! };
+  const [scalarViewId, threshold, polarity, extra] = binaryViewId.split(':');
+  if (
+    extra !== undefined ||
+    scalarViewId === undefined ||
+    threshold === undefined ||
+    polarity === undefined
+  ) {
+    throw new RangeError(`Invalid binary view id: ${binaryViewId}.`);
+  }
+  return { scalarViewId, threshold, polarity };
 };

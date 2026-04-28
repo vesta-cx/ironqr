@@ -57,17 +57,17 @@ export const splitPathInput = (value: string): string[] => {
 /** Interactively prompt the user to choose a corpus asset label. */
 export const promptLabel = async (
   ui: CliUi,
-  initialValue: CorpusAssetLabel = 'qr-positive',
+  initialValue: CorpusAssetLabel = 'qr-pos',
 ): Promise<CorpusAssetLabel> => {
   assertInteractiveSession('Label required in non-interactive mode');
   return ui.select({
     message: 'Asset label',
     initialValue,
     options: [
-      { value: 'qr-positive', label: 'qr-positive', hint: 'image contains at least one QR code' },
+      { value: 'qr-pos', label: 'qr-pos', hint: 'image contains at least one QR code' },
       {
-        value: 'non-qr-negative',
-        label: 'non-qr-negative',
+        value: 'qr-neg',
+        label: 'qr-neg',
         hint: 'image should not decode as QR',
       },
     ],

@@ -92,8 +92,8 @@ export const buildRealWorldBenchmarkCorpus = async (
     .sort((left, right) => left.id.localeCompare(right.id));
 
   return {
-    positives: entries.filter((entry) => entry.label === 'qr-positive'),
-    negatives: entries.filter((entry) => entry.label === 'non-qr-negative'),
+    positives: entries.filter((entry) => entry.label === 'qr-pos'),
+    negatives: entries.filter((entry) => entry.label === 'qr-neg'),
   };
 };
 
@@ -238,10 +238,10 @@ export const writeSelectedRealWorldBenchmarkFixture = async (
 
   const nextCorpus: RealWorldBenchmarkCorpus = {
     positives: copiedEntries
-      .filter((entry) => entry.label === 'qr-positive')
+      .filter((entry) => entry.label === 'qr-pos')
       .sort((left, right) => left.id.localeCompare(right.id)),
     negatives: copiedEntries
-      .filter((entry) => entry.label === 'non-qr-negative')
+      .filter((entry) => entry.label === 'qr-neg')
       .sort((left, right) => left.id.localeCompare(right.id)),
   };
 

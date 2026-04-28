@@ -1,3 +1,4 @@
+import type { ScanMetricsSink, ScanTimingSpanName } from '../contracts/scan.js';
 import {
   getOklabPlanes,
   type NormalizedImage,
@@ -63,6 +64,24 @@ export interface ScalarView {
 }
 
 /**
+ * Polarity-free threshold plane shared by normal and inverted binary views.
+ *
+ * Pixels are stored as bits encoded in bytes: `1` means dark and `0` means light.
+ */
+export interface BinaryPlane {
+  /** Parent scalar view id. */
+  readonly scalarViewId: ScalarViewId;
+  /** Threshold method used to build the plane. */
+  readonly threshold: ThresholdMethod;
+  /** Frame width in pixels. */
+  readonly width: number;
+  /** Frame height in pixels. */
+  readonly height: number;
+  /** Per-pixel threshold bits where 1 is dark and 0 is light. */
+  readonly data: Uint8Array;
+}
+
+/**
  * A thresholded binary view derived from a scalar image plane.
  */
 export interface BinaryView {
@@ -72,13 +91,15 @@ export interface BinaryView {
   readonly scalarViewId: ScalarViewId;
   /** Threshold method used to build the view. */
   readonly threshold: ThresholdMethod;
-  /** Whether dark/light were inverted after thresholding. */
+  /** Whether dark/light are inverted when reading the shared plane. */
   readonly polarity: BinaryPolarity;
   /** Frame width in pixels. */
   readonly width: number;
   /** Frame height in pixels. */
   readonly height: number;
-  /** Thresholded pixels where 0 is dark and 255 is light. */
+  /** Shared polarity-free threshold plane. */
+  readonly plane: BinaryPlane;
+  /** Shared threshold bits where 1 is dark before applying view polarity. */
   readonly binary: Uint8Array;
 }
 
@@ -106,6 +127,8 @@ export interface ViewBank {
 export interface ViewBankOptions {
   /** Optional trace sink used to report view materialization. */
   readonly traceSink?: TraceSink;
+  /** Optional metrics sink used to report first materialization timing. */
+  readonly metricsSink?: ScanMetricsSink;
 }
 
 /**
@@ -126,10 +149,10 @@ export const createViewBank = (image: NormalizedImage, options: ViewBankOptions 
 
   return {
     getScalarView(id) {
-      return getOrBuildScalarView(image, id, options.traceSink);
+      return getOrBuildScalarView(image, id, options.traceSink, options.metricsSink);
     },
     getBinaryView(id) {
-      return getOrBuildBinaryView(image, id, options.traceSink);
+      return getOrBuildBinaryView(image, id, options.traceSink, options.metricsSink);
     },
     listScalarViewIds() {
       return [...scalarIds];
@@ -177,6 +200,57 @@ export const buildBinaryViews = (
 };
 
 /**
+ * Lists every default binary-view id in deterministic materialization order.
+ */
+export const listDefaultBinaryViewIds = (): readonly BinaryViewId[] =>
+  SCALAR_VIEW_IDS.flatMap((scalarViewId) =>
+    THRESHOLD_METHODS.flatMap((threshold) =>
+      POLARITIES.map((polarity) => `${scalarViewId}:${threshold}:${polarity}` as BinaryViewId),
+    ),
+  );
+
+/**
+ * Lists default production proposal-view ids without requiring an image.
+ */
+export const listDefaultProposalViewIds = (): readonly BinaryViewId[] => [...PROPOSAL_VIEW_IDS];
+
+/**
+ * Reads one polarity-aware binary bit from a binary view.
+ *
+ * @returns `1` for dark and `0` for light.
+ */
+export const readBinaryBit = (view: BinaryView, index: number): 0 | 1 => {
+  const bit = view.plane.data[index] === 1 ? 1 : 0;
+  if (view.polarity === 'normal') return bit;
+  return bit === 1 ? 0 : 1;
+};
+
+/**
+ * Returns whether one polarity-aware binary pixel is dark.
+ */
+export const isDarkPixel = (view: BinaryView, index: number): boolean =>
+  readBinaryBit(view, index) === 1;
+
+/**
+ * Reads one polarity-aware binary pixel in image-export byte form.
+ *
+ * @returns `0` for dark and `255` for light.
+ */
+export const readBinaryPixel = (view: BinaryView, index: number): 0 | 255 =>
+  readBinaryBit(view, index) === 1 ? 0 : 255;
+
+/**
+ * Converts a binary view to image-export byte form.
+ */
+export const materializeBinaryBytes = (view: BinaryView): Uint8Array => {
+  const out = new Uint8Array(view.width * view.height);
+  for (let index = 0; index < out.length; index += 1) {
+    out[index] = readBinaryPixel(view, index);
+  }
+  return out;
+};
+
+/**
  * Materializes the grayscale scalar view for a normalized image.
  *
  * @param image - Normalized input image.
@@ -218,8 +292,7 @@ export const toOklabPlanes = (image: NormalizedImage): OklabPlanes => {
  * @returns Binary pixels where 0 is dark and 255 is light.
  */
 export const otsuBinarize = (values: Uint8Array, width: number, height: number): Uint8Array => {
-  assertPlaneLength(values.length, width, height, 'otsuBinarize');
-  return thresholdPlane(values, otsuThreshold(values));
+  return bitPlaneToBytes(otsuBitPlane(values, width, height));
 };
 
 /**
@@ -237,28 +310,7 @@ export const sauvolaBinarize = (
   height: number,
   radius = Math.max(8, Math.floor(Math.min(width, height) / DEFAULT_SAUVOLA_RADIUS_DIVISOR)),
 ): Uint8Array => {
-  assertPlaneLength(values.length, width, height, 'sauvolaBinarize');
-  const { sum, sumSq, stride } = buildIntegralImages(values, width, height);
-  const out = new Uint8Array(values.length);
-
-  for (let y = 0; y < height; y += 1) {
-    const top = Math.max(0, y - radius);
-    const bottom = Math.min(height, y + radius + 1);
-    for (let x = 0; x < width; x += 1) {
-      const left = Math.max(0, x - radius);
-      const right = Math.min(width, x + radius + 1);
-      const area = (right - left) * (bottom - top);
-      const localSum = rectSum(sum, stride, left, top, right, bottom);
-      const localSumSq = rectSum(sumSq, stride, left, top, right, bottom);
-      const mean = localSum / area;
-      const variance = Math.max(0, localSumSq / area - mean * mean);
-      const deviation = Math.sqrt(variance);
-      const threshold = mean * (1 + SAUVOLA_K * (deviation / SAUVOLA_DYNAMIC_RANGE - 1));
-      out[y * width + x] = (values[y * width + x] ?? 0) > threshold ? WHITE : 0;
-    }
-  }
-
-  return out;
+  return bitPlaneToBytes(sauvolaBitPlane(values, width, height, radius));
 };
 
 /**
@@ -279,30 +331,7 @@ export const hybridBinarize = (
   height: number,
   radius = Math.max(6, Math.floor(Math.min(width, height) / DEFAULT_HYBRID_RADIUS_DIVISOR)),
 ): Uint8Array => {
-  assertPlaneLength(values.length, width, height, 'hybridBinarize');
-  const global = otsuThreshold(values);
-  const { sum, sumSq, stride } = buildIntegralImages(values, width, height);
-  const out = new Uint8Array(values.length);
-
-  for (let y = 0; y < height; y += 1) {
-    const top = Math.max(0, y - radius);
-    const bottom = Math.min(height, y + radius + 1);
-    for (let x = 0; x < width; x += 1) {
-      const left = Math.max(0, x - radius);
-      const right = Math.min(width, x + radius + 1);
-      const area = (right - left) * (bottom - top);
-      const localSum = rectSum(sum, stride, left, top, right, bottom);
-      const localSumSq = rectSum(sumSq, stride, left, top, right, bottom);
-      const mean = localSum / area;
-      const variance = Math.max(0, localSumSq / area - mean * mean);
-      const deviation = Math.sqrt(variance);
-      const adaptive = mean - deviation * HYBRID_DEVIATION_WEIGHT;
-      const threshold = global * HYBRID_GLOBAL_WEIGHT + adaptive * HYBRID_ADAPTIVE_WEIGHT;
-      out[y * width + x] = (values[y * width + x] ?? 0) > threshold ? WHITE : 0;
-    }
-  }
-
-  return out;
+  return bitPlaneToBytes(hybridBitPlane(values, width, height, radius));
 };
 
 /**
@@ -361,12 +390,20 @@ const getOrBuildScalarView = (
   image: NormalizedImage,
   id: ScalarViewId,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
 ): ScalarView => {
   const cached = image.derivedViews.scalarViews.get(id);
   if (isScalarView(cached, id)) return cached;
 
+  const startedAtMs = nowMs();
   const view = buildScalarView(image, id);
   image.derivedViews.scalarViews.set(id, view);
+  recordTimingSpan(metricsSink, 'scalar-view', startedAtMs, {
+    scalarViewId: view.id,
+    width: view.width,
+    height: view.height,
+    family: view.family,
+  });
   traceSink?.emit({
     type: 'scalar-view-built',
     scalarViewId: view.id,
@@ -381,31 +418,34 @@ const getOrBuildBinaryView = (
   image: NormalizedImage,
   id: BinaryViewId,
   traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
 ): BinaryView => {
   const cached = image.derivedViews.binaryViews.get(id);
   if (isBinaryView(cached, id)) return cached;
 
   const [scalarViewId, threshold, polarity] = parseBinaryViewId(id);
-  const scalarView = getOrBuildScalarView(image, scalarViewId, traceSink);
-  const thresholded =
-    threshold === 'otsu'
-      ? otsuBinarize(scalarView.values, scalarView.width, scalarView.height)
-      : threshold === 'sauvola'
-        ? sauvolaBinarize(scalarView.values, scalarView.width, scalarView.height)
-        : hybridBinarize(scalarView.values, scalarView.width, scalarView.height);
-
-  const binary = polarity === 'normal' ? thresholded : invertBinary(thresholded);
+  const plane = getOrBuildBinaryPlane(image, scalarViewId, threshold, traceSink, metricsSink);
+  const startedAtMs = nowMs();
   const view = {
     id,
     scalarViewId,
     threshold,
     polarity,
-    width: scalarView.width,
-    height: scalarView.height,
-    binary,
+    width: plane.width,
+    height: plane.height,
+    plane,
+    binary: plane.data,
   } satisfies BinaryView;
 
   image.derivedViews.binaryViews.set(id, view);
+  recordTimingSpan(metricsSink, 'binary-view', startedAtMs, {
+    binaryViewId: view.id,
+    scalarViewId: view.scalarViewId,
+    threshold: view.threshold,
+    polarity: view.polarity,
+    width: view.width,
+    height: view.height,
+  });
   traceSink?.emit({
     type: 'binary-view-built',
     binaryViewId: view.id,
@@ -416,6 +456,42 @@ const getOrBuildBinaryView = (
     height: view.height,
   });
   return view;
+};
+
+const getOrBuildBinaryPlane = (
+  image: NormalizedImage,
+  scalarViewId: ScalarViewId,
+  threshold: ThresholdMethod,
+  traceSink?: TraceSink,
+  metricsSink?: ScanMetricsSink,
+): BinaryPlane => {
+  const key = binaryPlaneKey(scalarViewId, threshold);
+  const cached = image.derivedViews.binaryPlanes.get(key);
+  if (isBinaryPlane(cached, scalarViewId, threshold)) return cached;
+
+  const scalarView = getOrBuildScalarView(image, scalarViewId, traceSink, metricsSink);
+  const startedAtMs = nowMs();
+  const data =
+    threshold === 'otsu'
+      ? otsuBitPlane(scalarView.values, scalarView.width, scalarView.height)
+      : threshold === 'sauvola'
+        ? sauvolaBitPlane(scalarView.values, scalarView.width, scalarView.height)
+        : hybridBitPlane(scalarView.values, scalarView.width, scalarView.height);
+  const plane = {
+    scalarViewId,
+    threshold,
+    width: scalarView.width,
+    height: scalarView.height,
+    data,
+  } satisfies BinaryPlane;
+  image.derivedViews.binaryPlanes.set(key, plane);
+  recordTimingSpan(metricsSink, 'binary-plane', startedAtMs, {
+    scalarViewId,
+    threshold,
+    width: plane.width,
+    height: plane.height,
+  });
+  return plane;
 };
 
 const buildScalarView = (image: NormalizedImage, id: ScalarViewId): ScalarView => {
@@ -474,14 +550,27 @@ const encodeOklabValue = (id: ScalarViewId, planes: OklabPlanes, index: number):
   return clampByte(128 - (planes.b[index] ?? 0) * SIGNED_OKLAB_SCALE);
 };
 
+const recordTimingSpan = (
+  metricsSink: ScanMetricsSink | undefined,
+  name: ScanTimingSpanName,
+  startedAtMs: number,
+  metadata: Record<string, unknown>,
+): void => {
+  metricsSink?.record({ name, startedAtMs, durationMs: nowMs() - startedAtMs, metadata });
+};
+
+const nowMs = (): number => performance.now();
+
 const parseBinaryViewId = (id: BinaryViewId): [ScalarViewId, ThresholdMethod, BinaryPolarity] => {
-  const parts = id.split(':');
-  if (parts.length !== 3) {
+  const [scalarViewId, threshold, polarity, extra] = id.split(':');
+  if (
+    extra !== undefined ||
+    scalarViewId === undefined ||
+    threshold === undefined ||
+    polarity === undefined
+  ) {
     throw new RangeError(`Invalid binary view id: ${id}.`);
   }
-  const scalarViewId = parts[0]!;
-  const threshold = parts[1]!;
-  const polarity = parts[2]!;
   if (!isScalarViewId(scalarViewId) || !isThresholdMethod(threshold) || !isPolarity(polarity)) {
     throw new RangeError(`Invalid binary view id: ${id}.`);
   }
@@ -528,10 +617,88 @@ const scalarFamily = (id: ScalarViewId): 'rgb' | 'oklab' | 'derived' => {
   return 'oklab';
 };
 
-const thresholdPlane = (values: Uint8Array, threshold: number): Uint8Array => {
+const binaryPlaneKey = (scalarViewId: ScalarViewId, threshold: ThresholdMethod): string =>
+  `${scalarViewId}:${threshold}`;
+
+const otsuBitPlane = (values: Uint8Array, width: number, height: number): Uint8Array => {
+  assertPlaneLength(values.length, width, height, 'otsuBinarize');
+  return thresholdBitPlane(values, otsuThreshold(values));
+};
+
+const sauvolaBitPlane = (
+  values: Uint8Array,
+  width: number,
+  height: number,
+  radius = Math.max(8, Math.floor(Math.min(width, height) / DEFAULT_SAUVOLA_RADIUS_DIVISOR)),
+): Uint8Array => {
+  assertPlaneLength(values.length, width, height, 'sauvolaBinarize');
+  const { sum, sumSq, stride } = buildIntegralImages(values, width, height);
+  const out = new Uint8Array(values.length);
+
+  for (let y = 0; y < height; y += 1) {
+    const top = Math.max(0, y - radius);
+    const bottom = Math.min(height, y + radius + 1);
+    for (let x = 0; x < width; x += 1) {
+      const left = Math.max(0, x - radius);
+      const right = Math.min(width, x + radius + 1);
+      const area = (right - left) * (bottom - top);
+      const localSum = rectSum(sum, stride, left, top, right, bottom);
+      const localSumSq = rectSum(sumSq, stride, left, top, right, bottom);
+      const mean = localSum / area;
+      const variance = Math.max(0, localSumSq / area - mean * mean);
+      const deviation = Math.sqrt(variance);
+      const threshold = mean * (1 + SAUVOLA_K * (deviation / SAUVOLA_DYNAMIC_RANGE - 1));
+      out[y * width + x] = (values[y * width + x] ?? 0) > threshold ? 0 : 1;
+    }
+  }
+
+  return out;
+};
+
+const hybridBitPlane = (
+  values: Uint8Array,
+  width: number,
+  height: number,
+  radius = Math.max(6, Math.floor(Math.min(width, height) / DEFAULT_HYBRID_RADIUS_DIVISOR)),
+): Uint8Array => {
+  assertPlaneLength(values.length, width, height, 'hybridBinarize');
+  const global = otsuThreshold(values);
+  const { sum, sumSq, stride } = buildIntegralImages(values, width, height);
+  const out = new Uint8Array(values.length);
+
+  for (let y = 0; y < height; y += 1) {
+    const top = Math.max(0, y - radius);
+    const bottom = Math.min(height, y + radius + 1);
+    for (let x = 0; x < width; x += 1) {
+      const left = Math.max(0, x - radius);
+      const right = Math.min(width, x + radius + 1);
+      const area = (right - left) * (bottom - top);
+      const localSum = rectSum(sum, stride, left, top, right, bottom);
+      const localSumSq = rectSum(sumSq, stride, left, top, right, bottom);
+      const mean = localSum / area;
+      const variance = Math.max(0, localSumSq / area - mean * mean);
+      const deviation = Math.sqrt(variance);
+      const adaptive = mean - deviation * HYBRID_DEVIATION_WEIGHT;
+      const threshold = global * HYBRID_GLOBAL_WEIGHT + adaptive * HYBRID_ADAPTIVE_WEIGHT;
+      out[y * width + x] = (values[y * width + x] ?? 0) > threshold ? 0 : 1;
+    }
+  }
+
+  return out;
+};
+
+const thresholdBitPlane = (values: Uint8Array, threshold: number): Uint8Array => {
   const out = new Uint8Array(values.length);
   for (let index = 0; index < values.length; index += 1) {
-    out[index] = (values[index] ?? 0) > threshold ? WHITE : 0;
+    out[index] = (values[index] ?? 0) > threshold ? 0 : 1;
+  }
+  return out;
+};
+
+const bitPlaneToBytes = (bits: Uint8Array): Uint8Array => {
+  const out = new Uint8Array(bits.length);
+  for (let index = 0; index < bits.length; index += 1) {
+    out[index] = bits[index] === 1 ? 0 : WHITE;
   }
   return out;
 };
@@ -617,7 +784,26 @@ const isScalarView = (value: unknown, id: ScalarViewId): value is ScalarView => 
 const isBinaryView = (value: unknown, id: BinaryViewId): value is BinaryView => {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<BinaryView>;
-  return candidate.id === id && candidate.binary instanceof Uint8Array;
+  return (
+    candidate.id === id &&
+    candidate.plane !== undefined &&
+    isBinaryPlane(candidate.plane, candidate.scalarViewId, candidate.threshold) &&
+    candidate.binary === candidate.plane.data
+  );
+};
+
+const isBinaryPlane = (
+  value: unknown,
+  scalarViewId: unknown,
+  threshold: unknown,
+): value is BinaryPlane => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<BinaryPlane>;
+  return (
+    candidate.scalarViewId === scalarViewId &&
+    candidate.threshold === threshold &&
+    candidate.data instanceof Uint8Array
+  );
 };
 
 const isScalarViewId = (value: string): value is ScalarViewId => {

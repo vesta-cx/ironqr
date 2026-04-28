@@ -2,8 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import { Effect } from 'effect';
 import {
   createNormalizedImage,
+  MAX_IMAGE_PIXELS,
   MAX_IMAGE_SOURCE_BYTES,
   normalizeImageInput,
+  validateImageDimensions,
 } from '../../src/pipeline/frame.js';
 import { createGeometryCandidates, resolveGrid } from '../../src/pipeline/geometry.js';
 import {
@@ -15,7 +17,13 @@ import {
 } from '../../src/pipeline/proposals.js';
 import { sampleGrid } from '../../src/pipeline/samplers.js';
 import { createTraceCollector } from '../../src/pipeline/trace.js';
-import { createViewBank, otsuBinarize, toGrayscale } from '../../src/pipeline/views.js';
+import {
+  createViewBank,
+  listDefaultBinaryViewIds,
+  otsuBinarize,
+  readBinaryBit,
+  toGrayscale,
+} from '../../src/pipeline/views.js';
 import { decodeGridLogical } from '../../src/qr/index.js';
 import {
   appendBits,
@@ -79,6 +87,11 @@ describe('single-image baseline pipeline (internal modules)', () => {
     expect(binary.every((value) => value === 255)).toBe(true);
   });
 
+  it('accepts an 8192x4320 8K screen capture area budget', () => {
+    expect(MAX_IMAGE_PIXELS).toBe(8192 * 4320);
+    expect(() => validateImageDimensions(8192, 4320)).not.toThrow();
+  });
+
   it('rejects oversized canvas-like browser sources before bitmap conversion', async () => {
     await expect(
       Effect.runPromise(normalizeImageInput({ width: 8193, height: 1 })),
@@ -95,6 +108,23 @@ describe('single-image baseline pipeline (internal modules)', () => {
         }),
       ),
     ).rejects.toThrow('Browser image source size must not exceed');
+  });
+
+  it('shares one threshold plane across normal and inverted binary view identities', () => {
+    const imageData = makeImageData(
+      2,
+      1,
+      new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]),
+    );
+    const bank = createViewBank(createNormalizedImage(imageData));
+    const normal = bank.getBinaryView('gray:otsu:normal');
+    const inverted = bank.getBinaryView('gray:otsu:inverted');
+
+    expect(normal.plane).toBe(inverted.plane);
+    expect(bank.listBinaryViewIds()).toHaveLength(54);
+    expect(listDefaultBinaryViewIds()).toHaveLength(54);
+    expect(readBinaryBit(normal, 0)).toBe(1);
+    expect(readBinaryBit(inverted, 0)).toBe(0);
   });
 
   it('orders proposal views by the current view-study priority list', () => {

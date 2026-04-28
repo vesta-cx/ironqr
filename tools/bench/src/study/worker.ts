@@ -1,0 +1,146 @@
+import { readBenchImage } from '../shared/image.js';
+import { openStudyCache } from './cache.js';
+import { defaultStudyWorkerPlugins } from './default-plugins.js';
+import { warmImageProcessingStudyWorker } from './image-processing.js';
+import { openScannerArtifactCache } from './scanner-artifact-cache.js';
+import type { StudyCacheHandle } from './types.js';
+import type {
+  StudyCacheWrite,
+  StudyWorkerAsset,
+  StudyWorkerRequest,
+  StudyWorkerResponse,
+} from './worker-types.js';
+
+const plugins = new Map(defaultStudyWorkerPlugins.map((plugin) => [plugin.id, plugin] as const));
+
+self.onmessage = (event: MessageEvent<StudyWorkerRequest>): void => {
+  void run(event.data);
+};
+
+const post = (message: StudyWorkerResponse): void => {
+  self.postMessage(message);
+};
+
+Reflect.set(globalThis, '__BENCH_STUDY_WORKER__', true);
+
+void warmImageProcessingStudyWorker().then(
+  () => post({ type: 'ready' }),
+  (error) =>
+    post({
+      type: 'error',
+      jobId: 'worker-startup',
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    }),
+);
+
+const run = async (request: StudyWorkerRequest): Promise<void> => {
+  try {
+    const plugin = plugins.get(request.pluginId);
+    if (!plugin?.runAsset) throw new Error(`Study worker cannot run plugin: ${request.pluginId}`);
+    const baseCache = await openStudyCache<unknown>({
+      enabled: request.cacheEnabled,
+      refresh: request.refreshCache,
+      file: request.cacheFile,
+    });
+    const artifactCache = openScannerArtifactCache({
+      enabled: request.cacheEnabled,
+      refresh: request.refreshCache,
+      directory: request.artifactCacheDirectory,
+    });
+    const cacheWrites: StudyCacheWrite[] = [];
+    const asset = {
+      ...request.asset,
+      loadImage: () => readBenchImage(request.asset.imagePath),
+    };
+    const cache = workerCache(baseCache, request.asset, cacheWrites, (write) =>
+      post({ type: 'cache-write', jobId: request.jobId, ...write }),
+    );
+    const previousSemaphore = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_SEMAPHORE__');
+    const previousFloodLimit = Reflect.get(globalThis, '__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__');
+    if (request.floodSemaphore) {
+      Reflect.set(globalThis, '__BENCH_STUDY_FLOOD_SEMAPHORE__', request.floodSemaphore);
+      Reflect.set(
+        globalThis,
+        '__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__',
+        request.floodConcurrencyLimit ?? 1,
+      );
+    }
+    const previousWorkerFlag = Reflect.get(globalThis, '__BENCH_STUDY_WORKER__');
+    Reflect.set(globalThis, '__BENCH_STUDY_WORKER__', true);
+    try {
+      const result = await plugin.runAsset({
+        repoRoot: request.repoRoot,
+        asset,
+        config: request.config as never,
+        reports: { accuracy: async () => null, performance: async () => null },
+        cache,
+        artifactCache,
+        log: (message) => post({ type: 'log', jobId: request.jobId, message }),
+      });
+      post({
+        type: 'result',
+        jobId: request.jobId,
+        result,
+        cacheWrites,
+        artifactCache: artifactCache.summary(),
+      });
+    } finally {
+      restoreGlobal('__BENCH_STUDY_WORKER__', previousWorkerFlag);
+      restoreGlobal('__BENCH_STUDY_FLOOD_SEMAPHORE__', previousSemaphore);
+      restoreGlobal('__BENCH_STUDY_FLOOD_CONCURRENCY_LIMIT__', previousFloodLimit);
+    }
+  } catch (error) {
+    post({
+      type: 'error',
+      jobId: request.jobId,
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    });
+  }
+};
+
+const restoreGlobal = (key: string, value: unknown): void => {
+  if (value === undefined) {
+    Reflect.deleteProperty(globalThis, key);
+    return;
+  }
+  Reflect.set(globalThis, key, value);
+};
+
+const workerCache = (
+  baseCache: StudyCacheHandle<unknown>,
+  asset: StudyWorkerAsset,
+  cacheWrites: StudyCacheWrite[],
+  postWrite: (write: {
+    readonly asset: StudyWorkerAsset;
+    readonly cacheKey: string;
+    readonly result: unknown;
+  }) => void,
+): StudyCacheHandle<unknown> => {
+  const overlay = new Map<string, unknown>();
+  return {
+    has(asset, cacheKey) {
+      if (overlay.has(cacheKey)) return true;
+      return baseCache.has(asset, cacheKey);
+    },
+    async read(asset, cacheKey) {
+      if (overlay.has(cacheKey)) return overlay.get(cacheKey) ?? null;
+      return baseCache.read(asset, cacheKey);
+    },
+    async write(_asset, cacheKey, result) {
+      overlay.set(cacheKey, result);
+      cacheWrites.push({ assetId: asset.id, cacheKey, result });
+      postWrite({ asset, cacheKey, result });
+    },
+    async remove(_asset, cacheKey) {
+      const deleted = overlay.delete(cacheKey);
+      return deleted || baseCache.remove(_asset, cacheKey);
+    },
+    async purge() {
+      return 0;
+    },
+    async flush() {},
+    summary: baseCache.summary,
+  };
+};

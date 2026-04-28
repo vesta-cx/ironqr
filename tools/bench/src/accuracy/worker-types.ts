@@ -59,14 +59,17 @@ export interface AccuracyWorkerImageLoadFailedMessage {
   readonly error: string;
 }
 
-/** Final worker response for a scan job; `durationMs` is wall-clock scan duration in milliseconds. */
+/** Final worker response for a scan job; durations are wall-clock milliseconds. */
 export interface AccuracyWorkerResultMessage {
   readonly type: 'result';
   readonly jobId: string;
   readonly engineId: string;
   readonly assetId: string;
   readonly scan: AccuracyScanResult;
+  /** Engine call duration excluding image load time when the adapter uses asset.loadImage(). */
   readonly durationMs: number;
+  readonly imageLoadDurationMs: number | null;
+  readonly totalJobDurationMs: number;
 }
 
 export type AccuracyWorkerRequest = AccuracyWorkerRunMessage;

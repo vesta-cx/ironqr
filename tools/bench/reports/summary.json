@@ -1,0 +1,154 @@
+{
+  "kind": "suite-report",
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-24T16:19:13.832Z",
+  "status": "failed",
+  "verdicts": {
+    "pass": {
+      "status": "failed",
+      "description": "Accuracy or performance benchmark reported a failed pass verdict."
+    },
+    "regression": {
+      "status": "unavailable",
+      "description": "At least one component regression verdict is unavailable."
+    }
+  },
+  "benchmark": {
+    "name": "Bench Full Suite",
+    "description": "Runs the standard `ironqr` benchmark suite: accuracy comparison against every target baseline engine plus performance comparison/profiling. This report answers whether the current branch regressed on correctness or speed. Start with `summary.verdicts`, then inspect `summary.highlights`, then open the linked accuracy and performance reports for details."
+  },
+  "command": {
+    "name": "suite",
+    "argv": [
+      "--max-assets",
+      "1",
+      "--seed",
+      "smoke",
+      "--iterations",
+      "1",
+      "--no-progress",
+      "--no-cache",
+      "--workers",
+      "1"
+    ]
+  },
+  "repo": {
+    "root": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract",
+    "commit": "74a81f427f4bbab503050f3cb3f437b25d9557c7",
+    "dirty": true
+  },
+  "corpus": {
+    "manifestPath": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract/corpus/data/manifest.json",
+    "assetCount": 1,
+    "positiveCount": 0,
+    "negativeCount": 1,
+    "manifestHash": "31ab431b97593203b91c07b233adef31be26c62efd42a70598dcc22400fde3c2",
+    "assetIds": [
+      "asset-4334738075a25d65"
+    ]
+  },
+  "selection": {
+    "seed": "smoke",
+    "filters": {
+      "assetIds": [],
+      "labels": [],
+      "maxAssets": 1
+    }
+  },
+  "engines": [
+    {
+      "id": "ironqr",
+      "adapterVersion": "live-pass-v1",
+      "packageName": "ironqr",
+      "runtimeVersion": "js"
+    },
+    {
+      "id": "jsqr",
+      "adapterVersion": "adapter-v1",
+      "packageName": "jsqr",
+      "runtimeVersion": "js"
+    },
+    {
+      "id": "zxing",
+      "adapterVersion": "adapter-v1",
+      "packageName": "zxing",
+      "runtimeVersion": "js"
+    },
+    {
+      "id": "zxing-cpp",
+      "adapterVersion": "adapter-v1",
+      "packageName": "zxing-cpp",
+      "runtimeVersion": "wasm"
+    },
+    {
+      "id": "quirc",
+      "adapterVersion": "adapter-v1",
+      "packageName": "quirc",
+      "runtimeVersion": "wasm"
+    },
+    {
+      "id": "zbar",
+      "adapterVersion": "adapter-v1",
+      "packageName": "zbar",
+      "runtimeVersion": "wasm"
+    },
+    {
+      "id": "opencv",
+      "adapterVersion": "adapter-v1",
+      "packageName": "opencv",
+      "runtimeVersion": "wasm"
+    }
+  ],
+  "options": {
+    "cacheEnabled": false,
+    "refreshCache": false,
+    "refreshCacheEngineId": null,
+    "workers": 1,
+    "iterations": 1,
+    "maxAssets": 1,
+    "seed": "smoke"
+  },
+  "summary": {
+    "verdicts": {
+      "accuracyPass": {
+        "status": "failed",
+        "description": "benchmark engine error(s) occurred: 1"
+      },
+      "accuracyRegression": {
+        "status": "passed",
+        "description": "Accuracy summary did not regress versus previous report."
+      },
+      "performancePass": {
+        "status": "failed",
+        "description": "ironqr trails baseline engine(s) on p95 or throughput: jsqr, zxing, zxing-cpp, quirc, zbar, opencv"
+      },
+      "performanceRegression": {
+        "status": "unavailable",
+        "description": "No previous performance summary is available for regression comparison."
+      }
+    },
+    "highlights": {
+      "ironqrAccuracyRank": 1,
+      "ironqrSpeedRank": 7,
+      "ironqrPassRate": 1,
+      "ironqrP95DurationMs": 42454.75,
+      "biggestAccuracyGaps": [],
+      "slowestIronqrAssets": [
+        {
+          "iteration": 1,
+          "assetId": "asset-4334738075a25d65",
+          "label": "qr-neg",
+          "engineId": "ironqr",
+          "outcome": "pass",
+          "bucket": "neg-pass",
+          "engineScanDurationMs": 42454.75,
+          "cached": false
+        }
+      ]
+    }
+  },
+  "details": {
+    "accuracyReportFile": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract/tools/bench/reports/accuracy.json",
+    "performanceReportFile": "/Users/mia/Development/mia-cx/QReader/.worktrees/study-plugin-contract/tools/bench/reports/performance.json"
+  }
+}

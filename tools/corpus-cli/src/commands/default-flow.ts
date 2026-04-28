@@ -74,7 +74,7 @@ const runStreamingRound = async (
   const session = await startScrapeRemoteAssets({
     repoRoot: context.repoRoot,
     seedUrls,
-    label: 'qr-positive',
+    label: 'qr-pos',
     limit,
     fetchDelayMs: DEFAULT_FETCH_DELAY_MS,
     log: (line) => {

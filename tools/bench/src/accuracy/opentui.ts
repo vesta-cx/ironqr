@@ -1,3 +1,5 @@
+import { clamp01, fractionalBar, truncateLine } from './dashboard/components.js';
+import { formatCompactDuration } from './dashboard/format.js';
 import { renderRunFooter } from './dashboard/frame.js';
 import type { BenchDashboardModel } from './dashboard/model.js';
 import { renderScorecard } from './dashboard/scorecard.js';
@@ -5,6 +7,7 @@ import {
   renderActiveWorkers,
   renderRecentScans,
   renderSlowestFreshScans,
+  type StudySlowestMetric,
 } from './dashboard/tables.js';
 import { renderTimingChart } from './dashboard/timing-chart.js';
 
@@ -13,25 +16,50 @@ type OpenTuiRenderer = Awaited<ReturnType<OpenTuiCore['createCliRenderer']>>;
 type OpenTuiBox = InstanceType<OpenTuiCore['BoxRenderable']>;
 type OpenTuiText = InstanceType<OpenTuiCore['TextRenderable']>;
 type OpenTuiKeyEvent = import('@opentui/core').KeyEvent;
+type DashboardFocusWidget =
+  | 'chart'
+  | 'views'
+  | 'detectors'
+  | 'scorecard'
+  | 'active'
+  | 'slowest'
+  | 'recent'
+  | 'events'
+  | 'legend';
 
 type OpenTuiPanel = {
   readonly box: OpenTuiBox;
   readonly body: OpenTuiText;
 };
 
-const CHART_PANEL_ROWS = 17;
+const CHART_PANEL_ROWS = 18;
+const STUDY_CHART_PANEL_ROWS = 30;
 const SCORECARD_PANEL_ROWS = 11;
 const PANEL_BORDER_ROWS = 2;
-const PANEL_TITLE_ROWS = 1;
-const PANEL_BODY_BOTTOM_GUTTER_ROWS = 1;
+const PANEL_TITLE_ROWS = 0;
+const PANEL_BODY_BOTTOM_GUTTER_ROWS = 0;
 const LEFT_COLUMN_RATIO = 0.42;
+const STUDY_LEFT_COLUMN_RATIO = 0.3;
 const ROOT_HORIZONTAL_PADDING = 8;
 const TABLE_LAYOUT_RESERVED_ROWS = 26;
 const RECENT_LAYOUT_RESERVED_ROWS = 24;
-const PROGRESS_BAR_WIDTH = 24;
+const PROGRESS_BAR_WIDTH = 56;
+const DASHBOARD_REFRESH_INTERVAL_MS = 50;
+const TABLE_ROW_FILL_SLACK = 6;
+const FILTER_MODAL_MIN_ROWS = 22;
+const FILTER_MODAL_MAX_ROWS = 30;
+const FILTER_MODAL_WIDTH_RATIO = 0.42;
+const FILTER_MODAL_MIN_WIDTH = 56;
+const FILTER_MODAL_MAX_WIDTH = 80;
 
 const panelBodyRows = (panelRows: number): number =>
   Math.max(0, panelRows - PANEL_BORDER_ROWS - PANEL_TITLE_ROWS - PANEL_BODY_BOTTOM_GUTTER_ROWS);
+
+const chartPanelRows = (isStudy: boolean): number =>
+  isStudy ? STUDY_CHART_PANEL_ROWS : CHART_PANEL_ROWS;
+
+const leftColumnRatio = (isStudy: boolean): number =>
+  isStudy ? STUDY_LEFT_COLUMN_RATIO : LEFT_COLUMN_RATIO;
 
 const THEME = {
   background: '#07111f',
@@ -54,44 +82,69 @@ export class BenchOpenTuiDashboard {
   private panels: {
     readonly header: OpenTuiText;
     readonly chart: OpenTuiPanel;
+    readonly detectorChart: OpenTuiPanel | null;
     readonly scorecard: OpenTuiPanel;
     readonly active: OpenTuiPanel;
     readonly slowest: OpenTuiPanel;
     readonly recent: OpenTuiPanel;
+    readonly legend: OpenTuiPanel;
+    readonly filterModal: OpenTuiPanel;
     readonly footer: OpenTuiText;
   } | null = null;
   private startPromise: Promise<void> | null = null;
   private keyHandler: ((key: OpenTuiKeyEvent) => void) | null = null;
   private sigintHandler: (() => void) | null = null;
-  private renderQueued = false;
+  private renderDirty = true;
   private renderPaused = false;
   private stopped = false;
+  private interruptCount = 0;
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private studyViewTimingOffset = 0;
+  private studyDetectorTimingOffset = 0;
+  private activeStudyWorkOffset = 0;
+  private slowestFreshScansOffset = 0;
+  private recentScansOffset = 0;
+  private studyEventsOffset = 0;
+  private legendOffset = 0;
+  private focusedWidget: DashboardFocusWidget = 'chart';
+  private filterModalOpen = false;
+  private filterCursor = 0;
+  private filterOffset = 0;
+  private studyTimingMetric: StudySlowestMetric = 'p98';
+  private readonly studyFilters: Record<'views' | 'detectors', StudyChartFilters> = {
+    views: createStudyChartFilters(),
+    detectors: createStudyChartFilters(),
+  };
 
   constructor(
     private readonly dashboard: BenchDashboardModel,
-    private readonly onQuit: () => never = () => process.exit(130),
+    private readonly onQuit: () => void = () => {},
   ) {}
 
   start(): void {
     if (this.startPromise) return;
+    this.startRefreshTimer();
     this.startPromise = this.startAsync();
   }
 
   update(): void {
     if (this.stopped) return;
+    this.renderDirty = true;
     this.start();
-    if (this.renderQueued) return;
-    this.renderQueued = true;
-    queueMicrotask(() => {
-      this.renderQueued = false;
-      this.render();
-    });
   }
 
   stop(): void {
-    this.render();
+    this.render(true);
     this.cleanup();
     this.stopped = true;
+  }
+
+  private startRefreshTimer(): void {
+    if (this.refreshTimer !== null) return;
+    this.refreshTimer = setInterval(() => {
+      this.render();
+    }, DASHBOARD_REFRESH_INTERVAL_MS);
+    this.refreshTimer.unref?.();
   }
 
   private async startAsync(): Promise<void> {
@@ -99,9 +152,9 @@ export class BenchOpenTuiDashboard {
       const { BoxRenderable, TextRenderable, createCliRenderer } = await import('@opentui/core');
       const renderer = await createCliRenderer({
         exitOnCtrlC: false,
-        targetFps: 12,
-        screenMode: 'main-screen',
-        clearOnShutdown: false,
+        targetFps: 20,
+        screenMode: 'alternate-screen',
+        clearOnShutdown: true,
         useMouse: false,
         enableMouseMovement: false,
       });
@@ -140,21 +193,32 @@ export class BenchOpenTuiDashboard {
         content: '',
         fg: THEME.white,
         bg: 'transparent',
-        selectable: false,
+        selectable: true,
       });
       headerBox.add(header);
 
+      const isStudy = this.dashboard.commandName === 'study';
       const chart = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'chart',
-        title: 'Timing by outcome',
+        title: isStudy ? 'Study view timings' : 'Timing by outcome',
         accent: THEME.cyan,
-        height: CHART_PANEL_ROWS,
+        height: chartPanelRows(isStudy),
+        ...(isStudy ? { width: '42%' } : {}),
       });
+      const detectorChart = isStudy
+        ? createPanel(BoxRenderable, TextRenderable, renderer, {
+            id: 'detector-chart',
+            title: 'Study detector timings',
+            accent: THEME.purple,
+            height: chartPanelRows(isStudy),
+            width: '58%',
+          })
+        : null;
       const scorecard = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'scorecard',
-        title: 'Accuracy scorecard',
+        title: isStudy ? 'Study events' : 'Accuracy scorecard',
         accent: THEME.green,
-        height: SCORECARD_PANEL_ROWS,
+        ...(isStudy ? { flexGrow: 1 } : { height: SCORECARD_PANEL_ROWS }),
       });
 
       const tablesRow = new BoxRenderable(renderer, {
@@ -166,33 +230,62 @@ export class BenchOpenTuiDashboard {
       });
       const leftColumn = new BoxRenderable(renderer, {
         id: 'bench-dashboard-left-column',
-        width: `${LEFT_COLUMN_RATIO * 100}%`,
+        width: `${leftColumnRatio(isStudy) * 100}%`,
         height: '100%',
         flexDirection: 'column',
       });
       const active = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'active',
-        title: 'Active workers',
+        title: isStudy ? 'Active study work' : 'Active workers',
         accent: THEME.blue,
         flexGrow: 1,
       });
       const slowest = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'slowest',
-        title: 'Slowest fresh scans',
+        title: isStudy ? 'Slowest study units' : 'Slowest fresh scans',
         accent: THEME.amber,
         flexGrow: 1,
       });
       leftColumn.add(active.box);
-      leftColumn.add(slowest.box);
+      if (!isStudy) leftColumn.add(slowest.box);
 
       const recent = createPanel(BoxRenderable, TextRenderable, renderer, {
         id: 'recent',
-        title: 'Recent scans',
+        title: isStudy ? 'Study events' : 'Recent scans',
         accent: THEME.purple,
         flexGrow: 1,
+        ...(isStudy ? { width: '68%' } : {}),
+      });
+      const legend = createPanel(BoxRenderable, TextRenderable, renderer, {
+        id: 'legend',
+        title: isStudy ? 'Study legend' : 'Bench legend',
+        accent: THEME.cyan,
+        width: '32%',
+        flexGrow: 1,
+      });
+      const rightColumn = new BoxRenderable(renderer, {
+        id: 'bench-dashboard-right-column',
+        width: `${(1 - leftColumnRatio(isStudy)) * 100}%`,
+        height: '100%',
+        flexDirection: 'row',
       });
       tablesRow.add(leftColumn);
-      tablesRow.add(recent.box);
+      rightColumn.add(recent.box);
+      rightColumn.add(legend.box);
+      tablesRow.add(rightColumn);
+
+      const filterModal = createPanel(BoxRenderable, TextRenderable, renderer, {
+        id: 'filter-modal',
+        title: 'Study filters',
+        accent: THEME.white,
+        width: '80%',
+        height: FILTER_MODAL_MIN_ROWS,
+        position: 'absolute',
+        top: '25%',
+        left: '15%',
+        zIndex: 10,
+      });
+      filterModal.box.visible = false;
 
       const footerBox = new BoxRenderable(renderer, {
         id: 'bench-dashboard-footer',
@@ -210,20 +303,44 @@ export class BenchOpenTuiDashboard {
         content: '',
         fg: THEME.muted,
         bg: 'transparent',
-        selectable: false,
+        selectable: true,
       });
       footerBox.add(footer);
 
       root.add(headerBox);
-      root.add(chart.box);
-      root.add(scorecard.box);
+      if (detectorChart) {
+        const chartRow = new BoxRenderable(renderer, {
+          id: 'bench-dashboard-study-chart-row',
+          width: '100%',
+          height: chartPanelRows(isStudy),
+          flexDirection: 'row',
+        });
+        chartRow.add(chart.box);
+        chartRow.add(detectorChart.box);
+        root.add(chartRow);
+      } else {
+        root.add(chart.box);
+      }
+      if (!isStudy) root.add(scorecard.box);
       root.add(tablesRow);
       root.add(footerBox);
+      root.add(filterModal.box);
       renderer.root.add(root);
       renderer.start();
 
-      this.panels = { header, chart, scorecard, active, slowest, recent, footer };
-      this.render();
+      this.panels = {
+        header,
+        chart,
+        detectorChart,
+        scorecard,
+        active,
+        slowest,
+        recent,
+        legend,
+        filterModal,
+        footer,
+      };
+      this.render(true);
     } catch (error) {
       this.cleanup();
       this.stopped = true;
@@ -235,33 +352,258 @@ export class BenchOpenTuiDashboard {
 
   private installQuitHandlers(renderer: OpenTuiRenderer): void {
     this.keyHandler = (key: OpenTuiKeyEvent): void => {
+      if (this.dashboard.commandName === 'study' && this.filterModalOpen) {
+        if (isFilterCloseKey(key)) {
+          this.filterModalOpen = false;
+          this.renderNow();
+          return;
+        }
+        if (isScrollDownKey(key)) {
+          this.moveFilterCursor(1);
+          return;
+        }
+        if (isScrollUpKey(key)) {
+          this.moveFilterCursor(-1);
+          return;
+        }
+        if (isSpaceKey(key)) {
+          this.toggleSelectedFilter();
+          return;
+        }
+        if (key.name === 'a' || key.sequence === 'a') {
+          this.clearFocusedFilters();
+          return;
+        }
+      }
       if (key.name === 'q' && !key.ctrl && !key.meta) {
         this.quit();
         return;
       }
       if (key.name === 'p' && !key.ctrl && !key.meta) {
         this.renderPaused = !this.renderPaused;
-        this.render(true);
+        this.renderNow();
+        return;
+      }
+      if (this.dashboard.commandName === 'study' && (key.name === 'f' || key.sequence === 'f')) {
+        this.filterModalOpen = true;
+        this.filterCursor = 0;
+        this.filterOffset = 0;
+        this.renderNow();
+        return;
+      }
+      if (isTabKey(key)) {
+        this.focusNextWidget();
+        return;
+      }
+      if (isScrollDownKey(key)) {
+        this.scrollFocusedWidget(1, isSingleRowScrollKey(key));
+        return;
+      }
+      if (isScrollUpKey(key)) {
+        this.scrollFocusedWidget(-1, isSingleRowScrollKey(key));
         return;
       }
       if ((key.name === 'c' && key.ctrl) || key.sequence === '\u0003') {
-        this.quit();
+        this.interrupt();
       }
     };
     renderer.keyInput.on('keypress', this.keyHandler);
 
     this.sigintHandler = () => {
-      this.quit();
+      this.interrupt();
     };
     process.once('SIGINT', this.sigintHandler);
   }
 
-  private quit(): never {
+  private interrupt(): void {
+    this.interruptCount += 1;
+    if (this.interruptCount === 1) {
+      this.quit();
+      return;
+    }
     this.cleanup();
-    return this.onQuit();
+    process.stderr.write('\n[bench] force exiting after second interrupt\n');
+    process.exit(130);
+  }
+
+  private quit(): void {
+    this.dashboard.stage = 'benchmark';
+    this.dashboard.message = 'stopping after requested interrupt';
+    this.cleanup();
+    this.onQuit();
+  }
+
+  private focusNextWidget(): void {
+    const widgets = this.focusableWidgets();
+    const index = widgets.indexOf(this.focusedWidget);
+    this.focusedWidget = widgets[(index + 1 + widgets.length) % widgets.length] ?? 'detectors';
+    this.renderNow();
+  }
+
+  private focusableWidgets(): readonly DashboardFocusWidget[] {
+    if (this.dashboard.commandName !== 'study') {
+      return ['chart', 'scorecard', 'active', 'slowest', 'recent', 'legend'];
+    }
+    return this.hasStudyViewTimings()
+      ? ['views', 'detectors', 'active', 'events', 'legend']
+      : ['detectors', 'active', 'events', 'legend'];
+  }
+
+  private focusedFilterTarget(): 'views' | 'detectors' {
+    return this.focusedWidget === 'views' ? 'views' : 'detectors';
+  }
+
+  private hasStudyViewTimings(): boolean {
+    return this.dashboard.studyTimings.size > 0;
+  }
+
+  private scrollFocusedWidget(delta: number, singleRow: boolean): void {
+    const step = singleRow ? 1 : this.studyPageScrollSize();
+    const scrollDelta = delta * step;
+    switch (this.focusedWidget) {
+      case 'views':
+        this.studyViewTimingOffset = clampOffset(
+          this.studyViewTimingOffset + scrollDelta,
+          this.dashboard.studyTimings.size,
+        );
+        break;
+      case 'detectors':
+        this.studyDetectorTimingOffset = clampOffset(
+          this.studyDetectorTimingOffset + scrollDelta,
+          this.dashboard.studyDetectorTimings.size,
+        );
+        break;
+      case 'active':
+        this.activeStudyWorkOffset = clampOffset(
+          this.activeStudyWorkOffset + scrollDelta,
+          this.dashboard.activeScans.size,
+        );
+        break;
+      case 'slowest':
+        this.slowestFreshScansOffset = clampOffset(
+          this.slowestFreshScansOffset + scrollDelta,
+          this.dashboard.slowestFreshScans.length,
+        );
+        break;
+      case 'recent':
+        this.recentScansOffset = clampOffset(
+          this.recentScansOffset + scrollDelta,
+          this.dashboard.recentScans.length,
+        );
+        break;
+      case 'events':
+        this.studyEventsOffset = clampOffset(
+          this.studyEventsOffset + scrollDelta,
+          this.dashboard.studyEvents.length,
+        );
+        break;
+      case 'legend':
+        this.legendOffset = clampOffset(this.legendOffset + scrollDelta, legendLineCount());
+        break;
+      case 'chart':
+      case 'scorecard':
+        break;
+    }
+    this.renderNow();
+  }
+
+  private studyPageScrollSize(): number {
+    return Math.max(1, panelBodyRows(chartPanelRows(this.dashboard.commandName === 'study')) - 4);
+  }
+
+  private moveFilterCursor(delta: number): void {
+    const count = selectableFilterRows().length;
+    this.filterCursor = (this.filterCursor + delta + count) % count;
+    this.ensureFilterCursorVisible();
+    this.renderNow();
+  }
+
+  private ensureFilterCursorVisible(): void {
+    const selectableCount = selectableFilterRows().length;
+    const visibleIndexes = renderedFilterOptionIndexes(
+      this.filterOffset,
+      this.filterModalBodyRows(),
+    );
+    if (visibleIndexes.includes(this.filterCursor)) return;
+    if (this.filterCursor < this.filterOffset) {
+      this.filterOffset = this.filterCursor;
+      return;
+    }
+    this.filterOffset = Math.max(0, Math.min(selectableCount - 1, this.filterCursor));
+    while (
+      this.filterOffset > 0 &&
+      !renderedFilterOptionIndexes(this.filterOffset, this.filterModalBodyRows()).includes(
+        this.filterCursor,
+      )
+    ) {
+      this.filterOffset -= 1;
+    }
+  }
+
+  private filterModalRows(): number {
+    return Math.min(FILTER_MODAL_MAX_ROWS, this.renderer?.terminalHeight ?? FILTER_MODAL_MAX_ROWS);
+  }
+
+  private filterModalBodyRows(): number {
+    return panelBodyRows(this.filterModalRows());
+  }
+
+  private centerFilterModal(): void {
+    if (!this.panels || !this.renderer) return;
+    const width = Math.min(
+      FILTER_MODAL_MAX_WIDTH,
+      Math.max(
+        FILTER_MODAL_MIN_WIDTH,
+        Math.floor(this.renderer.terminalWidth * FILTER_MODAL_WIDTH_RATIO),
+      ),
+    );
+    const height = this.filterModalRows();
+    this.panels.filterModal.box.width = width;
+    this.panels.filterModal.box.height = height;
+    this.panels.filterModal.box.left = Math.max(
+      0,
+      Math.floor((this.renderer.terminalWidth - width) / 2),
+    );
+    this.panels.filterModal.box.top = Math.max(
+      0,
+      Math.floor((this.renderer.terminalHeight - height) / 2),
+    );
+  }
+
+  private toggleSelectedFilter(): void {
+    const row = selectableFilterRows()[this.filterCursor];
+    if (!row) return;
+    if (row.group === 'metric') {
+      this.studyTimingMetric = row.value as StudySlowestMetric;
+      this.renderNow();
+      return;
+    }
+    const filters = this.studyFilters[this.focusedFilterTarget()];
+    const values = filters[row.group];
+    if (values.has(row.value)) values.delete(row.value);
+    else values.add(row.value);
+    this.studyViewTimingOffset = 0;
+    this.studyDetectorTimingOffset = 0;
+    this.renderNow();
+  }
+
+  private clearFocusedFilters(): void {
+    const filters = this.studyFilters[this.focusedFilterTarget()];
+    filters.families.clear();
+    filters.scalars.clear();
+    filters.thresholds.clear();
+    filters.polarities.clear();
+    filters.cache.clear();
+    this.studyViewTimingOffset = 0;
+    this.studyDetectorTimingOffset = 0;
+    this.renderNow();
   }
 
   private cleanup(): void {
+    if (this.refreshTimer !== null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     const renderer = this.renderer;
     if (renderer && this.keyHandler) {
       renderer.keyInput.off('keypress', this.keyHandler);
@@ -276,58 +618,319 @@ export class BenchOpenTuiDashboard {
     renderer?.destroy();
   }
 
+  private renderNow(): void {
+    this.render(true);
+    this.renderer?.requestRender();
+  }
+
+  private updateStudyFocusBorders(panels: NonNullable<BenchOpenTuiDashboard['panels']>): void {
+    panels.chart.box.borderColor =
+      this.focusedWidget === 'views' || this.focusedWidget === 'chart' ? THEME.white : THEME.cyan;
+    if (panels.detectorChart) {
+      panels.detectorChart.box.borderColor =
+        this.focusedWidget === 'detectors' ? THEME.white : THEME.purple;
+    }
+    panels.scorecard.box.borderColor =
+      this.focusedWidget === 'scorecard' ? THEME.white : THEME.green;
+    panels.active.box.borderColor = this.focusedWidget === 'active' ? THEME.white : THEME.blue;
+    panels.slowest.box.borderColor = this.focusedWidget === 'slowest' ? THEME.white : THEME.amber;
+    panels.recent.box.borderColor =
+      this.focusedWidget === 'events' || this.focusedWidget === 'recent'
+        ? THEME.white
+        : THEME.purple;
+    panels.legend.box.borderColor = this.focusedWidget === 'legend' ? THEME.white : THEME.cyan;
+  }
+
   private render(force = false): void {
     const panels = this.panels;
     if (!panels || this.stopped || (this.renderPaused && !force)) return;
+    if (!force && !this.renderDirty) return;
+    this.renderDirty = false;
 
     const width = process.stdout.columns ?? process.stderr.columns ?? 120;
     const height = process.stdout.rows ?? process.stderr.rows ?? 40;
     const contentWidth = Math.max(36, width - ROOT_HORIZONTAL_PADDING);
-    const leftWidth = Math.max(34, Math.floor(contentWidth * LEFT_COLUMN_RATIO) - 4);
-    const recentWidth = Math.max(40, contentWidth - leftWidth - 8);
-    const fallbackTableRows = Math.max(4, Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2));
-    const fallbackRecentRows = Math.max(4, height - RECENT_LAYOUT_RESERVED_ROWS);
-    const tableRows = Math.min(
-      fallbackTableRows,
-      measuredPanelDataRows(panels.active.box.height, fallbackTableRows),
-      measuredPanelDataRows(panels.slowest.box.height, fallbackTableRows),
+    const showPreloadModal =
+      this.dashboard.commandName === 'study' && isStudyCachePreloading(this.dashboard);
+    if (this.filterModalOpen || showPreloadModal) {
+      this.centerFilterModal();
+      if (this.filterModalOpen) this.ensureFilterCursorVisible();
+    }
+    const showStudyViewChart = this.dashboard.commandName !== 'study' || this.hasStudyViewTimings();
+    if (
+      this.dashboard.commandName === 'study' &&
+      !showStudyViewChart &&
+      this.focusedWidget === 'views'
+    ) {
+      this.focusedWidget = 'detectors';
+    }
+    const studyViewChartWidth = Math.max(34, Math.floor(contentWidth * 0.42) - 4);
+    const studyDetectorChartWidth = showStudyViewChart
+      ? Math.max(40, contentWidth - studyViewChartWidth - 8)
+      : Math.max(40, contentWidth - 4);
+    const leftWidth = Math.max(
+      30,
+      Math.floor(contentWidth * leftColumnRatio(this.dashboard.commandName === 'study')) - 4,
     );
-    const recentRows = Math.min(
-      fallbackRecentRows,
-      measuredPanelDataRows(panels.recent.box.height, fallbackRecentRows),
+    const rightWidth = Math.max(40, contentWidth - leftWidth - 8);
+    const legendWidth = Math.max(24, Math.floor(rightWidth * 0.32) - 4);
+    const recentWidth = Math.max(40, rightWidth - legendWidth - 8);
+    const fallbackTableRows = Math.max(
+      4,
+      Math.floor((height - TABLE_LAYOUT_RESERVED_ROWS) / 2) + TABLE_ROW_FILL_SLACK,
     );
+    const fallbackRecentRows = Math.max(
+      4,
+      height - RECENT_LAYOUT_RESERVED_ROWS + TABLE_ROW_FILL_SLACK,
+    );
+    const tableRows = fallbackTableRows;
+    const activeRows = tableRows;
+    const recentRows = fallbackRecentRows;
+    const eventRows = fallbackRecentRows;
 
-    panels.header.content = headerText(this.dashboard);
-    panels.chart.body.content = panelBody(
-      renderTimingChart(this.dashboard, {
-        width: contentWidth,
-        barHeight: height < 34 ? 4 : 6,
-      }),
-      panelBodyRows(CHART_PANEL_ROWS),
-    );
+    panels.header.content = headerText(this.dashboard, contentWidth);
+    if (this.dashboard.commandName === 'study' && panels.detectorChart) {
+      panels.chart.box.visible = showStudyViewChart;
+      panels.chart.box.width = showStudyViewChart ? '42%' : 0;
+      panels.detectorChart.box.width = showStudyViewChart ? '58%' : '100%';
+    }
+    this.updateStudyFocusBorders(panels);
+    const chartBodyRows = panelBodyRows(chartPanelRows(this.dashboard.commandName === 'study'));
+    panels.chart.body.content = showStudyViewChart
+      ? panelBody(
+          this.dashboard.commandName === 'study'
+            ? renderStudyViewTimings(this.dashboard, {
+                width: studyViewChartWidth,
+                maxRows: chartBodyRows,
+                offset: this.studyViewTimingOffset,
+                focused: this.focusedWidget === 'views',
+                filters: this.studyFilters.views,
+                metric: this.studyTimingMetric,
+              })
+            : renderTimingChart(this.dashboard, {
+                width: contentWidth,
+                barHeight: height < 34 ? 4 : 6,
+              }),
+          chartBodyRows,
+        )
+      : '';
+    if (panels.detectorChart) {
+      panels.detectorChart.body.content = panelBody(
+        renderStudyDetectorTimings(this.dashboard, {
+          width: studyDetectorChartWidth,
+          maxRows: chartBodyRows,
+          offset: this.studyDetectorTimingOffset,
+          focused: this.focusedWidget === 'detectors',
+          filters: this.studyFilters.detectors,
+          metric: this.studyTimingMetric,
+        }),
+        chartBodyRows,
+      );
+    }
     panels.scorecard.body.content = panelBody(
-      renderScorecard(this.dashboard, { width: contentWidth }),
-      panelBodyRows(SCORECARD_PANEL_ROWS),
+      this.dashboard.commandName === 'study'
+        ? renderStudyEvents(this.dashboard, { width: recentWidth, maxRows: eventRows })
+        : renderScorecard(this.dashboard, { width: contentWidth }),
+      this.dashboard.commandName === 'study' ? eventRows + 1 : panelBodyRows(SCORECARD_PANEL_ROWS),
     );
+    panels.filterModal.box.visible =
+      this.dashboard.commandName === 'study' && (this.filterModalOpen || showPreloadModal);
+    panels.filterModal.box.title = this.filterModalOpen
+      ? ' STUDY FILTERS '
+      : ' STUDY CACHE PRELOAD ';
+    panels.filterModal.body.content = this.filterModalOpen
+      ? panelBody(
+          renderStudyFilterModal({
+            width: Math.max(40, panels.filterModal.box.width - 4),
+            focus: this.focusedFilterTarget(),
+            filters: this.studyFilters[this.focusedFilterTarget()],
+            cursor: this.filterCursor,
+            timingMetric: this.studyTimingMetric,
+            offset: this.filterOffset,
+            maxRows: this.filterModalBodyRows(),
+          }),
+          this.filterModalBodyRows(),
+        )
+      : showPreloadModal
+        ? panelBody(
+            renderStudyPreloadModal(this.dashboard, {
+              width: Math.max(40, panels.filterModal.box.width - 4),
+              maxRows: this.filterModalBodyRows(),
+            }),
+            this.filterModalBodyRows(),
+          )
+        : '';
     panels.active.body.content = panelBody(
       renderActiveWorkers(this.dashboard, {
         width: leftWidth,
         nowMs: Date.now(),
-        maxRows: tableRows,
+        maxRows: activeRows,
+        offset: this.activeStudyWorkOffset,
       }),
-      tableRows + 1,
+      activeRows,
     );
-    panels.slowest.body.content = panelBody(
-      renderSlowestFreshScans(this.dashboard, { width: leftWidth, maxRows: tableRows }),
-      tableRows + 1,
-    );
+    panels.slowest.body.content =
+      this.dashboard.commandName === 'study'
+        ? ''
+        : panelBody(
+            renderSlowestFreshScans(this.dashboard, {
+              width: leftWidth,
+              maxRows: tableRows,
+              offset: this.slowestFreshScansOffset,
+            }),
+            tableRows,
+          );
     panels.recent.body.content = panelBody(
-      renderRecentScans(this.dashboard, { width: recentWidth, maxRows: recentRows }),
-      recentRows + 1,
+      this.dashboard.commandName === 'study'
+        ? renderStudyEvents(this.dashboard, {
+            width: recentWidth,
+            maxRows: recentRows,
+            offset: this.studyEventsOffset,
+          })
+        : renderRecentScans(this.dashboard, {
+            width: recentWidth,
+            maxRows: recentRows,
+            offset: this.recentScansOffset,
+          }),
+      recentRows,
     );
-    panels.footer.content = `${renderRunFooter(this.dashboard)} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}`;
+    panels.legend.box.visible = true;
+    panels.legend.body.content = panelBody(
+      renderLegend(this.dashboard.commandName === 'study', {
+        width: legendWidth,
+        maxRows: recentRows,
+        offset: this.legendOffset,
+      }),
+      recentRows,
+    );
+    const footerStatus =
+      this.dashboard.commandName === 'study'
+        ? renderStudyFooterStatus(this.dashboard)
+        : renderRunFooter(this.dashboard);
+    const focusHint = ` | tab=focus ${this.focusedWidget}`;
+    panels.footer.content = `${footerStatus} | q=quit | p=${this.renderPaused ? 'resume' : 'freeze for copy'}${this.dashboard.commandName === 'study' ? `${focusHint} | metric=${this.studyTimingMetric} | f=filters | ↑/↓=page | opt+↑/↓ or j/k=line` : ''}`;
+    this.renderer?.requestRender();
   }
 }
+
+const clampOffset = (offset: number, rowCount: number): number =>
+  Math.min(Math.max(0, rowCount - 1), Math.max(0, offset));
+
+const isTabKey = (key: OpenTuiKeyEvent): boolean =>
+  (key.name === 'tab' || key.sequence === '\t') && !key.ctrl && !key.meta;
+
+const isScrollDownKey = (key: OpenTuiKeyEvent): boolean =>
+  (key.name === 'down' || key.name === 'j' || key.sequence === 'j') && !key.ctrl;
+
+const isScrollUpKey = (key: OpenTuiKeyEvent): boolean =>
+  (key.name === 'up' || key.name === 'k' || key.sequence === 'k') && !key.ctrl;
+
+const isSingleRowScrollKey = (key: OpenTuiKeyEvent): boolean =>
+  key.name === 'j' ||
+  key.sequence === 'j' ||
+  key.name === 'k' ||
+  key.sequence === 'k' ||
+  key.option ||
+  key.meta;
+
+const isSpaceKey = (key: OpenTuiKeyEvent): boolean => key.name === 'space' || key.sequence === ' ';
+
+const isFilterCloseKey = (key: OpenTuiKeyEvent): boolean =>
+  key.name === 'escape' || key.sequence === '\u001b' || key.name === 'f' || key.sequence === 'f';
+
+type StudyFilterGroup = 'families' | 'scalars' | 'thresholds' | 'polarities' | 'cache' | 'metric';
+
+interface StudyChartFilters {
+  readonly families: Set<string>;
+  readonly scalars: Set<string>;
+  readonly thresholds: Set<string>;
+  readonly polarities: Set<string>;
+  readonly cache: Set<string>;
+}
+
+const createStudyChartFilters = (): StudyChartFilters => ({
+  families: new Set(),
+  scalars: new Set(),
+  thresholds: new Set(),
+  polarities: new Set(),
+  cache: new Set(),
+});
+
+type StudyFilterRow =
+  | { readonly kind: 'heading'; readonly label: string }
+  | { readonly kind: 'option'; readonly group: StudyFilterGroup; readonly value: string };
+
+const FILTER_ROWS: readonly StudyFilterRow[] = [
+  { kind: 'heading', label: 'timing metric' },
+  ...['min', 'avg', 'p1', 'p2', 'p5', 'p15', 'p50', 'p85', 'p95', 'p98', 'p99', 'max'].map(
+    (value) => ({
+      kind: 'option' as const,
+      group: 'metric' as const,
+      value,
+    }),
+  ),
+  { kind: 'heading', label: 'detector families' },
+  ...['r', 'f', 'm', 'd'].map((value) => ({
+    kind: 'option' as const,
+    group: 'families' as const,
+    value,
+  })),
+  { kind: 'heading', label: 'scalar channels' },
+  ...['gray', 'oklab-l', 'oklab+a', 'oklab-a', 'oklab+b', 'oklab-b', 'r', 'g', 'b'].map(
+    (value) => ({ kind: 'option' as const, group: 'scalars' as const, value }),
+  ),
+  { kind: 'heading', label: 'thresholds' },
+  ...['o', 's', 'h'].map((value) => ({
+    kind: 'option' as const,
+    group: 'thresholds' as const,
+    value,
+  })),
+  { kind: 'heading', label: 'polarity' },
+  ...['n', 'i'].map((value) => ({ kind: 'option' as const, group: 'polarities' as const, value })),
+  { kind: 'heading', label: 'cache state' },
+  ...['fresh', 'cached', 'mixed'].map((value) => ({
+    kind: 'option' as const,
+    group: 'cache' as const,
+    value,
+  })),
+];
+
+const selectableFilterRows = (): readonly Extract<StudyFilterRow, { readonly kind: 'option' }>[] =>
+  FILTER_ROWS.filter(
+    (row): row is Extract<StudyFilterRow, { readonly kind: 'option' }> => row.kind === 'option',
+  );
+
+const renderedFilterOptionIndexes = (offset: number, maxRows: number): readonly number[] => {
+  const indexes: number[] = [];
+  let lineCount = 2;
+  let previousGroup: StudyFilterGroup | null = null;
+  for (const [index, row] of selectableFilterRows().entries()) {
+    if (index < offset) continue;
+    const headingRows = row.group === previousGroup ? 0 : 1;
+    if (lineCount + headingRows + 1 > maxRows) break;
+    lineCount += headingRows + 1;
+    previousGroup = row.group;
+    indexes.push(index);
+  }
+  return indexes;
+};
+
+const filterGroupLabel = (group: StudyFilterGroup): string => {
+  switch (group) {
+    case 'metric':
+      return 'timing metric';
+    case 'families':
+      return 'detector families';
+    case 'scalars':
+      return 'scalar channels';
+    case 'thresholds':
+      return 'thresholds';
+    case 'polarities':
+      return 'polarity';
+    case 'cache':
+      return 'cache state';
+  }
+};
 
 const createPanel = (
   BoxRenderable: OpenTuiCore['BoxRenderable'],
@@ -339,73 +942,510 @@ const createPanel = (
     readonly accent: string;
     readonly height?: number;
     readonly flexGrow?: number;
+    readonly width?: number | 'auto' | `${number}%`;
+    readonly position?: 'absolute' | 'relative' | 'static';
+    readonly top?: number | 'auto' | `${number}%`;
+    readonly left?: number | 'auto' | `${number}%`;
+    readonly zIndex?: number;
   },
 ): OpenTuiPanel => {
   const boxOptions = {
     id: `bench-dashboard-${options.id}-panel`,
-    width: '100%',
+    width: options.width ?? '100%',
     flexShrink: 1,
     flexDirection: 'column',
     border: true,
     borderStyle: 'rounded',
     borderColor: options.accent,
     backgroundColor: THEME.panel,
+    title: ` ${options.title.toUpperCase()} `,
     paddingLeft: 1,
     paddingRight: 1,
+    ...(options.position === undefined ? {} : { position: options.position }),
+    ...(options.top === undefined ? {} : { top: options.top }),
+    ...(options.left === undefined ? {} : { left: options.left }),
+    ...(options.zIndex === undefined ? {} : { zIndex: options.zIndex }),
   } as const;
   const box = new BoxRenderable(renderer, {
     ...boxOptions,
     ...(options.height === undefined ? {} : { height: options.height }),
     ...(options.flexGrow === undefined ? {} : { flexGrow: options.flexGrow }),
   });
-  const title = new TextRenderable(renderer, {
-    id: `bench-dashboard-${options.id}-title`,
-    content: ` ${options.title.toUpperCase()} `,
-    fg: options.accent,
-    bg: 'transparent',
-    selectable: false,
-    width: '100%',
-    height: 1,
-    flexGrow: 0,
-    flexShrink: 0,
-  });
   const body = new TextRenderable(renderer, {
     id: `bench-dashboard-${options.id}-body`,
     content: '',
     fg: THEME.text,
     bg: 'transparent',
-    selectable: false,
+    selectable: true,
     width: '100%',
     flexGrow: 1,
     flexShrink: 1,
     wrapMode: 'none',
     truncate: true,
   });
-  box.add(title);
   box.add(body);
   return { box, body };
-};
-
-const panelDataRows = (panelRows: number): number => Math.max(0, panelBodyRows(panelRows) - 1);
-
-const measuredPanelDataRows = (panelRows: number, fallback: number): number => {
-  return panelRows > 0 ? panelDataRows(panelRows) : fallback;
 };
 
 const panelBody = (lines: readonly string[], maxRows: number): string => {
   return lines.slice(1, maxRows + 1).join('\n');
 };
 
-const headerText = (dashboard: BenchDashboardModel): string => {
-  const percent = clamp01(
-    dashboard.totalJobs > 0 ? dashboard.completedJobs / dashboard.totalJobs : 0,
+const renderStudyViewTimings = (
+  dashboard: BenchDashboardModel,
+  options: {
+    readonly width: number;
+    readonly maxRows: number;
+    readonly offset: number;
+    readonly focused: boolean;
+    readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
+  },
+): readonly string[] => {
+  const cache = cacheTotals(dashboard);
+  const lines = [
+    'study view timings',
+    truncateLine(
+      `phase=${dashboard.stage} workers=${dashboard.workerCount || '-'} ${dashboard.message}`,
+      options.width,
+    ),
+    truncateLine(
+      `jobs ${studyJobProgress(dashboard)} assets ${dashboard.completedJobs}/${dashboard.totalJobs} active=${dashboard.activeScans.size}`,
+      options.width,
+    ),
+    truncateLine(
+      `cache=${dashboard.cacheEnabled ? 'on' : 'off'} h/m/w=${cache.hits}/${cache.misses}/${cache.writes}`,
+      options.width,
+    ),
+  ];
+  const chartRows = Math.max(4, options.maxRows - lines.length);
+  lines.push(
+    ...renderStudyTimingBars('views', [...dashboard.studyTimings.values()], {
+      width: options.width,
+      maxRows: chartRows,
+      offset: options.offset,
+      maxLabelWidth: 30,
+      filters: options.filters,
+      metric: options.metric,
+    }),
   );
-  const completeWidth = Math.round(percent * PROGRESS_BAR_WIDTH);
-  const progress = `${'█'.repeat(completeWidth)}${'░'.repeat(PROGRESS_BAR_WIDTH - completeWidth)}`;
-  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}  ${dashboard.completedJobs}/${dashboard.totalJobs} jobs  ${dashboard.message}`;
+  return lines;
 };
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+const renderStudyDetectorTimings = (
+  dashboard: BenchDashboardModel,
+  options: {
+    readonly width: number;
+    readonly maxRows: number;
+    readonly offset: number;
+    readonly focused: boolean;
+    readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
+  },
+): readonly string[] => {
+  const lines = [
+    'study detector timings',
+    truncateLine('a/b/d=candidates c=control', options.width),
+  ];
+  const chartRows = Math.max(4, options.maxRows - lines.length);
+  lines.push(
+    ...renderStudyTimingBars('detectors', [...dashboard.studyDetectorTimings.values()], {
+      width: options.width,
+      maxRows: chartRows,
+      offset: options.offset,
+      maxLabelWidth: 44,
+      filters: options.filters,
+      metric: options.metric,
+    }),
+  );
+  return lines;
+};
+
+const renderStudyTimingBars = (
+  title: string,
+  inputRows: readonly {
+    readonly id: string;
+    readonly totalMs: number;
+    readonly count: number;
+    readonly outputCount: number;
+    readonly cachedCount: number;
+    readonly samples: readonly number[];
+  }[],
+  options: {
+    readonly width: number;
+    readonly maxRows: number;
+    readonly offset: number;
+    readonly maxLabelWidth: number;
+    readonly filters: StudyChartFilters;
+    readonly metric: StudySlowestMetric;
+  },
+): readonly string[] => {
+  const allRows = inputRows.length;
+  const rows = inputRows
+    .filter((row) => matchesStudyFilters(row, options.filters))
+    .map((row) => ({ row, value: studyTimingMetricMs(row, options.metric) }))
+    .sort((left, right) => right.value - left.value);
+  if (rows.length === 0) {
+    const suffix =
+      activeFilterCount(options.filters) > 0
+        ? ` filters=${activeFilterCount(options.filters)}`
+        : '';
+    return [truncateLine(`${title} 0/0 of ${allRows}${suffix} — no matches`, options.width)];
+  }
+  const maxBars = Math.max(1, options.maxRows - 1);
+  const maxOffset = Math.max(0, rows.length - maxBars);
+  const offset = Math.min(Math.max(0, options.offset), maxOffset);
+  const visibleRows = rows.slice(offset, offset + maxBars);
+  const first = offset + 1;
+  const last = Math.min(rows.length, offset + visibleRows.length);
+  const valueWidth = 26;
+  const minBarWidth = 5;
+  const labelWidth = Math.max(
+    10,
+    Math.min(options.maxLabelWidth, options.width - valueWidth - minBarWidth - 4),
+  );
+  const barWidth = Math.max(minBarWidth, options.width - labelWidth - valueWidth - 4);
+  const maxMetric = Math.max(1, ...rows.map((entry) => entry.value));
+  return [
+    truncateLine(
+      `${title} ${options.metric} ${first}-${last}/${rows.length}${rows.length === allRows ? '' : ` of ${allRows}`} pos=${offset + 1}/${rows.length}${activeFilterCount(options.filters) > 0 ? ` filters=${activeFilterCount(options.filters)}` : ''}`,
+      options.width,
+    ),
+    ...visibleRows.map(({ row, value }) => {
+      const bar = fractionalBar(value / maxMetric, barWidth, { minVisible: value > 0 });
+      return truncateLine(
+        `${padStudyCell(row.id, labelWidth)} ${bar} ${formatStudyTiming(value, options.metric, row.count, row.outputCount, row.cachedCount)}`,
+        options.width,
+      );
+    }),
+  ];
+};
+
+const matchesStudyFilters = (
+  row: {
+    readonly id: string;
+    readonly count: number;
+    readonly cachedCount: number;
+  },
+  filters: StudyChartFilters,
+): boolean => {
+  const parsed = parseStudyTimingId(row.id);
+  return (
+    matchesGroup(filters.families, parsed.family) &&
+    matchesGroup(filters.scalars, parsed.scalar) &&
+    matchesGroup(filters.thresholds, parsed.threshold) &&
+    matchesGroup(filters.polarities, parsed.polarity) &&
+    matchesCacheFilter(filters.cache, row)
+  );
+};
+
+const matchesGroup = (selected: ReadonlySet<string>, value: string): boolean =>
+  selected.size === 0 || selected.has(value);
+
+const matchesCacheFilter = (
+  selected: ReadonlySet<string>,
+  row: { readonly count: number; readonly cachedCount: number },
+): boolean => {
+  if (selected.size === 0) return true;
+  const fresh = row.count - row.cachedCount;
+  const states = new Set<string>();
+  if (fresh > 0) states.add('fresh');
+  if (row.cachedCount > 0) states.add('cached');
+  if (fresh > 0 && row.cachedCount > 0) states.add('mixed');
+  return [...selected].some((entry) => states.has(entry));
+};
+
+const parseStudyTimingId = (
+  id: string,
+): {
+  readonly family: string;
+  readonly scalar: string;
+  readonly threshold: string;
+  readonly polarity: string;
+} => {
+  const parts = id.split(':');
+  return {
+    family: parts.length >= 5 ? (parts[1] ?? '') : (parts[0] ?? ''),
+    scalar: parts.at(-3) ?? '',
+    threshold: parts.at(-2) ?? '',
+    polarity: parts.at(-1) ?? '',
+  };
+};
+
+const activeFilterCount = (filters: StudyChartFilters): number =>
+  filters.families.size +
+  filters.scalars.size +
+  filters.thresholds.size +
+  filters.polarities.size +
+  filters.cache.size;
+
+const renderStudyFilterModal = (options: {
+  readonly width: number;
+  readonly focus: 'views' | 'detectors';
+  readonly filters: StudyChartFilters;
+  readonly cursor: number;
+  readonly timingMetric: StudySlowestMetric;
+  readonly offset: number;
+  readonly maxRows: number;
+}): readonly string[] => {
+  const lines = [
+    'study filters',
+    truncateLine(
+      `filtering ${options.focus}; ↑/↓ select, space toggle, a clear, esc/f close`,
+      options.width,
+    ),
+  ];
+  let previousGroup: StudyFilterGroup | null = null;
+  const visibleIndexes = renderedFilterOptionIndexes(options.offset, options.maxRows);
+  for (const index of visibleIndexes) {
+    const row = selectableFilterRows()[index];
+    if (!row) continue;
+    if (row.group !== previousGroup) {
+      lines.push(truncateLine(filterGroupLabel(row.group), options.width));
+      previousGroup = row.group;
+    }
+    const selected =
+      row.group === 'metric'
+        ? options.timingMetric === row.value
+        : options.filters[row.group].has(row.value);
+    const cursor = index === options.cursor ? '›' : ' ';
+    lines.push(
+      truncateLine(
+        `${cursor} ${selected ? '[x]' : '[ ]'} ${row.group}:${row.value}`,
+        options.width,
+      ),
+    );
+  }
+  const visibleRows = visibleIndexes.length;
+  if (selectableFilterRows().length > visibleRows) {
+    lines[0] = truncateLine(
+      `study filters ${options.offset + 1}-${Math.min(selectableFilterRows().length, options.offset + visibleRows)}/${selectableFilterRows().length}`,
+      options.width,
+    );
+  }
+  while (lines.length > 0 && lines.length > options.maxRows) {
+    lines.pop();
+  }
+  return lines;
+};
+
+const padStudyCell = (value: string, width: number): string => {
+  const truncated = truncateLine(value, width);
+  return `${truncated}${' '.repeat(Math.max(0, width - truncated.length))}`;
+};
+
+const studyTimingMetricMs = (
+  row: { readonly totalMs: number; readonly count: number; readonly samples: readonly number[] },
+  metric: StudySlowestMetric,
+): number => {
+  if (metric === 'avg') return row.totalMs / Math.max(1, row.count);
+  if (row.samples.length === 0) return 0;
+  if (metric === 'min') return Math.min(...row.samples);
+  if (metric === 'max') return Math.max(...row.samples);
+  const percentile = Number(metric.slice(1)) / 100;
+  const sorted = [...row.samples].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percentile) - 1)] ?? 0;
+};
+
+const formatStudyTiming = (
+  valueMs: number,
+  metric: StudySlowestMetric,
+  count: number,
+  outputCount: number,
+  cachedCount: number,
+): string =>
+  `${metric}=${formatCompactDuration(valueMs)} p=${outputCount} jobs=${count} c=${cachedCount}`;
+
+const benchLegendLines = (): readonly string[] => [
+  'bench legend',
+  'keys',
+  'q = graceful quit',
+  '^C once = graceful quit',
+  '^C twice = force exit 130',
+  'p = freeze/resume copy',
+  'tab = focus widget',
+  '↑/↓ = page scroll',
+  'j/k = line scroll',
+  '',
+  'outcomes',
+  'P = QR pass',
+  'F = QR fail',
+  'N = NEG pass',
+  'X = NEG false positive',
+  '',
+  'timings',
+  'blank = no/empty track',
+  'c = cache-only bucket',
+];
+
+const studyLegendLines = (): readonly string[] => [
+  'study legend',
+  'ids',
+  'dense = dense-stats control',
+  'dense-index = dense indexed',
+  'dense-sq = dense squared',
+  'dense-idx-sq = dense both',
+  'scanline = scanline stats',
+  'scan-idx = scanline indexed',
+  'scan-sq = scanline squared',
+  'scan-idx-sq = scanline both',
+  'inline = retired inline-flood',
+  'run-map = run-map matcher',
+  '',
+  'families',
+  'f=flood m=matcher',
+  'r=row d=dedupe',
+  '',
+  'views',
+  'o=otsu s=sauvola h=hybrid',
+  'n=normal i=inverted',
+  '',
+  'bars',
+  'p=outputs jobs=rows c=cached',
+];
+
+const legendLineCount = (): number =>
+  Math.max(0, Math.max(benchLegendLines().length, studyLegendLines().length) - 1);
+
+const renderLegend = (
+  isStudy: boolean,
+  options: {
+    readonly width: number;
+    readonly maxRows: number;
+    readonly offset: number;
+  },
+): readonly string[] => {
+  const [title = 'legend', ...rows] = isStudy ? studyLegendLines() : benchLegendLines();
+  return [
+    title,
+    ...rows
+      .slice(options.offset, options.offset + options.maxRows)
+      .map((line) => truncateLine(line, options.width)),
+  ];
+};
+
+const renderStudyEvents = (
+  dashboard: BenchDashboardModel,
+  options: { readonly width: number; readonly maxRows: number; readonly offset?: number },
+): readonly string[] => {
+  const offset = Math.max(0, options.offset ?? 0);
+  const rows = [...dashboard.studyEvents]
+    .reverse()
+    .slice(offset, offset + Math.max(1, options.maxRows));
+  const lines = ['study events'];
+  if (rows.length === 0) {
+    lines.push('none yet');
+    return lines;
+  }
+  for (const row of rows) lines.push(truncateLine(row, options.width));
+  return lines;
+};
+
+const isStudyCachePreloading = (dashboard: BenchDashboardModel): boolean => {
+  const started = dashboard.studyEvents.some((event) =>
+    event.includes('study cache preload starting'),
+  );
+  if (!started) return false;
+  return !dashboard.studyEvents.some((event) => event.includes('study cache preload complete'));
+};
+
+const renderStudyPreloadModal = (
+  dashboard: BenchDashboardModel,
+  options: { readonly width: number; readonly maxRows: number },
+): readonly string[] => {
+  const rowCache = studyTimingCacheTotals(dashboard);
+  const latest = [...dashboard.studyEvents].reverse().find(Boolean) ?? 'starting';
+  const lines = [
+    'study cache preload',
+    `assets checked ${dashboard.preparedAssets}/${dashboard.assetCount || '-'}`,
+    `preloaded rows ${rowCache.cached}`,
+    `fresh rows queued ${rowCache.fresh}`,
+    '',
+    latest,
+  ];
+  return lines
+    .slice(0, Math.max(1, options.maxRows))
+    .map((line) => truncateLine(line, options.width));
+};
+
+const renderStudyFooterStatus = (dashboard: BenchDashboardModel): string => {
+  const cache = cacheTotals(dashboard);
+  const rowCache = studyTimingCacheTotals(dashboard);
+  return [
+    'bench study',
+    `stage=${dashboard.stage}`,
+    `jobs=${studyJobProgress(dashboard)}`,
+    `assets=${dashboard.completedJobs}/${dashboard.totalJobs}`,
+    `workers=${dashboard.workerCount || '-'}`,
+    `asset-cache=${dashboard.cacheEnabled ? 'on' : 'off'}:${cache.hits}/${cache.misses}/${cache.writes}`,
+    `row-cache=c${rowCache.cached}/f${rowCache.fresh}`,
+  ].join(' | ');
+};
+
+const studyFreshEta = (
+  dashboard: BenchDashboardModel,
+  rowCache: { readonly cached: number; readonly fresh: number },
+): string => {
+  const plannedFresh = Math.max(0, dashboard.studyTotalUnits - rowCache.cached);
+  const remainingFresh = Math.max(0, plannedFresh - rowCache.fresh);
+  if (remainingFresh === 0) return 'done';
+  if (rowCache.fresh === 0 || dashboard.studyFreshStartedAtMs === null) return 'warming';
+  const elapsedMs = Math.max(1, Date.now() - dashboard.studyFreshStartedAtMs);
+  const msPerFreshUnit = elapsedMs / rowCache.fresh;
+  return `${formatCompactDuration(remainingFresh * msPerFreshUnit)} left @ ${formatCompactRate(rowCache.fresh, elapsedMs)}`;
+};
+
+const formatCompactRate = (completed: number, elapsedMs: number): string => {
+  const perSecond = completed / Math.max(1, elapsedMs / 1000);
+  if (perSecond >= 10) return `${perSecond.toFixed(0)}/s`;
+  if (perSecond >= 1) return `${perSecond.toFixed(1)}/s`;
+  return `${(perSecond * 60).toFixed(1)}/m`;
+};
+
+const studyTimingCacheTotals = (dashboard: BenchDashboardModel) => {
+  let cached = 0;
+  let fresh = 0;
+  for (const row of [
+    ...dashboard.studyTimings.values(),
+    ...dashboard.studyDetectorTimings.values(),
+  ]) {
+    cached += row.cachedCount;
+    fresh += row.freshCount;
+  }
+  return { cached, fresh };
+};
+
+const cacheTotals = (dashboard: BenchDashboardModel) => {
+  let hits = 0;
+  let misses = 0;
+  let writes = 0;
+  for (const engine of dashboard.engines.values()) {
+    hits += engine.cacheHits;
+    misses += engine.cacheMisses;
+    writes += engine.cacheWrites;
+  }
+  return { hits, misses, writes };
+};
+
+const headerText = (dashboard: BenchDashboardModel, width: number): string => {
+  const completed =
+    dashboard.commandName === 'study' ? dashboard.studyCompletedUnits : dashboard.completedJobs;
+  const total = dashboard.commandName === 'study' ? dashboard.studyTotalUnits : dashboard.totalJobs;
+  const percent = clamp01(total > 0 ? completed / total : 0);
+  const labelWidth = `IRONQR BENCH  ${stageBadge(dashboard.stage)}  `.length;
+  const etaText =
+    dashboard.commandName === 'study'
+      ? `  eta=${studyFreshEta(dashboard, studyTimingCacheTotals(dashboard))}`
+      : '';
+  const suffix = dashboard.commandName === 'study' ? '' : `  ${dashboard.message}`;
+  const countText = `  ${completed}/${total} jobs${etaText}${suffix}`;
+  const dynamicBarWidth = Math.max(PROGRESS_BAR_WIDTH, width - labelWidth - countText.length - 1);
+  const progress = fractionalBar(percent, dynamicBarWidth);
+  return `IRONQR BENCH  ${stageBadge(dashboard.stage)}  ${progress}${countText}`;
+};
+
+const studyJobProgress = (dashboard: BenchDashboardModel): string =>
+  `${dashboard.studyCompletedUnits}/${dashboard.studyTotalUnits || '-'}`;
 
 const stageBadge = (stage: BenchDashboardModel['stage']): string => {
   if (stage === 'done') return 'DONE';

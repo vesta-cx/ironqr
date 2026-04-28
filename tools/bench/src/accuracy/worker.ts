@@ -23,9 +23,13 @@ const failureScan = (error: unknown): AccuracyScanResult => ({
   error: asMessage(error),
 });
 
-const toBenchAsset = (message: AccuracyWorkerRunMessage): CorpusBenchAsset => {
+const toBenchAsset = (
+  message: AccuracyWorkerRunMessage,
+  onImageLoadDuration: (durationMs: number) => void,
+): CorpusBenchAsset => {
   return {
     id: message.asset.id,
+    assetId: message.asset.id,
     label: message.asset.label,
     sha256: message.asset.sha256,
     imagePath: message.asset.imagePath,
@@ -42,7 +46,9 @@ const toBenchAsset = (message: AccuracyWorkerRunMessage): CorpusBenchAsset => {
       };
       postMessage(started);
       try {
+        const loadStartedAt = performance.now();
         const image = await readBenchImage(message.asset.imagePath);
+        onImageLoadDuration(roundDurationMs(performance.now() - loadStartedAt));
         const finished: AccuracyWorkerImageLoadFinishedMessage = {
           type: 'image-load-finished',
           jobId: message.jobId,
@@ -85,22 +91,31 @@ addEventListener('message', async (event: MessageEvent<AccuracyWorkerRequest>) =
   postMessage(started);
 
   const startedAt = performance.now();
+  let imageLoadDurationMs: number | null = null;
   const scan = await (async (): Promise<AccuracyScanResult> => {
     try {
       const engine = getAccuracyEngineById(message.engineId);
-      return await engine.scan(toBenchAsset(message), message.runOptions);
+      return await engine.scan(
+        toBenchAsset(message, (durationMs) => {
+          imageLoadDurationMs = durationMs;
+        }),
+        message.runOptions,
+      );
     } catch (error) {
       return failureScan(error);
     }
   })();
 
+  const totalJobDurationMs = roundDurationMs(performance.now() - startedAt);
   const result: AccuracyWorkerResultMessage = {
     type: 'result',
     jobId: message.jobId,
     engineId: message.engineId,
     assetId: message.asset.id,
     scan,
-    durationMs: roundDurationMs(performance.now() - startedAt),
+    durationMs: roundDurationMs(totalJobDurationMs - (imageLoadDurationMs ?? 0)),
+    imageLoadDurationMs,
+    totalJobDurationMs,
   };
   postMessage(result);
 });
@@ -114,7 +129,7 @@ const isRunMessage = (value: AccuracyWorkerRequest): value is AccuracyWorkerRunM
     !!value.asset &&
     typeof value.asset === 'object' &&
     typeof value.asset.id === 'string' &&
-    (value.asset.label === 'qr-positive' || value.asset.label === 'non-qr-negative') &&
+    (value.asset.label === 'qr-pos' || value.asset.label === 'qr-neg') &&
     typeof value.asset.sha256 === 'string' &&
     typeof value.asset.imagePath === 'string' &&
     typeof value.asset.relativePath === 'string' &&

@@ -21,9 +21,9 @@ export const getUsageText = (): string => {
   ${buildFilteredCliCommand()}
   ${buildFilteredCliCommand('scrape')} [--limit 25] [--source commons|pixabay-api] [--query "qr code"] [<seed-urls...>]
   ${buildFilteredCliCommand('review')} [<stage-dir>] [--reviewer github-login]
-  ${buildFilteredCliCommand('import')} [<files...>|<stage-dir>] [--label qr-positive|non-qr-negative] [--review pending|approved|rejected]
+  ${buildFilteredCliCommand('import')} [<files...>|<stage-dir>] [--label qr-pos|qr-neg] [--review pending|approved|rejected]
   ${buildFilteredCliCommand('build-bench')} [<asset-id...>]
-  ${buildFilteredCliCommand('scan-corpus')} [--label qr-positive|non-qr-negative] [--failures-only] [--quiet]
+  ${buildFilteredCliCommand('scan-corpus')} [--label qr-pos|qr-neg] [--failures-only] [--quiet]
 
 Global flags:
   --verbose / -v    log skipped candidates, same-host redirects, and other scrape details

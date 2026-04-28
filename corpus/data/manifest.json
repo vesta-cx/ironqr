@@ -3,7 +3,7 @@
   "assets": [
     {
       "id": "asset-00998b36926d6123",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-00998b36926d6123.webp",
@@ -55,7 +55,7 @@
     },
     {
       "id": "asset-0178d664aed444d5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0178d664aed444d5.webp",
@@ -97,7 +97,7 @@
     },
     {
       "id": "asset-03a47f61e99fd547",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-03a47f61e99fd547.webp",
@@ -140,7 +140,7 @@
     },
     {
       "id": "asset-043ebd6be53dbe09",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-043ebd6be53dbe09.webp",
@@ -183,7 +183,7 @@
     },
     {
       "id": "asset-047a0a37b50c9047",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-047a0a37b50c9047.webp",
@@ -226,7 +226,7 @@
     },
     {
       "id": "asset-05c18f257573a592",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-05c18f257573a592.webp",
@@ -269,7 +269,7 @@
     },
     {
       "id": "asset-0936174c3b081015",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0936174c3b081015.webp",
@@ -321,7 +321,7 @@
     },
     {
       "id": "asset-0944aec7c73146f9",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0944aec7c73146f9.webp",
@@ -373,7 +373,7 @@
     },
     {
       "id": "asset-0aec35068b40cddb",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0aec35068b40cddb.webp",
@@ -415,7 +415,7 @@
     },
     {
       "id": "asset-0e06d18a1918e909",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0e06d18a1918e909.webp",
@@ -457,7 +457,7 @@
     },
     {
       "id": "asset-0fffc38f3274dfc5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-0fffc38f3274dfc5.webp",
@@ -500,7 +500,7 @@
     },
     {
       "id": "asset-1025252401e74d3b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1025252401e74d3b.webp",
@@ -543,7 +543,7 @@
     },
     {
       "id": "asset-1037554f58c34cd4",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1037554f58c34cd4.webp",
@@ -585,7 +585,7 @@
     },
     {
       "id": "asset-11530f0009f73d8b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-11530f0009f73d8b.webp",
@@ -627,7 +627,7 @@
     },
     {
       "id": "asset-1184fc75626fdbe9",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1184fc75626fdbe9.webp",
@@ -675,7 +675,7 @@
     },
     {
       "id": "asset-1258f75b47c89972",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1258f75b47c89972.webp",
@@ -718,7 +718,7 @@
     },
     {
       "id": "asset-125a8996465a1511",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-125a8996465a1511.webp",
@@ -761,7 +761,7 @@
     },
     {
       "id": "asset-13b022f1bdd4156b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-13b022f1bdd4156b.webp",
@@ -804,7 +804,7 @@
     },
     {
       "id": "asset-15a5583b648e14d8",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-15a5583b648e14d8.webp",
@@ -847,7 +847,7 @@
     },
     {
       "id": "asset-1722c9505a64d885",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1722c9505a64d885.webp",
@@ -895,7 +895,7 @@
     },
     {
       "id": "asset-1990bdda64ab6b2b",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1990bdda64ab6b2b.webp",
@@ -943,7 +943,7 @@
     },
     {
       "id": "asset-1997ec08d630e591",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1997ec08d630e591.webp",
@@ -991,7 +991,7 @@
     },
     {
       "id": "asset-19c43addce501fb1",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-19c43addce501fb1.webp",
@@ -1040,7 +1040,7 @@
     },
     {
       "id": "asset-1b0813d0cb4ee7ce",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1b0813d0cb4ee7ce.webp",
@@ -1113,7 +1113,7 @@
     },
     {
       "id": "asset-1b26a1d1cbb61d25",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1b26a1d1cbb61d25.webp",
@@ -1166,7 +1166,7 @@
     },
     {
       "id": "asset-1cd11e3e4af3ddfd",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1cd11e3e4af3ddfd.webp",
@@ -1209,7 +1209,7 @@
     },
     {
       "id": "asset-1fbc899937eb5d01",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-1fbc899937eb5d01.webp",
@@ -1265,7 +1265,7 @@
     },
     {
       "id": "asset-20654e622c4a9019",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-20654e622c4a9019.webp",
@@ -1308,7 +1308,7 @@
     },
     {
       "id": "asset-215ebee987c3a50c",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-215ebee987c3a50c.webp",
@@ -1351,7 +1351,7 @@
     },
     {
       "id": "asset-228395763eaa0296",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-228395763eaa0296.webp",
@@ -1394,7 +1394,7 @@
     },
     {
       "id": "asset-256a61b01fba07bc",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-256a61b01fba07bc.webp",
@@ -1437,7 +1437,7 @@
     },
     {
       "id": "asset-25cd70803fd9898d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-25cd70803fd9898d.webp",
@@ -1479,7 +1479,7 @@
     },
     {
       "id": "asset-2605dfbe50a6e7a5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2605dfbe50a6e7a5.webp",
@@ -1522,7 +1522,7 @@
     },
     {
       "id": "asset-286c17124cc2e914",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-286c17124cc2e914.webp",
@@ -1565,7 +1565,7 @@
     },
     {
       "id": "asset-28ce59515ab4a443",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-28ce59515ab4a443.webp",
@@ -1608,7 +1608,7 @@
     },
     {
       "id": "asset-28e915eb88e2a200",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-28e915eb88e2a200.webp",
@@ -1651,7 +1651,7 @@
     },
     {
       "id": "asset-2aad23ec8c736310",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2aad23ec8c736310.webp",
@@ -1693,7 +1693,7 @@
     },
     {
       "id": "asset-2b6b18363c0708d5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2b6b18363c0708d5.webp",
@@ -1736,7 +1736,7 @@
     },
     {
       "id": "asset-2db39bc64c35f87e",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2db39bc64c35f87e.webp",
@@ -1783,7 +1783,7 @@
     },
     {
       "id": "asset-2f575f29ad8fdafb",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2f575f29ad8fdafb.webp",
@@ -1831,7 +1831,7 @@
     },
     {
       "id": "asset-2fe8182d09fa7c7d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2fe8182d09fa7c7d.webp",
@@ -1874,7 +1874,7 @@
     },
     {
       "id": "asset-2fef5671083d090a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-2fef5671083d090a.webp",
@@ -1917,7 +1917,7 @@
     },
     {
       "id": "asset-30d7667df769546b",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-30d7667df769546b.webp",
@@ -1970,7 +1970,7 @@
     },
     {
       "id": "asset-3100cb9be4216cb5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3100cb9be4216cb5.webp",
@@ -2013,7 +2013,7 @@
     },
     {
       "id": "asset-31c7de2eecf07d1d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-31c7de2eecf07d1d.webp",
@@ -2056,7 +2056,7 @@
     },
     {
       "id": "asset-321b08861d69b294",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-321b08861d69b294.webp",
@@ -2099,7 +2099,7 @@
     },
     {
       "id": "asset-3274a6f4455971fd",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3274a6f4455971fd.webp",
@@ -2142,7 +2142,7 @@
     },
     {
       "id": "asset-33ff1d9f4da262db",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-33ff1d9f4da262db.webp",
@@ -2185,7 +2185,7 @@
     },
     {
       "id": "asset-344a157a75c978fc",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-344a157a75c978fc.webp",
@@ -2228,7 +2228,7 @@
     },
     {
       "id": "asset-36463934e15e049a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-36463934e15e049a.webp",
@@ -2270,7 +2270,7 @@
     },
     {
       "id": "asset-365b58179c069f10",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-365b58179c069f10.webp",
@@ -2318,7 +2318,7 @@
     },
     {
       "id": "asset-3760a74f92f320ef",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3760a74f92f320ef.webp",
@@ -2360,7 +2360,7 @@
     },
     {
       "id": "asset-3779e67e1ec30bfc",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3779e67e1ec30bfc.webp",
@@ -2403,7 +2403,7 @@
     },
     {
       "id": "asset-37be75f9232345bc",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-37be75f9232345bc.webp",
@@ -2451,7 +2451,7 @@
     },
     {
       "id": "asset-382c3e31e04b3fc9",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-382c3e31e04b3fc9.webp",
@@ -2499,7 +2499,7 @@
     },
     {
       "id": "asset-3a7ee8a00c65d65e",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3a7ee8a00c65d65e.webp",
@@ -2542,7 +2542,7 @@
     },
     {
       "id": "asset-3aceb9e3e659e6d9",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3aceb9e3e659e6d9.webp",
@@ -2585,7 +2585,7 @@
     },
     {
       "id": "asset-3ad506e304af8318",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3ad506e304af8318.webp",
@@ -2637,7 +2637,7 @@
     },
     {
       "id": "asset-3bd0b8dfbe586263",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3bd0b8dfbe586263.webp",
@@ -2680,7 +2680,7 @@
     },
     {
       "id": "asset-3d40d63fdf14e61b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3d40d63fdf14e61b.webp",
@@ -2722,7 +2722,7 @@
     },
     {
       "id": "asset-3de4815dd49357fa",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3de4815dd49357fa.webp",
@@ -2765,7 +2765,7 @@
     },
     {
       "id": "asset-3f5f15cb5ccb24ba",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3f5f15cb5ccb24ba.webp",
@@ -2821,7 +2821,7 @@
     },
     {
       "id": "asset-3f941f6ce4d7a0d6",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-3f941f6ce4d7a0d6.webp",
@@ -2864,7 +2864,7 @@
     },
     {
       "id": "asset-401766b25f559cff",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-401766b25f559cff.webp",
@@ -2907,7 +2907,7 @@
     },
     {
       "id": "asset-404f11a1dd80d904",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-404f11a1dd80d904.webp",
@@ -2950,7 +2950,7 @@
     },
     {
       "id": "asset-425708f0719e52e9",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-425708f0719e52e9.webp",
@@ -2997,7 +2997,7 @@
     },
     {
       "id": "asset-4334738075a25d65",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4334738075a25d65.webp",
@@ -3039,7 +3039,7 @@
     },
     {
       "id": "asset-436f8a681c5b60f1",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-436f8a681c5b60f1.webp",
@@ -3087,7 +3087,7 @@
     },
     {
       "id": "asset-43d79ea0fc29f9e1",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-43d79ea0fc29f9e1.webp",
@@ -3130,7 +3130,7 @@
     },
     {
       "id": "asset-440592be9c00a365",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-440592be9c00a365.webp",
@@ -3173,7 +3173,7 @@
     },
     {
       "id": "asset-44b7c2e69671786d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-44b7c2e69671786d.webp",
@@ -3216,7 +3216,7 @@
     },
     {
       "id": "asset-470a2727b5c1bcf1",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-470a2727b5c1bcf1.webp",
@@ -3259,7 +3259,7 @@
     },
     {
       "id": "asset-4a799ae9893ab393",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4a799ae9893ab393.webp",
@@ -3302,7 +3302,7 @@
     },
     {
       "id": "asset-4ac98c69d5602af0",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4ac98c69d5602af0.webp",
@@ -3345,7 +3345,7 @@
     },
     {
       "id": "asset-4b9fd63df982e9ae",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4b9fd63df982e9ae.webp",
@@ -3388,7 +3388,7 @@
     },
     {
       "id": "asset-4c9ede9c3c6b2a89",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4c9ede9c3c6b2a89.webp",
@@ -3430,7 +3430,7 @@
     },
     {
       "id": "asset-4e14b10767da2750",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4e14b10767da2750.webp",
@@ -3473,7 +3473,7 @@
     },
     {
       "id": "asset-4f3535bae29c1316",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4f3535bae29c1316.webp",
@@ -3516,7 +3516,7 @@
     },
     {
       "id": "asset-4fd3f900eed27157",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-4fd3f900eed27157.webp",
@@ -3559,7 +3559,7 @@
     },
     {
       "id": "asset-52ff9745478f492c",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-52ff9745478f492c.webp",
@@ -3610,7 +3610,7 @@
     },
     {
       "id": "asset-532613e8ac453b24",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-532613e8ac453b24.webp",
@@ -3658,7 +3658,7 @@
     },
     {
       "id": "asset-533596df736205b1",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-533596df736205b1.webp",
@@ -3700,7 +3700,7 @@
     },
     {
       "id": "asset-535f119994850cfa",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-535f119994850cfa.webp",
@@ -3743,7 +3743,7 @@
     },
     {
       "id": "asset-53cd380c4515b85b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-53cd380c4515b85b.webp",
@@ -3786,7 +3786,7 @@
     },
     {
       "id": "asset-54c34db2ce7fa75e",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-54c34db2ce7fa75e.webp",
@@ -3828,7 +3828,7 @@
     },
     {
       "id": "asset-576f08a5b708da3c",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-576f08a5b708da3c.webp",
@@ -3871,7 +3871,7 @@
     },
     {
       "id": "asset-5780fa944a7e8810",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-5780fa944a7e8810.webp",
@@ -3914,7 +3914,7 @@
     },
     {
       "id": "asset-59e2fab39661df57",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-59e2fab39661df57.webp",
@@ -3957,7 +3957,7 @@
     },
     {
       "id": "asset-5ab2150713734a3a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-5ab2150713734a3a.webp",
@@ -4000,7 +4000,7 @@
     },
     {
       "id": "asset-5ad4829b372f3eac",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-5ad4829b372f3eac.webp",
@@ -4043,7 +4043,7 @@
     },
     {
       "id": "asset-5c523eeadf612f6a",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-5c523eeadf612f6a.webp",
@@ -4091,7 +4091,7 @@
     },
     {
       "id": "asset-5cd476384b2d66ea",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-5cd476384b2d66ea.webp",
@@ -4140,7 +4140,7 @@
     },
     {
       "id": "asset-61b05e26f2099a93",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-61b05e26f2099a93.webp",
@@ -4183,7 +4183,7 @@
     },
     {
       "id": "asset-6300427319236f28",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-6300427319236f28.webp",
@@ -4226,7 +4226,7 @@
     },
     {
       "id": "asset-6333b4abcbc3d63f",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-6333b4abcbc3d63f.webp",
@@ -4269,7 +4269,7 @@
     },
     {
       "id": "asset-6359970f6214ea49",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-6359970f6214ea49.webp",
@@ -4312,7 +4312,7 @@
     },
     {
       "id": "asset-63bcb723838c4bc2",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-63bcb723838c4bc2.webp",
@@ -4355,7 +4355,7 @@
     },
     {
       "id": "asset-63cae076bfdbbc94",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-63cae076bfdbbc94.webp",
@@ -4397,7 +4397,7 @@
     },
     {
       "id": "asset-66fd3d030cd7b6f6",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-66fd3d030cd7b6f6.webp",
@@ -4440,7 +4440,7 @@
     },
     {
       "id": "asset-67ef137ef61cc62c",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-67ef137ef61cc62c.webp",
@@ -4483,7 +4483,7 @@
     },
     {
       "id": "asset-68ad5ea843f1a05a",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-68ad5ea843f1a05a.webp",
@@ -4531,7 +4531,7 @@
     },
     {
       "id": "asset-69587232d0a38b93",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-69587232d0a38b93.webp",
@@ -4584,7 +4584,7 @@
     },
     {
       "id": "asset-6b4280ca9a9b70cf",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-6b4280ca9a9b70cf.webp",
@@ -4627,7 +4627,7 @@
     },
     {
       "id": "asset-6f83fa4fbd2761a0",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-6f83fa4fbd2761a0.webp",
@@ -4670,7 +4670,7 @@
     },
     {
       "id": "asset-73a9813d0dc08473",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-73a9813d0dc08473.webp",
@@ -4712,7 +4712,7 @@
     },
     {
       "id": "asset-7544bd74fa2e0695",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-7544bd74fa2e0695.webp",
@@ -4755,7 +4755,7 @@
     },
     {
       "id": "asset-76737935abbd29b5",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-76737935abbd29b5.webp",
@@ -4798,7 +4798,7 @@
     },
     {
       "id": "asset-770ca793969b80f0",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-770ca793969b80f0.webp",
@@ -4841,7 +4841,7 @@
     },
     {
       "id": "asset-77c8bb618eaa040a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-77c8bb618eaa040a.webp",
@@ -4884,7 +4884,7 @@
     },
     {
       "id": "asset-77f6e741e363cd52",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-77f6e741e363cd52.webp",
@@ -4927,7 +4927,7 @@
     },
     {
       "id": "asset-7ab9fe290b9dc108",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-7ab9fe290b9dc108.webp",
@@ -4980,7 +4980,7 @@
     },
     {
       "id": "asset-7d03d053ced25f8a",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-7d03d053ced25f8a.webp",
@@ -5028,7 +5028,7 @@
     },
     {
       "id": "asset-7d03ff68ce976045",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-7d03ff68ce976045.webp",
@@ -5079,7 +5079,7 @@
     },
     {
       "id": "asset-805709f5df5402ab",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-805709f5df5402ab.webp",
@@ -5122,7 +5122,7 @@
     },
     {
       "id": "asset-84b5879b85b969ca",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-84b5879b85b969ca.webp",
@@ -5170,7 +5170,7 @@
     },
     {
       "id": "asset-862b940a4e3add03",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-862b940a4e3add03.webp",
@@ -5217,7 +5217,7 @@
     },
     {
       "id": "asset-868714dc436232ba",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-868714dc436232ba.webp",
@@ -5260,7 +5260,7 @@
     },
     {
       "id": "asset-879ee4c825375434",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-879ee4c825375434.webp",
@@ -5313,7 +5313,7 @@
     },
     {
       "id": "asset-8af88489ba057bfe",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-8af88489ba057bfe.webp",
@@ -5361,7 +5361,7 @@
     },
     {
       "id": "asset-8c05088939d2415b",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-8c05088939d2415b.webp",
@@ -5409,7 +5409,7 @@
     },
     {
       "id": "asset-8d17df20afc515f8",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-8d17df20afc515f8.webp",
@@ -5452,7 +5452,7 @@
     },
     {
       "id": "asset-8f3cac3bd1892cde",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-8f3cac3bd1892cde.webp",
@@ -5495,7 +5495,7 @@
     },
     {
       "id": "asset-90576dbb84d6db33",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-90576dbb84d6db33.webp",
@@ -5537,7 +5537,7 @@
     },
     {
       "id": "asset-91005e0c461c3b44",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-91005e0c461c3b44.webp",
@@ -5580,7 +5580,7 @@
     },
     {
       "id": "asset-96574ac1e248e5a1",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-96574ac1e248e5a1.webp",
@@ -5633,7 +5633,7 @@
     },
     {
       "id": "asset-984edee5c5e5b76b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-984edee5c5e5b76b.webp",
@@ -5676,7 +5676,7 @@
     },
     {
       "id": "asset-99a82512de6b34c2",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-99a82512de6b34c2.webp",
@@ -5719,7 +5719,7 @@
     },
     {
       "id": "asset-9a1602bcd3286e1f",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-9a1602bcd3286e1f.webp",
@@ -5762,7 +5762,7 @@
     },
     {
       "id": "asset-9c2f0020eb04e932",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-9c2f0020eb04e932.webp",
@@ -5811,7 +5811,7 @@
     },
     {
       "id": "asset-9eab638313052b48",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-9eab638313052b48.webp",
@@ -5864,7 +5864,7 @@
     },
     {
       "id": "asset-9f2aa161a6eebeea",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-9f2aa161a6eebeea.webp",
@@ -5907,7 +5907,7 @@
     },
     {
       "id": "asset-9fd900efa2ebc838",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-9fd900efa2ebc838.webp",
@@ -5950,7 +5950,7 @@
     },
     {
       "id": "asset-a05c0b74270aab8a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a05c0b74270aab8a.webp",
@@ -5993,7 +5993,7 @@
     },
     {
       "id": "asset-a0c53eb1658113cf",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a0c53eb1658113cf.webp",
@@ -6045,7 +6045,7 @@
     },
     {
       "id": "asset-a23d55038dc2a849",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a23d55038dc2a849.webp",
@@ -6088,7 +6088,7 @@
     },
     {
       "id": "asset-a28e8ef9f7b55ea1",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a28e8ef9f7b55ea1.webp",
@@ -6130,7 +6130,7 @@
     },
     {
       "id": "asset-a3d8069e84614964",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a3d8069e84614964.webp",
@@ -6173,7 +6173,7 @@
     },
     {
       "id": "asset-a3d88885d7915c03",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a3d88885d7915c03.webp",
@@ -6216,7 +6216,7 @@
     },
     {
       "id": "asset-a443559fe831be16",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a443559fe831be16.webp",
@@ -6259,7 +6259,7 @@
     },
     {
       "id": "asset-a458515dd7857721",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a458515dd7857721.webp",
@@ -6302,7 +6302,7 @@
     },
     {
       "id": "asset-a473c6d3c994e00f",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a473c6d3c994e00f.webp",
@@ -6350,7 +6350,7 @@
     },
     {
       "id": "asset-a63ebea2df94c77a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a63ebea2df94c77a.webp",
@@ -6392,7 +6392,7 @@
     },
     {
       "id": "asset-a65d2c0e39709f56",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a65d2c0e39709f56.webp",
@@ -6440,7 +6440,7 @@
     },
     {
       "id": "asset-a6bc80660a96874d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a6bc80660a96874d.webp",
@@ -6483,7 +6483,7 @@
     },
     {
       "id": "asset-a7426f96e1df2a48",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a7426f96e1df2a48.webp",
@@ -6526,7 +6526,7 @@
     },
     {
       "id": "asset-a988357f4f290925",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-a988357f4f290925.webp",
@@ -6569,7 +6569,7 @@
     },
     {
       "id": "asset-ab8ae7cc474f3cd6",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ab8ae7cc474f3cd6.webp",
@@ -6612,7 +6612,7 @@
     },
     {
       "id": "asset-ac9a7c440eb7ed89",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ac9a7c440eb7ed89.webp",
@@ -6660,7 +6660,7 @@
     },
     {
       "id": "asset-b0d14806dce25e77",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b0d14806dce25e77.webp",
@@ -6708,7 +6708,7 @@
     },
     {
       "id": "asset-b2ba30bc8ca0224a",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b2ba30bc8ca0224a.webp",
@@ -6756,7 +6756,7 @@
     },
     {
       "id": "asset-b4ee16b8f0eacbbd",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b4ee16b8f0eacbbd.webp",
@@ -6799,7 +6799,7 @@
     },
     {
       "id": "asset-b535774b6bb44343",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b535774b6bb44343.webp",
@@ -6841,7 +6841,7 @@
     },
     {
       "id": "asset-b748eb7bbaaaad96",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b748eb7bbaaaad96.webp",
@@ -6894,7 +6894,7 @@
     },
     {
       "id": "asset-b85181ac9aec168e",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-b85181ac9aec168e.webp",
@@ -6937,7 +6937,7 @@
     },
     {
       "id": "asset-bc015bfa3915590a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bc015bfa3915590a.webp",
@@ -6980,7 +6980,7 @@
     },
     {
       "id": "asset-bc40689da4fe0d32",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bc40689da4fe0d32.webp",
@@ -7036,7 +7036,7 @@
     },
     {
       "id": "asset-bd134c9868507cac",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bd134c9868507cac.webp",
@@ -7079,7 +7079,7 @@
     },
     {
       "id": "asset-bd1e51041cfe8d77",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bd1e51041cfe8d77.webp",
@@ -7127,7 +7127,7 @@
     },
     {
       "id": "asset-bd783ed07a05b5d3",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bd783ed07a05b5d3.webp",
@@ -7183,7 +7183,7 @@
     },
     {
       "id": "asset-bec0fabf55914c51",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-bec0fabf55914c51.webp",
@@ -7226,7 +7226,7 @@
     },
     {
       "id": "asset-c0bd421b70f742ad",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c0bd421b70f742ad.webp",
@@ -7275,7 +7275,7 @@
     },
     {
       "id": "asset-c2c4e788a4932a84",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c2c4e788a4932a84.webp",
@@ -7323,7 +7323,7 @@
     },
     {
       "id": "asset-c3a3870ec718c818",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c3a3870ec718c818.webp",
@@ -7366,7 +7366,7 @@
     },
     {
       "id": "asset-c611d32b16b73aec",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c611d32b16b73aec.webp",
@@ -7414,7 +7414,7 @@
     },
     {
       "id": "asset-c64e03773195272b",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c64e03773195272b.webp",
@@ -7457,7 +7457,7 @@
     },
     {
       "id": "asset-c66cb59e2729aa1e",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c66cb59e2729aa1e.webp",
@@ -7499,7 +7499,7 @@
     },
     {
       "id": "asset-c7f8385b8aac8aa5",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c7f8385b8aac8aa5.webp",
@@ -7547,7 +7547,7 @@
     },
     {
       "id": "asset-c84ca2fb8208b205",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c84ca2fb8208b205.webp",
@@ -7590,7 +7590,7 @@
     },
     {
       "id": "asset-c9e25cb078866f82",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-c9e25cb078866f82.webp",
@@ -7633,7 +7633,7 @@
     },
     {
       "id": "asset-cab202a512a8afb7",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-cab202a512a8afb7.webp",
@@ -7676,7 +7676,7 @@
     },
     {
       "id": "asset-cb890a6a80e555ed",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-cb890a6a80e555ed.webp",
@@ -7719,7 +7719,7 @@
     },
     {
       "id": "asset-cc78458005a5623c",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-cc78458005a5623c.webp",
@@ -7762,7 +7762,7 @@
     },
     {
       "id": "asset-ce272ab78ce884ae",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ce272ab78ce884ae.webp",
@@ -7811,7 +7811,7 @@
     },
     {
       "id": "asset-d3d35b4bc48dfb75",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-d3d35b4bc48dfb75.webp",
@@ -7863,7 +7863,7 @@
     },
     {
       "id": "asset-d448e3a78f6436b2",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-d448e3a78f6436b2.webp",
@@ -7906,7 +7906,7 @@
     },
     {
       "id": "asset-d727cfc056d78cac",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-d727cfc056d78cac.webp",
@@ -7948,7 +7948,7 @@
     },
     {
       "id": "asset-daf93396a35f7ebc",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-daf93396a35f7ebc.webp",
@@ -7991,7 +7991,7 @@
     },
     {
       "id": "asset-dd6f7d304c117b6d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-dd6f7d304c117b6d.webp",
@@ -8034,7 +8034,7 @@
     },
     {
       "id": "asset-e0f75634ea56e443",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e0f75634ea56e443.webp",
@@ -8077,7 +8077,7 @@
     },
     {
       "id": "asset-e120c1fc5b1cd036",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e120c1fc5b1cd036.webp",
@@ -8120,7 +8120,7 @@
     },
     {
       "id": "asset-e29543dbddb7e837",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e29543dbddb7e837.webp",
@@ -8163,7 +8163,7 @@
     },
     {
       "id": "asset-e31b40c30f442e5e",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e31b40c30f442e5e.webp",
@@ -8205,7 +8205,7 @@
     },
     {
       "id": "asset-e628c258da6aa1be",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e628c258da6aa1be.webp",
@@ -8248,7 +8248,7 @@
     },
     {
       "id": "asset-e7e8b6dd7f17fcc8",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e7e8b6dd7f17fcc8.webp",
@@ -8291,7 +8291,7 @@
     },
     {
       "id": "asset-e94cb1a1e0173763",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e94cb1a1e0173763.webp",
@@ -8344,7 +8344,7 @@
     },
     {
       "id": "asset-e95e400f18054b65",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e95e400f18054b65.webp",
@@ -8387,7 +8387,7 @@
     },
     {
       "id": "asset-e9b3b62f4ef9cca4",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-e9b3b62f4ef9cca4.webp",
@@ -8430,7 +8430,7 @@
     },
     {
       "id": "asset-ea69fd078d99b85a",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ea69fd078d99b85a.webp",
@@ -8478,7 +8478,7 @@
     },
     {
       "id": "asset-ea84038d0c49d54f",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ea84038d0c49d54f.webp",
@@ -8527,7 +8527,7 @@
     },
     {
       "id": "asset-ebbe9b4b6e4e6c59",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ebbe9b4b6e4e6c59.webp",
@@ -8587,7 +8587,7 @@
     },
     {
       "id": "asset-ebcff74c785b4972",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ebcff74c785b4972.webp",
@@ -8630,7 +8630,7 @@
     },
     {
       "id": "asset-ecebb3f3e4b6f372",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ecebb3f3e4b6f372.webp",
@@ -8673,7 +8673,7 @@
     },
     {
       "id": "asset-ee47fff39be044ba",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-ee47fff39be044ba.webp",
@@ -8715,7 +8715,7 @@
     },
     {
       "id": "asset-f25215a4ddb56edb",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f25215a4ddb56edb.webp",
@@ -8767,7 +8767,7 @@
     },
     {
       "id": "asset-f2abd3b2c2cb20d1",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f2abd3b2c2cb20d1.webp",
@@ -8810,7 +8810,7 @@
     },
     {
       "id": "asset-f39e2bb011e08270",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f39e2bb011e08270.webp",
@@ -8852,7 +8852,7 @@
     },
     {
       "id": "asset-f3d2be471488460a",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f3d2be471488460a.webp",
@@ -8895,7 +8895,7 @@
     },
     {
       "id": "asset-f424eb9a3b79ea9d",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f424eb9a3b79ea9d.webp",
@@ -8938,7 +8938,7 @@
     },
     {
       "id": "asset-f5b99199ef46bc88",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f5b99199ef46bc88.webp",
@@ -8991,7 +8991,7 @@
     },
     {
       "id": "asset-f6eff02aca5adc58",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f6eff02aca5adc58.webp",
@@ -9033,7 +9033,7 @@
     },
     {
       "id": "asset-f83ff6259383ba17",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f83ff6259383ba17.webp",
@@ -9076,7 +9076,7 @@
     },
     {
       "id": "asset-f86c4cf7f0d04ad8",
-      "label": "qr-positive",
+      "label": "qr-pos",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-f86c4cf7f0d04ad8.webp",
@@ -9128,7 +9128,7 @@
     },
     {
       "id": "asset-feb1d4ee8f8f9eeb",
-      "label": "non-qr-negative",
+      "label": "qr-neg",
       "mediaType": "image/webp",
       "fileExtension": ".webp",
       "relativePath": "assets/asset-feb1d4ee8f8f9eeb.webp",

@@ -4,6 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { openAccuracyCacheStore } from '../../src/accuracy/cache.js';
 import type { AccuracyEngine, CorpusBenchAsset } from '../../src/accuracy/types.js';
+import {
+  openPerformanceCacheStore,
+  type PerformanceCacheKey,
+  performanceOptionsKey,
+} from '../../src/performance/cache.js';
+import type { PerformanceIterationResult } from '../../src/performance/runner.js';
+import { openStudyCache } from '../../src/study/cache.js';
 
 const tempDirs: string[] = [];
 
@@ -17,11 +24,21 @@ const makeTempFile = async (): Promise<string> => {
   return path.join(dir, 'accuracy-cache.json');
 };
 
-const asset: Pick<CorpusBenchAsset, 'id' | 'label' | 'sha256' | 'relativePath'> = {
+const asset: CorpusBenchAsset = {
   id: 'asset-1',
-  label: 'qr-positive',
+  assetId: 'asset-1',
+  label: 'qr-pos',
   sha256: 'sha-a',
+  imagePath: '/tmp/asset-1.png',
   relativePath: 'assets/asset-1.png',
+  expectedTexts: [],
+  loadImage: async () => ({
+    path: '/tmp/asset-1.png',
+    width: 1,
+    height: 1,
+    data: new Uint8ClampedArray(4),
+    colorSpace: 'srgb',
+  }),
 };
 
 const cacheableEngine: AccuracyEngine = {
@@ -47,6 +64,64 @@ const cacheableEngine: AccuracyEngine = {
     error: null,
   }),
 };
+
+describe('study cache', () => {
+  it('batches writes until an explicit flush', async () => {
+    const file = await makeTempFile();
+    const firstStore = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+
+    await firstStore.write(asset, 'row-1', { value: 1 });
+    const beforeFlush = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await beforeFlush.read(asset, 'row-1')).toBeNull();
+
+    await firstStore.flush();
+    expect(JSON.parse(await Bun.file(file).text()).version).toBe(2);
+    const afterFlush = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await afterFlush.read(asset, 'row-1')).toEqual({ value: 1 });
+  });
+
+  it('reads v1 snapshots and migrates them on flush', async () => {
+    const file = await makeTempFile();
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: {
+          [`${asset.id}:row-1`]: {
+            assetId: asset.id,
+            assetSha256: asset.sha256,
+            cacheKey: 'row-1',
+            result: { value: 1 },
+          },
+        },
+      }),
+    );
+    const store = await openStudyCache<{ readonly value: number }>({
+      enabled: true,
+      refresh: false,
+      file,
+    });
+    expect(await store.read(asset, 'row-1')).toEqual({ value: 1 });
+    await store.write(asset, 'row-2', { value: 2 });
+    await store.flush();
+    const migrated = JSON.parse(await Bun.file(file).text());
+    expect(migrated.version).toBe(2);
+    expect(migrated.assets[asset.id].entries['row-1']).toEqual({ value: 1 });
+    expect(migrated.assets[asset.id].entries['row-2']).toEqual({ value: 2 });
+  });
+});
 
 describe('accuracy cache', () => {
   it('round-trips a cached third-party result with duration', async () => {
@@ -287,5 +362,90 @@ describe('accuracy cache', () => {
 
     const secondStore = await openAccuracyCacheStore(file, { enabled: true, refresh: false });
     expect(secondStore.read(cacheableEngine, asset, 'default')).toBeNull();
+  });
+});
+
+describe('performance cache', () => {
+  it('returns hits as cached results so performance can skip scan work', async () => {
+    const file = await makeTempFile();
+    const optionsKey = performanceOptionsKey({
+      iterations: 1,
+      seed: 'cache-smoke',
+      filters: { maxAssets: 1 },
+    });
+    const key: PerformanceCacheKey = {
+      engineId: 'ironqr',
+      engineVersion: 'live-pass-v1',
+      assetId: asset.id,
+      assetSha256: asset.sha256,
+      iteration: 1,
+      optionsKey,
+    };
+    const result: PerformanceIterationResult = {
+      iteration: 1,
+      assetId: asset.id,
+      label: asset.label,
+      engineId: 'ironqr',
+      outcome: 'pass',
+      bucket: 'pos-pass',
+      imageLoadDurationMs: 2,
+      warmupDurationMs: null,
+      engineScanDurationMs: 10,
+      totalJobDurationMs: 12,
+      cached: false,
+      ironqrSpans: [{ name: 'normalize', durationMs: 1 }],
+    };
+
+    const firstStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    await firstStore.write(key, result);
+    await firstStore.save();
+
+    const secondStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    const hit = secondStore.read(key);
+
+    expect(hit).toMatchObject({ cached: true, engineScanDurationMs: 10 });
+    expect(hit?.ironqrSpans?.[0]?.name).toBe('normalize');
+    expect(secondStore.summary()).toMatchObject({ hits: 1, misses: 0, writes: 0 });
+  });
+
+  it('can refresh one performance cache engine without evicting other engines', async () => {
+    const file = await makeTempFile();
+    const optionsKey = performanceOptionsKey({ iterations: 1, seed: null, filters: {} });
+    const makeKey = (engineId: string): PerformanceCacheKey => ({
+      engineId,
+      engineVersion: 'adapter-v1',
+      assetId: asset.id,
+      assetSha256: asset.sha256,
+      iteration: 1,
+      optionsKey,
+    });
+    const makeResult = (engineId: string): PerformanceIterationResult => ({
+      iteration: 1,
+      assetId: asset.id,
+      label: asset.label,
+      engineId,
+      outcome: 'pass',
+      bucket: 'pos-pass',
+      imageLoadDurationMs: 1,
+      warmupDurationMs: null,
+      engineScanDurationMs: 5,
+      totalJobDurationMs: 6,
+      cached: false,
+    });
+
+    const firstStore = await openPerformanceCacheStore(file, { enabled: true, refresh: false });
+    await firstStore.write(makeKey('ironqr'), makeResult('ironqr'));
+    await firstStore.write(makeKey('jsqr'), makeResult('jsqr'));
+    await firstStore.save();
+
+    const refreshedStore = await openPerformanceCacheStore(file, {
+      enabled: true,
+      refresh: false,
+      refreshEngineId: 'ironqr',
+    });
+
+    expect(refreshedStore.read(makeKey('ironqr'))).toBeNull();
+    expect(refreshedStore.read(makeKey('jsqr'))?.cached).toBe(true);
+    expect(refreshedStore.summary()).toMatchObject({ hits: 1, misses: 1, writes: 0 });
   });
 });

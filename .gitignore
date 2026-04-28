@@ -19,8 +19,15 @@ corpus/generated/
 tools/corpus-cli/tests/.tmp/
 tools/perfbench/tests/.tmp/
 tools/bench/.cache/
-tools/bench/reports/
+tools/bench/reports/full/
+tools/bench/reports/studies/
+tools/bench/reports/runs/
+tools/bench/reports/study-*.json
+tools/bench/reports/performance.json
+!tools/bench/reports/
 tools/bench/tests/.tmp/
 
 .DS_Store
 RANKED_PROPOSAL_PIPELINE_IMPLEMENTATION_CONTRACT.md
+# Generated study summaries are analysis artifacts.
+tools/bench/reports/study/*.summary.json

@@ -91,7 +91,7 @@ const truncate = (value: string | null, max = 50): string => {
  * Run the `scan-corpus` command: scan every approved asset and report results.
  *
  * Flags (parsed positionally / via getOption):
- *   --label qr-positive|non-qr-negative   only scan one label
+ *   --label qr-pos|qr-neg   only scan one label
  *   --failures-only                       suppress per-asset PASS lines
  *   --quiet                               suppress per-asset output entirely
  */
@@ -106,10 +106,10 @@ export const runScanCorpusCommand = async (
   const manifest = await readCorpusManifest(context.repoRoot);
   const approved = manifest.assets.filter((a) => a.review.status === 'approved');
   const positives = approved.filter(
-    (a) => a.label === 'qr-positive' && (!labelFilter || labelFilter === 'qr-positive'),
+    (a) => a.label === 'qr-pos' && (!labelFilter || labelFilter === 'qr-pos'),
   );
   const negatives = approved.filter(
-    (a) => a.label === 'non-qr-negative' && (!labelFilter || labelFilter === 'non-qr-negative'),
+    (a) => a.label === 'qr-neg' && (!labelFilter || labelFilter === 'qr-neg'),
   );
 
   context.ui.info(
