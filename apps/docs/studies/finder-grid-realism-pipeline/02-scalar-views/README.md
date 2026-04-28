@@ -135,7 +135,7 @@ OKLab is a perceptual color space. It tries to separate:
 | `a` | green-red-ish axis |
 | `b` | blue-yellow-ish axis |
 
-The current conversion path:
+The current conversion path is documented separately in [OKLab Scalar View Math](./math-oklab.md):
 
 ```text
 sRGB channel
@@ -144,8 +144,6 @@ sRGB channel
 → cube root nonlinearity
 → OKLab L/a/b
 ```
-
-The current formulas use the standard OKLab matrix constants.
 
 ### `oklab-l`
 

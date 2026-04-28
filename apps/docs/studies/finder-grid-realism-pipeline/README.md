@@ -20,13 +20,28 @@ The goal is to stop treating “QR-looking” signals as one blurry score. Each 
 → later: decode confirmation + threshold sweeps
 ```
 
-## Rule for every stage
+## Directory convention
 
-Each stage should document:
+Each numbered stage is its own subdirectory:
+
+```text
+NN-stage-name/
+  README.md                  # stage contract and overview
+  math-*.md                  # focused math derivations
+  why-*.md                   # focused justification docs
+  artifact-*.md              # artifact schemas and cache identity
+  study-questions.md         # empirical questions and metrics
+```
+
+Keep docs small and responsible for one idea. If a section starts explaining a separate algorithm, split it into a sibling file and link it from the stage README.
+
+## Rule for every stage README
+
+Each stage README should document:
 
 1. **Input**: what data it receives.
 2. **Output artifact**: what it must emit.
-3. **Math / algorithm**: how output is calculated.
+3. **Math / algorithm**: short overview only; detailed derivations belong in `math-*.md`.
 4. **Why this signal exists**: what failure mode it helps.
 5. **Empirical questions**: what the study should measure.
 6. **Cache boundary**: whether this stage should be cached separately.
@@ -47,12 +62,12 @@ Can this finder evidence mathematically explain a valid QR grid?
 If we threshold this confidence, how much work do we save and how many real decodes do we lose?
 ```
 
-## Documents in this first slice
+## Current stage docs
 
-- [01 Image Preprocessing](./01-image-preprocessing.md)
-- [02 Scalar Views](./02-scalar-views.md)
-- [03 Binary Views](./03-binary-views.md)
-- [04 Finder Detection](./04-finder-detection.md)
-- [05 Finder Evidence Construction](./05-finder-evidence-construction.md)
+- [01 Image Preprocessing](./01-image-preprocessing/README.md)
+- [02 Scalar Views](./02-scalar-views/README.md)
+- [03 Binary Views](./03-binary-views/README.md)
+- [04 Finder Detection](./04-finder-detection/README.md)
+- [05 Finder Evidence Construction](./05-finder-evidence-construction/README.md)
 
-Later slices should add one document per downstream stage instead of extending these into a giant mixed document.
+Later slices should add one subdirectory per downstream stage instead of extending these into a giant mixed document.

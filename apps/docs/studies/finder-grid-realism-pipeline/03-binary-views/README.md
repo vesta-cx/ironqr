@@ -109,29 +109,7 @@ It asks:
 Can one cutoff split the whole image into dark and light groups?
 ```
 
-The algorithm:
-
-1. Build a histogram of scalar values `0..255`.
-2. Try every threshold `t`.
-3. Split pixels into:
-
-```text
-background: values <= t
-foreground: values > t
-```
-
-4. Pick the threshold that maximizes between-class variance:
-
-```text
-variance = backgroundWeight × foregroundWeight × (meanBackground - meanForeground)^2
-```
-
-5. Mark pixels as:
-
-```text
-value > threshold → light bit 0
-value <= threshold → dark bit 1
-```
+Detailed math lives in [Otsu Threshold Math](./math-otsu.md).
 
 Why use it:
 
@@ -158,69 +136,7 @@ It asks:
 Compared to its neighborhood, is this pixel dark?
 ```
 
-For each pixel, it computes local mean and local standard deviation in a window around the pixel.
-
-Current default radius:
-
-```text
-radius = max(8, floor(min(width, height) / 8))
-```
-
-Current formula:
-
-```text
-threshold = mean × (1 + k × (deviation / dynamicRange - 1))
-```
-
-Current constants:
-
-```text
-k = 0.34
-dynamicRange = 128
-```
-
-Then:
-
-```text
-value > threshold → light bit 0
-value <= threshold → dark bit 1
-```
-
-The pipeline uses integral images so local sums are fast.
-
-### Integral image
-
-An integral image is a summed-area table. It lets us calculate the sum inside any rectangle in constant time.
-
-For a rectangle:
-
-```text
-left, top, right, bottom
-```
-
-The sum is:
-
-```text
-sum(bottom,right)
-- sum(top,right)
-- sum(bottom,left)
-+ sum(top,left)
-```
-
-The pipeline builds one table for values and one for squared values:
-
-```text
-sum
-sumSq
-```
-
-Then:
-
-```text
-mean = localSum / area
-variance = localSumSq / area - mean²
-deviation = sqrt(variance)
-```
+Detailed math lives in [Sauvola Threshold Math](./math-sauvola.md).
 
 Why use Sauvola:
 
@@ -245,26 +161,7 @@ It asks:
 Can global contrast anchor the threshold while local statistics adjust it?
 ```
 
-Current default radius:
-
-```text
-radius = max(6, floor(min(width, height) / 10))
-```
-
-Current formula:
-
-```text
-global = otsuThreshold(values)
-adaptive = mean - deviation × 0.08
-threshold = global × 0.45 + adaptive × 0.55
-```
-
-Then:
-
-```text
-value > threshold → light bit 0
-value <= threshold → dark bit 1
-```
+Detailed math lives in [Hybrid Threshold Math](./math-hybrid.md).
 
 Why use it:
 

@@ -17,13 +17,13 @@ The public scanner accepts browser-style image sources, including already pixel-
 Current core entry point:
 
 ```ts
-normalizeImageInput(input)
+normalizeImageInput(input);
 ```
 
 For already decoded data, the scanner uses:
 
 ```ts
-createNormalizedImage(imageData)
+createNormalizedImage(imageData);
 ```
 
 ## Current output artifact
@@ -41,11 +41,11 @@ interface NormalizedImage {
 
 Meaning:
 
-| Field | Meaning |
-| --- | --- |
-| `width` | Image width in pixels. |
-| `height` | Image height in pixels. |
-| `rgbaPixels` | Flat RGBA pixel buffer, 4 bytes per pixel. |
+| Field          | Meaning                                                                     |
+| -------------- | --------------------------------------------------------------------------- |
+| `width`        | Image width in pixels.                                                      |
+| `height`       | Image height in pixels.                                                     |
+| `rgbaPixels`   | Flat RGBA pixel buffer, 4 bytes per pixel.                                  |
 | `derivedViews` | Lazy cache for scalar views, binary views, binary planes, and OKLab planes. |
 
 The RGBA layout is:
@@ -95,9 +95,9 @@ Validation happens at the trust boundary.
 Current limits:
 
 ```ts
-MAX_IMAGE_DIMENSION = 8192
-MAX_IMAGE_PIXELS = 24_000_000
-MAX_IMAGE_SOURCE_BYTES = MAX_IMAGE_PIXELS * 4
+MAX_IMAGE_DIMENSION = 8192;
+MAX_IMAGE_PIXELS = 24_000_000;
+MAX_IMAGE_SOURCE_BYTES = MAX_IMAGE_PIXELS * 4;
 ```
 
 The scanner rejects:
@@ -156,8 +156,8 @@ interface NormalizedFrameArtifact {
   readonly width: number;
   readonly height: number;
   readonly rgbaPixels: Uint8ClampedArray;
-  readonly coordinateConvention: 'pixel-centers-at-integers';
-  readonly alphaCompositePolicy: 'views-composite-on-white';
+  readonly coordinateConvention: "pixel-centers-at-integers";
+  readonly alphaCompositePolicy: "views-composite-on-white";
 }
 ```
 
@@ -167,11 +167,11 @@ The key addition is not more data; it is precise metadata about coordinate and a
 
 This stage itself is not a QR signal, but it affects every later signal. Studies should track:
 
-| Question | Why |
-| --- | --- |
-| Do transparent assets behave differently after white compositing? | QR artwork may rely on transparency. |
-| Do very large images dominate materialization time? | Cache and budget planning. |
-| Are decode/finder failures correlated with source dimensions? | Very small modules can become unresolvable. |
+| Question                                                          | Why                                         |
+| ----------------------------------------------------------------- | ------------------------------------------- |
+| Do transparent assets behave differently after white compositing? | QR artwork may rely on transparency.        |
+| Do very large images dominate materialization time?               | Cache and budget planning.                  |
+| Are decode/finder failures correlated with source dimensions?     | Very small modules can become unresolvable. |
 
 ## Cache boundary
 
